@@ -82,41 +82,45 @@ typedef struct storage_t {
 } storage_t;
 
 ssize_t pwrite_cb(void *ctx, struct filemgr_ops *normal_ops,
-                  int fd, void *buf, size_t count, cs_off_t offset)
+                  fdb_fileops_handle fops_handle, void *buf, size_t count,
+                  cs_off_t offset)
 {
     storage_t *wctx = (storage_t *)ctx;
     if (wctx->fflag & PWRITE_SLEEP_MASK) {
         usleep(rand() % PWRITE_MAX_SLEEP);
     }
-    return normal_ops->pwrite(fd, buf, count, offset);
+    return normal_ops->pwrite(fops_handle, buf, count, offset);
 }
 
 ssize_t pread_cb(void *ctx, struct filemgr_ops *normal_ops,
-                 int fd, void *buf, size_t count, cs_off_t offset)
+                 fdb_fileops_handle fops_handle, void *buf, size_t count,
+                 cs_off_t offset)
 {
     storage_t *wctx = (storage_t *)ctx;
     if (wctx->fflag & PREAD_SLEEP_MASK) {
         usleep(rand() % PREAD_MAX_SLEEP);
     }
-    return normal_ops->pread(fd, buf, count, offset);
+    return normal_ops->pread(fops_handle, buf, count, offset);
 }
 
-int close_cb(void *ctx, struct filemgr_ops *normal_ops, int fd)
+int close_cb(void *ctx, struct filemgr_ops *normal_ops,
+             fdb_fileops_handle fops_handle)
 {
     storage_t *wctx = (storage_t *)ctx;
     if (wctx->fflag & CLOSE_SLEEP_MASK) {
         usleep(rand() % CLOSE_MAX_SLEEP);
     }
-    return normal_ops->close(fd);
+    return normal_ops->close(fops_handle);
 }
 
-int fsync_cb(void *ctx, struct filemgr_ops *normal_ops, int fd)
+int fsync_cb(void *ctx, struct filemgr_ops *normal_ops,
+             fdb_fileops_handle fops_handle)
 {
     storage_t *wctx = (storage_t *)ctx;
     if (wctx->fflag & FSYNC_SLEEP_MASK) {
         usleep(rand() % FSYNC_MAX_SLEEP);
     }
-    return normal_ops->fsync(fd);
+    return normal_ops->fsync(fops_handle);
 }
 
 INLINE void make_key(char *buf, int i, int8_t key_ver) {

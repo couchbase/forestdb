@@ -1337,7 +1337,7 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
     r = file->writeBlocks(buf, 1, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
-        file->getOps()->get_errno_str(errno_msg, 512);
+        file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
         fs = FDB_RESULT_SB_RACE_CONDITION;
         fdb_log(log_callback, fs,
                 "Failed to write the superblock (number: %" _F64 "), %s",
@@ -1380,7 +1380,7 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     r = file->readBlock(buf, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
-        file->getOps()->get_errno_str(errno_msg, 512);
+        file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: file read failure (SB No.: %" _F64 "), %s",

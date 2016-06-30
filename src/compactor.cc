@@ -429,7 +429,8 @@ void * compactor_thread(void *voidargs)
 
                 mutex_unlock(&cpt_lock);
                 // As the file is already unlinked, just close it.
-                ret = elem->file->getOps()->close(elem->file->getFd());
+                ret = FileMgr::fileClose(elem->file->getOps(),
+                                         elem->file->getFopsHandle());
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
                 ret = remove(elem->file->getFileName().c_str());
@@ -439,7 +440,8 @@ void * compactor_thread(void *voidargs)
 
                 if (elem->log_callback && ret != 0) {
                     char errno_msg[512];
-                    elem->file->getOps()->get_errno_str(errno_msg, 512);
+                    elem->file->getOps()->get_errno_str(elem->file->getFopsHandle(),
+                                                        errno_msg, 512);
                     // As a workaround for MB-17009, call fprintf instead of fdb_log
                     // until c->cgo->go callback trace issue is resolved.
                     fprintf(stderr,
@@ -755,43 +757,37 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
                                                  struct compactor_meta *metadata,
                                                  ErrLogCallback *log_callback)
 {
-    int fd_meta, fd_db;
     ssize_t ret;
     uint8_t *buf = alca(uint8_t, sizeof(struct compactor_meta));
     uint32_t crc;
     char fullpath[MAX_FNAMELEN];
     struct filemgr_ops *ops;
     struct compactor_meta meta;
+    fdb_fileops_handle fops_meta_handle, fops_db_handle;
 
     ops = get_filemgr_ops();
-    fd_meta = ops->open(metafile, O_RDONLY, 0644);
+    fdb_status status = FileMgr::fileOpen(metafile, ops, &fops_meta_handle,
+                                          O_RDONLY, 0644);
 
-    if (fd_meta >= 0) {
+    if (status == FDB_RESULT_SUCCESS) {
         // metafile exists .. read metadata
-        ret = ops->pread(fd_meta, buf, sizeof(struct compactor_meta), 0);
+        ret = ops->pread(fops_meta_handle, buf, sizeof(struct compactor_meta), 0);
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
             char errno_msg[512];
-            ops->get_errno_str(errno_msg, 512);
+            ops->get_errno_str(fops_meta_handle, errno_msg, 512);
             // As a workaround for MB-17009, call fprintf instead of fdb_log
             // until c->cgo->go callback trace issue is resolved.
             fprintf(stderr,
                     "Error status code: %d, Failed to read the meta file '%s', "
                     "errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
-            ret = ops->close(fd_meta);
-            if (ret < 0) {
-                ops->get_errno_str(errno_msg, 512);
-                fprintf(stderr,
-                        "Error status code: %d, Failed to close the meta "
-                        "file '%s', errno_message: %s\n",
-                        (int)ret, metafile, errno_msg);
-            }
+            FileMgr::fileClose(ops, fops_meta_handle);
             return NULL;
         }
         memcpy(&meta, buf, sizeof(struct compactor_meta));
         meta.version = _endian_decode(meta.version);
         meta.crc = _endian_decode(meta.crc);
-        ops->close(fd_meta);
+        FileMgr::fileClose(ops, fops_meta_handle);
 
         // CRC check, mode UNKNOWN means all modes are checked.
         if (!perform_integrity_check(buf,
@@ -805,12 +801,13 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         }
         // check if the file exists
         _reconstruct_path(fullpath, metafile, meta.filename);
-        fd_db = ops->open(fullpath, O_RDONLY, 0644);
-        if (fd_db < 0) {
-            // file doesn't exist
+        status = FileMgr::fileOpen(fullpath, ops, &fops_db_handle, O_RDONLY,
+                                   0644);
+
+        if (status != FDB_RESULT_SUCCESS) {
             return NULL;
         }
-        ops->close(fd_db);
+        FileMgr::fileClose(ops, fops_db_handle);
     } else {
         // file doesn't exist
         return NULL;
@@ -824,16 +821,17 @@ static fdb_status _compactor_store_metafile(char *metafile,
                                             struct compactor_meta *metadata,
                                             ErrLogCallback*log_callback)
 {
-    int fd_meta;
     ssize_t ret;
     uint32_t crc;
     struct filemgr_ops *ops;
     struct compactor_meta meta;
+    fdb_fileops_handle fileops_meta;
 
     ops = get_filemgr_ops();
-    fd_meta = ops->open(metafile, O_RDWR | O_CREAT, 0644);
+    fdb_status status = FileMgr::fileOpen(metafile, ops, &fileops_meta,
+                                          O_RDWR | O_CREAT, 0644);
 
-    if (fd_meta >= 0){
+    if (status == FDB_RESULT_SUCCESS) {
         meta.version = _endian_encode(COMPACTOR_META_VERSION);
         strcpy(meta.filename, metadata->filename);
         crc = get_checksum(reinterpret_cast<const uint8_t*>(&meta),
@@ -841,29 +839,29 @@ static fdb_status _compactor_store_metafile(char *metafile,
         meta.crc = _endian_encode(crc);
 
         char errno_msg[512];
-        ret = ops->pwrite(fd_meta, &meta, sizeof(struct compactor_meta), 0);
+        ret = ops->pwrite(fileops_meta, &meta, sizeof(struct compactor_meta), 0);
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
-            ops->get_errno_str(errno_msg, 512);
+            ops->get_errno_str(fileops_meta, errno_msg, 512);
             // As a workaround for MB-17009, call fprintf instead of fdb_log
             // until c->cgo->go callback trace issue is resolved.
             fprintf(stderr,
                     "Error status code: %d, Failed to perform a write in the meta "
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
-            ops->close(fd_meta);
+            FileMgr::fileClose(ops, fileops_meta);
             return (fdb_status) ret;
         }
-        ret = ops->fsync(fd_meta);
+        ret = ops->fsync(fileops_meta);
         if (ret < 0) {
-            ops->get_errno_str(errno_msg, 512);
+            ops->get_errno_str(fileops_meta, errno_msg, 512);
             fprintf(stderr,
                     "Error status code: %d, Failed to perform a sync in the meta "
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
-            ops->close(fd_meta);
+            FileMgr::fileClose(ops, fileops_meta);
             return (fdb_status) ret;
         }
-        ops->close(fd_meta);
+        FileMgr::fileClose(ops, fileops_meta);
     } else {
         return FDB_RESULT_OPEN_FAIL;
     }
@@ -1063,31 +1061,37 @@ fdb_status compactor_get_actual_filename(const char *filename,
 
 bool compactor_is_valid_mode(const char *filename, fdb_config *config)
 {
-    int fd;
+    fdb_fileops_handle fileops_handle;
     char path[MAX_FNAMELEN];
     struct filemgr_ops *ops;
+    fdb_status status;
 
     ops = get_filemgr_ops();
 
     if (config->compaction_mode == FDB_COMPACTION_AUTO) {
         // auto compaction mode: invalid when
         // the file '[filename]' exists
-        fd = ops->open(filename, O_RDONLY, 0644);
-        if (fd != FDB_RESULT_NO_SUCH_FILE) {
-            ops->close(fd);
+        fdb_status status = FileMgr::fileOpen(filename, ops, &fileops_handle,
+                                              O_RDONLY, 0644);
+
+        if (status != FDB_RESULT_NO_SUCH_FILE) {
+            if (status == FDB_RESULT_SUCCESS) {
+                FileMgr::fileClose(ops, fileops_handle);
+            }
             return false;
         }
-
     } else if (config->compaction_mode == FDB_COMPACTION_MANUAL) {
         // manual compaction mode: invalid when
         // the file '[filename].meta' exists
         sprintf(path, "%s.meta", filename);
-        fd = ops->open(path, O_RDONLY, 0644);
-        if (fd != FDB_RESULT_NO_SUCH_FILE) {
-            ops->close(fd);
+        status = FileMgr::fileOpen(path, ops, &fileops_handle, O_RDONLY, 0644);
+
+        if (status != FDB_RESULT_NO_SUCH_FILE) {
+            if (status == FDB_RESULT_SUCCESS) {
+                FileMgr::fileClose(ops, fileops_handle);
+            }
             return false;
         }
-
     } else {
         // unknown mode
         return false;

@@ -16,6 +16,7 @@
  */
 
 #include "functional_util.h"
+#include "filemgr.h"
 
 void _set_random_string(char *str, int len)
 {
@@ -35,21 +36,25 @@ void _set_random_string_smallabt(char *str, int len)
 
 int _disk_dump(const char *filepath, size_t pos, size_t bytes) {
     struct filemgr_ops *ops = get_filemgr_ops();
-    int fd = ops->open(filepath, O_CREAT| O_RDWR, 0666);
-    if (fd < 0) {
+    fdb_fileops_handle fileops_handle;
+    fdb_status fs = FileMgr::fileOpen(filepath, ops, &fileops_handle,
+                                      O_CREAT| O_RDWR, 0666);
+    if (fs != FDB_RESULT_SUCCESS) {
         fprintf(stderr, "failure to open %s\n", filepath);
-        return fd;
+        return (int)fs;
     }
     char *buf = (char *)malloc(bytes);
     if (!buf) {
+        FileMgr::fileClose(ops, fileops_handle);
         return -2;
     }
-    if (ops->pwrite(fd, buf, bytes, pos) != (int) bytes) {
+    if (ops->pwrite(fileops_handle, buf, bytes, pos) != (int) bytes) {
+        FileMgr::fileClose(ops, fileops_handle);
         return -1;
     }
-    ops->close(fd);
+    FileMgr::fileClose(ops, fileops_handle);
     free(buf);
-    return fd;
+    return (int)fs;
 }
 
 void logCallbackFunc(int err_code,

@@ -177,7 +177,8 @@ fdb_status fdb_log(ErrLogCallback *log_callback,
     return status;
 }
 
-static void _log_errno_str(struct filemgr_ops *ops,
+static void _log_errno_str(fdb_fileops_handle fops_handle,
+                           struct filemgr_ops *ops,
                            ErrLogCallback *log_callback,
                            fdb_status io_error,
                            const char *what,
@@ -185,7 +186,7 @@ static void _log_errno_str(struct filemgr_ops *ops,
 {
     if (io_error < 0) {
         char errno_msg[512];
-        ops->get_errno_str(errno_msg, 512);
+        ops->get_errno_str(fops_handle, errno_msg, 512);
         fdb_log(log_callback, io_error,
                 "Error in %s on a database file '%s', %s", what, filename, errno_msg);
     }
@@ -278,8 +279,8 @@ void FileMgrMap::freeEntries(filemgr_factory_free_cb free_callback) {
 
 FileMgr::FileMgr()
     : refCount(1), fMgrFlags(0x00), blockSize(global_config.getBlockSize()),
-      fd(-1), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0), ioInprog(0),
-      fMgrWal(nullptr), fMgrOps(nullptr), fMgrStatus(FILE_NORMAL),
+      fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
+      ioInprog(0), fMgrWal(nullptr), fMgrOps(nullptr), fMgrStatus(FILE_NORMAL),
       fileConfig(nullptr), newFile(nullptr), prevFile(nullptr), bCache(nullptr),
       inPlaceCompaction(false), fsType(0), kvHeader(nullptr),
       throttlingDelay(0), fMgrVersion(0), fMgrSb(nullptr), kvsStatOps(this),
@@ -491,7 +492,7 @@ static void _filemgr_shutdown_temp_buf()
 
 // Read a block from the file, decrypting if necessary.
 ssize_t FileMgr::readBlock(void *buf, bid_t bid) {
-    ssize_t result = fMgrOps->pread(fd, buf, blockSize, blockSize * bid);
+    ssize_t result = fMgrOps->pread(fopsHandle, buf, blockSize, blockSize * bid);
     if (fMgrEncryption.ops && result > 0) {
         if (result != (ssize_t)blockSize) {
             return FDB_RESULT_READ_FAIL;
@@ -511,7 +512,7 @@ ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
     cs_off_t offset = start_bid * blocksize;
     size_t nbytes = num_blocks * blocksize;
     if (fMgrEncryption.ops == NULL) {
-        return fMgrOps->pwrite(fd, buf, nbytes, offset);
+        return fMgrOps->pwrite(fopsHandle, buf, nbytes, offset);
     } else {
         uint8_t *encrypted_buf;
         if (nbytes > 4096) {
@@ -539,7 +540,7 @@ ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
             return status;
         }
 
-        return fMgrOps->pwrite(fd, encrypted_buf, nbytes, offset);
+        return fMgrOps->pwrite(fopsHandle, encrypted_buf, nbytes, offset);
     }
 }
 
@@ -887,11 +888,14 @@ void filemgr_prefetch(FileMgr *file,
 
 fdb_status filemgr_does_file_exist(const char *filename) {
     struct filemgr_ops *ops = get_filemgr_ops();
-    int fd = ops->open(filename, O_RDONLY, 0444);
-    if (fd < 0) {
-        return (fdb_status) fd;
+    fdb_fileops_handle fops_handle;
+    fdb_status status = FileMgr::fileOpen(filename, ops, &fops_handle, O_RDONLY,
+                                          0444);
+
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
     }
-    ops->close(fd);
+    FileMgr::fileClose(ops, fops_handle);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -915,6 +919,18 @@ static fdb_status _filemgr_load_sb(FileMgr *file,
     return status;
 }
 
+fdb_status FileMgr::fileOpen(const char* filename, struct filemgr_ops *ops,
+                             fdb_fileops_handle* fops_handle, int flags,
+                             mode_t mode)
+{
+    *fops_handle = ops->constructor(ops->ctx);
+    fdb_status result = ops->open(filename, fops_handle, flags, mode);
+    if (result != FDB_RESULT_SUCCESS) {
+        ops->destructor(*fops_handle);
+    }
+    return result;
+}
+
 filemgr_open_result FileMgr::open(std::string filename,
                                   struct filemgr_ops *ops,
                                   FileMgrConfig *config,
@@ -923,7 +939,6 @@ filemgr_open_result FileMgr::open(std::string filename,
     bool create = config->getOptions() & FILEMGR_CREATE;
     bool fail_if_exists = config->getOptions() & FILEMGR_EXCL_CREATE;
     int file_flag = 0x0;
-    int fd = -1;
     fdb_status status;
     filemgr_open_result result = {nullptr, FDB_RESULT_OPEN_FAIL};
 
@@ -967,32 +982,35 @@ filemgr_open_result FileMgr::open(std::string filename,
             file->fileConfig->setBlockSize(global_config.getBlockSize());
             file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
             file_flag |= config->getFlag();
-            file->fd = file->fMgrOps->open(file->fileName.c_str(),
-                                           file_flag, 0666);
-            if (file->fd < 0) {
-                if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
+            status = FileMgr::fileOpen(file->getFileName().c_str(),
+                                       ops, &file->fopsHandle,
+                                       file_flag, 0666);
+            if (status != FDB_RESULT_SUCCESS) {
+                if (status == FDB_RESULT_NO_SUCH_FILE) {
                     // A database file was manually deleted by the user.
                     // Clean up FileMgrMap's unordered map, WAL index, and buffer cache.
                     // Then, retry it with a create option below IFF it is not
                     // a read-only open attempt
                     file->releaseSpinLock();
                     FileMgrMap::get()->removeEntry(file->getFileName());
-                    FileMgr::freeFunc(file);
                     if (!create) {
-                        _log_errno_str(ops, log_callback,
+                        _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
                                        FDB_RESULT_NO_SUCH_FILE, "OPEN",
                                        filename.c_str());
+                        FileMgr::freeFunc(file);
                         spin_unlock(&filemgr_openlock);
                         result.rv = FDB_RESULT_NO_SUCH_FILE;
                         return result;
                     }
+
+                    FileMgr::freeFunc(file);
                 } else {
-                    _log_errno_str(file->fMgrOps, log_callback,
-                                   (fdb_status)file->fd, "OPEN", filename.c_str());
-                    file->refCount--;
+                    _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                                   status, "OPEN", filename.c_str());
+                    file->decrRefCount();
                     file->releaseSpinLock();
                     spin_unlock(&filemgr_openlock);
-                    result.rv = file->fd;
+                    result.rv = status;
                     return result;
                 }
             } else { // Reopening the closed file is succeed.
@@ -1034,12 +1052,15 @@ filemgr_open_result FileMgr::open(std::string filename,
         file_flag |= O_EXCL;
     }
     file_flag |= config->getFlag();
-    fd = ops->open(filename.c_str(), file_flag, 0666);
-    if (fd < 0) {
-        _log_errno_str(ops, log_callback, (fdb_status)fd, "OPEN",
+
+    fdb_fileops_handle fops_handle;
+    status = FileMgr::fileOpen(filename.c_str(), ops, &fops_handle,
+                               file_flag, 0666);
+    if (status != FDB_RESULT_SUCCESS) {
+        _log_errno_str(fops_handle, ops, log_callback, status, "OPEN",
                        filename.c_str());
         spin_unlock(&filemgr_openlock);
-        result.rv = fd;
+        result.rv = status;
         return result;
     }
     file = new FileMgr();
@@ -1048,7 +1069,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     status = fdb_init_encryptor(&file->fMgrEncryption,
                                 config->getEncryptionKey());
     if (status != FDB_RESULT_SUCCESS) {
-        ops->close(fd);
+        FileMgr::fileClose(ops, fops_handle);
         delete file;
         spin_unlock(&filemgr_openlock);
         result.rv = status;
@@ -1060,13 +1081,13 @@ filemgr_open_result FileMgr::open(std::string filename,
     *file->fileConfig = *config;
     file->fileConfig->setBlockSize(global_config.getBlockSize());
     file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
-    file->fd = fd;
+    file->fopsHandle = fops_handle;
 
-    cs_off_t offset = file->fMgrOps->goto_eof(file->fd);
+    cs_off_t offset = file->fMgrOps->goto_eof(file->fopsHandle);
     if (offset < 0) {
-        _log_errno_str(file->fMgrOps, log_callback, (fdb_status) offset,
-                       "SEEK_END", filename.c_str());
-        file->fMgrOps->close(file->fd);
+        _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                       (fdb_status) offset, "SEEK_END", filename.c_str());
+        FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
         delete file->fileConfig;
         delete file;
         spin_unlock(&filemgr_openlock);
@@ -1091,9 +1112,9 @@ filemgr_open_result FileMgr::open(std::string filename,
         // we can tolerate SB_READ_FAIL for old version file
         if (status != FDB_RESULT_SB_READ_FAIL &&
             status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->fMgrOps, log_callback, status, "READ",
-                           file->fileName.c_str());
-            file->fMgrOps->close(file->fd);
+            _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                           status, "READ", file->fileName.c_str());
+            FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
             delete file->staleData;
             delete file->fileConfig;
             delete file;
@@ -1109,9 +1130,9 @@ filemgr_open_result FileMgr::open(std::string filename,
             // thus there is no other data but superblocks.
             // we can tolerate this case.
         } else if (status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->fMgrOps, log_callback, status, "READ",
-                           filename.c_str());
-            file->fMgrOps->close(file->fd);
+            _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                           status, "READ", filename.c_str());
+            FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
             if (file->getSb()) {
                 sb_ops.release(file);
             }
@@ -1549,10 +1570,19 @@ static void update_file_pointers(FileMgr *file) {
     }
 }
 
+fdb_status FileMgr::fileClose(struct filemgr_ops *ops,
+                              fdb_fileops_handle fops_handle)
+{
+    ssize_t ret = ops->close(fops_handle);
+    ops->destructor(fops_handle);
+    return static_cast<fdb_status>(ret);
+}
+
 fdb_status FileMgr::close(FileMgr *file,
                           bool cleanup_cache_onclose,
                           const char *orig_file_name,
-                          ErrLogCallback *log_callback) {
+                          ErrLogCallback *log_callback)
+{
     int rv = FDB_RESULT_SUCCESS;
 
     if ((--file->refCount) > 0) {
@@ -1606,9 +1636,9 @@ fdb_status FileMgr::close(FileMgr *file,
 
                 // As the file is already unlinked, the file will be removed
                 // as soon as we close it.
-                rv = file->fMgrOps->close(file->fd);
-                _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
-                               file->fileName.c_str());
+                rv = FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
+                _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                               (fdb_status)rv, "CLOSE", file->fileName.c_str());
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
                 remove(file->fileName.c_str());
@@ -1630,11 +1660,10 @@ fdb_status FileMgr::close(FileMgr *file,
             }
             return (fdb_status) rv;
         } else {
-
-            rv = file->fMgrOps->close(file->fd);
+            rv = FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
             if (cleanup_cache_onclose) {
-                _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
-                               file->fileName.c_str());
+                _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                               (fdb_status)rv, "CLOSE", file->fileName.c_str());
                 if (file->inPlaceCompaction && orig_file_name) {
                     uint32_t old_file_refcount = 0;
                     FileMgr *orig_file = FileMgrMap::get()->fetchEntry(
@@ -1660,7 +1689,8 @@ fdb_status FileMgr::close(FileMgr *file,
                             // issue because the last compacted file will be
                             // automatically identified and opened in the next
                             // fdb_open call.
-                            _log_errno_str(file->fMgrOps, log_callback,
+                            _log_errno_str(file->fopsHandle, file->fMgrOps,
+                                           log_callback,
                                            FDB_RESULT_FILE_RENAME_FAIL,
                                            "CLOSE", file->fileName.c_str());
                         }
@@ -1681,8 +1711,8 @@ fdb_status FileMgr::close(FileMgr *file,
         }
     }
 
-    _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
-                   file->fileName.c_str());
+    _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
+                   (fdb_status)rv, "CLOSE", file->fileName.c_str());
 
     file->releaseSpinLock();
     spin_unlock(&filemgr_openlock);
@@ -1872,9 +1902,10 @@ bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
     if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
-        ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, (bid + 1) * blockSize - 1);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE",
-                       fileName.c_str());
+        ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1,
+                                     (bid + 1) * blockSize - 1);
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) rv,
+                       "WRITE", fileName.c_str());
     }
     releaseSpinLock();
 
@@ -1893,9 +1924,9 @@ void FileMgr::allocMultiple(int nblock, bid_t *begin,
     if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
-        ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, lastPos.load() - 1);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE",
-                       fileName.c_str());
+        ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1, lastPos.load() - 1);
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) rv,
+                       "WRITE", fileName.c_str());
     }
     releaseSpinLock();
 }
@@ -1917,9 +1948,9 @@ bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
         if (global_config.getNcacheBlock() <= 0) {
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
-            ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, lastPos.load());
-            _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE",
-                           fileName.c_str());
+            ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1, lastPos.load());
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) rv,
+                           "WRITE", fileName.c_str());
         }
     }else{
         *begin = BLK_NOT_FOUND;
@@ -1989,8 +2020,8 @@ uint64_t FileMgr::flushImmutable(ErrLogCallback *log_callback) {
         }
         fdb_status rv = BlockCacheManager::getInstance()->flushImmutable(this);
         if (rv != FDB_RESULT_SUCCESS) {
-            _log_errno_str(fMgrOps, log_callback, (fdb_status)rv, "WRITE",
-                           fileName.c_str());
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)rv,
+                           "WRITE", fileName.c_str());
         }
         return BlockCacheManager::getInstance()->getNumImmutables(this);
     }
@@ -2063,7 +2094,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
             // if normal file, just read a block
             r = readBlock(buf, bid);
             if (r != (ssize_t)blockSize) {
-                _log_errno_str(fMgrOps, log_callback,
+                _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                (fdb_status) r, "READ", fileName.c_str());
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2087,7 +2118,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
 #ifdef __CRC32
             status = _filemgr_crc32_check(this, buf);
             if (status != FDB_RESULT_SUCCESS) {
-                _log_errno_str(fMgrOps, log_callback, status, "READ",
+                _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
                                fileName.c_str());
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2121,7 +2152,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                     spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                _log_errno_str(fMgrOps, log_callback,
+                _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                (fdb_status) r, "WRITE", fileName.c_str());
                 const char *msg = "Read error: BID %" _F64 " in a database file"
                                   " '%s' is not written in cache correctly: "
@@ -2154,8 +2185,8 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
 
         r = readBlock(buf, bid);
         if (r != (ssize_t)blockSize) {
-            _log_errno_str(fMgrOps, log_callback, (fdb_status) r, "READ",
-                           fileName.c_str());
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) r,
+                           "READ", fileName.c_str());
             const char *msg = "Read error: BID %" _F64 " in a database file "
                               "'%s' is not read correctly: only %d bytes read "
                               "(block cache disabled)";
@@ -2170,7 +2201,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
 #ifdef __CRC32
         status = _filemgr_crc32_check(this, buf);
         if (status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(fMgrOps, log_callback, status, "READ",
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
                            fileName.c_str());
             const char *msg = "Read error: checksum error on BID %" _F64 " in "
                               "a database file '%s' : marker %x (block cache "
@@ -2259,7 +2290,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                     spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                _log_errno_str(fMgrOps, log_callback,
+                _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                (fdb_status) r, "WRITE", fileName.c_str());
                 return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
             }
@@ -2271,9 +2302,9 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
-                int64_t cur_file_pos = fMgrOps->goto_eof(fd);
+                int64_t cur_file_pos = fMgrOps->goto_eof(fopsHandle);
                 if (cur_file_pos < 0) {
-                    _log_errno_str(fMgrOps, log_callback,
+                    _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                    (fdb_status) cur_file_pos, "EOF",
                                    fileName.c_str());
                     return (fdb_status) cur_file_pos;
@@ -2297,8 +2328,8 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                         }
                         _filemgr_release_temp_buf(_buf);
-                        _log_errno_str(fMgrOps, log_callback, (fdb_status)r,
-                                       "READ", fileName.c_str());
+                        _log_errno_str(fopsHandle, fMgrOps, log_callback,
+                                       (fdb_status)r, "READ", fileName.c_str());
                         return r < 0 ? (fdb_status) r : FDB_RESULT_READ_FAIL;
                     }
                 }
@@ -2318,8 +2349,8 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                     }
                     _filemgr_release_temp_buf(_buf);
-                    _log_errno_str(fMgrOps, log_callback,
-                            (fdb_status) r, "WRITE", fileName.c_str());
+                    _log_errno_str(fopsHandle, fMgrOps, log_callback,
+                                   (fdb_status) r, "WRITE", fileName.c_str());
                     return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
                 }
 
@@ -2354,9 +2385,9 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
         }
 #endif
 
-        r = fMgrOps->pwrite(fd, buf, len, pos);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status) r, "WRITE",
-                       fileName.c_str());
+        r = fMgrOps->pwrite(fopsHandle, buf, len, pos);
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) r,
+                       "WRITE", fileName.c_str());
         if ((uint64_t)r != len) {
             return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
         }
@@ -2395,7 +2426,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
     if (global_config.getNcacheBlock() > 0) {
         result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
                            "FLUSH", fileName.c_str());
             clearIoInprog();
             return (fdb_status)result;
@@ -2501,7 +2532,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
         }
 
         ssize_t rv = writeBlocks(buf, 1, bid);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv,
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) rv,
                        "WRITE", fileName.c_str());
         if (rv != (ssize_t)blockSize) {
             _filemgr_release_temp_buf(buf);
@@ -2544,8 +2575,8 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
     releaseSpinLock();
 
     if (sync) {
-        result = fMgrOps->fsync(fd);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+        result = fMgrOps->fsync(fopsHandle);
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
                        "FSYNC", fileName.c_str());
     }
     clearIoInprog();
@@ -2558,15 +2589,15 @@ fdb_status FileMgr::sync_FileMgr(bool sync_option,
     if (global_config.getNcacheBlock() > 0) {
         result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+            _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
                            "FLUSH", fileName.c_str());
             return result;
         }
     }
 
     if (sync_option && (fMgrFlags & FILEMGR_SYNC)) {
-        int rv = fMgrOps->fsync(fd);
-        _log_errno_str(fMgrOps, log_callback, (fdb_status)rv, "FSYNC",
+        int rv = fMgrOps->fsync(fopsHandle);
+        _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)rv, "FSYNC",
                        fileName.c_str());
         return (fdb_status) rv;
     }
@@ -2580,8 +2611,8 @@ fdb_status FileMgr::copyFileRange(FileMgr *src_file,
     uint32_t blocksize = src_file->getBlockSize();
     fdb_status fs = (fdb_status)dst_file->fMgrOps->copy_file_range(
                                             src_file->fsType,
-                                            src_file->fd,
-                                            dst_file->fd,
+                                            src_file->fopsHandle,
+                                            dst_file->fopsHandle,
                                             src_bid * blocksize,
                                             dst_bid * blocksize,
                                             clone_len * blocksize);
@@ -2729,8 +2760,8 @@ void FileMgr::removePending(FileMgr *old_file,
         // Only for Posix
         int ret;
         ret = unlink(old_file->fileName.c_str());
-        _log_errno_str(old_file->fMgrOps, log_callback, (fdb_status)ret,
-                       "UNLINK", old_file->fileName.c_str());
+        _log_errno_str(old_file->fopsHandle, old_file->fMgrOps, log_callback,
+                       (fdb_status)ret, "UNLINK", old_file->fileName.c_str());
 #endif
 
         spin_unlock(&old_file->fMgrLock);
@@ -2808,22 +2839,25 @@ fdb_status FileMgr::destroyFile(std::string filename,
         FileMgr disk_file;
         disk_file.fileName = filename;
         disk_file.fMgrOps = get_filemgr_ops();
-        disk_file.fd = disk_file.fMgrOps->open(disk_file.fileName.c_str(),
-                                               O_RDWR, 0666);
+        status = FileMgr::fileOpen(disk_file.fileName.c_str(),
+                                   disk_file.fMgrOps,
+                                   &disk_file.fopsHandle,
+                                   O_RDWR, 0666);
         disk_file.blockSize = global_config.getBlockSize();
         FileMgrConfig fmc;
         disk_file.fileConfig = &fmc;
         *disk_file.fileConfig = *config;
         fdb_init_encryptor(&disk_file.fMgrEncryption, config->getEncryptionKey());
-        if (disk_file.fd < 0) {
-            if (disk_file.fd != FDB_RESULT_NO_SUCH_FILE) {
+        if (status != FDB_RESULT_SUCCESS) {
+            if (status != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     destroy_set->clear();
                 }
-                return (fdb_status) disk_file.fd;
+                return status;
             }
+            status = FDB_RESULT_SUCCESS;
         } else { // file successfully opened, seek to end to get DB header
-            cs_off_t offset = disk_file.fMgrOps->goto_eof(disk_file.fd);
+            cs_off_t offset = disk_file.fMgrOps->goto_eof(disk_file.fopsHandle);
             if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     destroy_set->clear();
@@ -2844,7 +2878,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     if (!destroy_file_set) { // top level or non-recursive call
                         destroy_set->clear();
                     }
-                    disk_file.fMgrOps->close(disk_file.fd);
+                    FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
                     return status;
                 }
 
@@ -2853,7 +2887,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     if (!destroy_file_set) { // top level or non-recursive call
                         destroy_set->clear();
                     }
-                    disk_file.fMgrOps->close(disk_file.fd);
+                    FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
                     if (sb_ops.release && disk_file.fMgrSb) {
                         sb_ops.release(&disk_file);
                     }
@@ -2882,7 +2916,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     free(disk_file.fMgrHeader.data);
                     disk_file.fMgrHeader.data = nullptr;
                 }
-                disk_file.fMgrOps->close(disk_file.fd);
+                FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
                 if (sb_ops.release && disk_file.fMgrSb) {
                     sb_ops.release(&disk_file);
                 }
@@ -3001,11 +3035,11 @@ bool FileMgr::isCommitHeader(void *head_buffer, size_t blocksize) {
 }
 
 bool FileMgr::isCowSupported(FileMgr *src, FileMgr *dst) {
-    src->fsType = src->fMgrOps->get_fs_type(src->fd);
+    src->fsType = src->fMgrOps->get_fs_type(src->fopsHandle);
     if (src->fsType < 0) {
         return false;
     }
-    dst->fsType = dst->fMgrOps->get_fs_type(dst->fd);
+    dst->fsType = dst->fMgrOps->get_fs_type(dst->fopsHandle);
     if (dst->fsType < 0) {
         return false;
     }

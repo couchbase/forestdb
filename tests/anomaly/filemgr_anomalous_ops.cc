@@ -64,106 +64,128 @@ struct filemgr_ops *get_normal_ops_ptr()
     return normal_filemgr_ops;
 }
 
+fdb_fileops_handle _constructor_cb(void *ctx, struct filemgr_ops *normal_ops) {
+    return normal_ops->constructor(normal_ops->ctx);
+}
+
 // Callbacks default behavior..
 int _open_cb(void *ctx, struct filemgr_ops *normal_ops,
-             const char *pathname, int flags, mode_t mode)
+             fdb_fileops_handle *fops_handle, const char *pathname,
+             int flags, mode_t mode)
 {
-    return normal_ops->open(pathname, flags, mode);
+    return normal_ops->open(pathname, fops_handle, flags, mode);
 }
 
-ssize_t _pwrite_cb(void *ctx, struct filemgr_ops *normal_ops,
-                   int fd, void *buf, size_t count, cs_off_t offset)
+fdb_ssize_t _pwrite_cb(void *ctx, struct filemgr_ops *normal_ops,
+                       fdb_fileops_handle fops_handle, void *buf, size_t count,
+                       cs_off_t offset)
 {
-    return normal_ops->pwrite(fd, buf, count, offset);
+    return normal_ops->pwrite(fops_handle, buf, count, offset);
 }
 
-ssize_t _pread_cb(void *ctx, struct filemgr_ops *normal_ops,
-                  int fd, void *buf, size_t count, cs_off_t offset)
+fdb_ssize_t _pread_cb(void *ctx, struct filemgr_ops *normal_ops,
+                      fdb_fileops_handle fops_handle, void *buf, size_t count,
+                      cs_off_t offset)
 {
-    return normal_ops->pread(fd, buf, count, offset);
+    return normal_ops->pread(fops_handle, buf, count, offset);
 }
 
 int _close_cb(void *ctx, struct filemgr_ops *normal_ops,
-              int fd)
+              fdb_fileops_handle fops_handle)
 {
-    return normal_ops->close(fd);
+    return normal_ops->close(fops_handle);
 }
 
 cs_off_t _goto_eof_cb(void *ctx, struct filemgr_ops *normal_ops,
-                      int fd)
+                      fdb_fileops_handle fops_handle)
 {
-    return normal_ops->goto_eof(fd);
+    return normal_ops->goto_eof(fops_handle);
 }
 
 cs_off_t _file_size_cb(void *ctx, struct filemgr_ops *normal_ops,
-                       const char *filename)
+                       fdb_fileops_handle fops_handle, const char *filename)
 {
-    return normal_ops->file_size(filename);
+    return normal_ops->file_size(fops_handle, filename);
 }
 
 int _fdatasync_cb(void *ctx, struct filemgr_ops *normal_ops,
-                  int fd)
+                  fdb_fileops_handle fops_handle)
 {
-    return normal_ops->fdatasync(fd);
+    return normal_ops->fdatasync(fops_handle);
 }
 
 int _fsync_cb(void *ctx, struct filemgr_ops *normal_ops,
-              int fd)
+              fdb_fileops_handle fops_handle)
 {
-    return normal_ops->fsync(fd);
+    return normal_ops->fsync(fops_handle);
 }
 
 void _get_errno_str_cb(void *ctx, struct filemgr_ops *normal_ops,
-                    char *buf, size_t size)
+                       fdb_fileops_handle fops_handle, char *buf, size_t size)
 {
-    normal_ops->get_errno_str(buf, size);
+    normal_ops->get_errno_str(fops_handle, buf, size);
 }
 
 int _aio_init_cb(void *ctx, struct filemgr_ops *normal_ops,
+                 fdb_fileops_handle fops_handle,
                  struct async_io_handle *aio_handle)
 {
-    return normal_ops->aio_init(aio_handle);
+    return normal_ops->aio_init(fops_handle, aio_handle);
 }
 
 int _aio_prep_read_cb(void *ctx, struct filemgr_ops *normal_ops,
+                      fdb_fileops_handle fops_handle,
                       struct async_io_handle *aio_handle,
                       size_t aio_idx, size_t read_size, uint64_t offset)
 {
-    return normal_ops->aio_prep_read(aio_handle, aio_idx, read_size, offset);
+    return normal_ops->aio_prep_read(fops_handle, aio_handle, aio_idx,
+                                     read_size, offset);
 }
 
 int _aio_submit_cb(void *ctx, struct filemgr_ops *normal_ops,
+                   fdb_fileops_handle fops_handle,
                    struct async_io_handle *aio_handle, int num_subs)
 {
-    return normal_ops->aio_submit(aio_handle, num_subs);
+    return normal_ops->aio_submit(fops_handle, aio_handle, num_subs);
 }
 
 int _aio_getevents_cb(void *ctx, struct filemgr_ops *normal_ops,
+                      fdb_fileops_handle fops_handle,
                       struct async_io_handle *aio_handle, int min,
                       int max, unsigned int timeout)
 {
-    return normal_ops->aio_getevents(aio_handle, min, max, timeout);
+    return normal_ops->aio_getevents(fops_handle, aio_handle, min, max, timeout);
 }
 
 int _aio_destroy_cb(void *ctx, struct filemgr_ops *normal_ops,
+                    fdb_fileops_handle fops_handle,
                     struct async_io_handle *aio_handle)
 {
-    return normal_ops->aio_destroy(aio_handle);
+    return normal_ops->aio_destroy(fops_handle, aio_handle);
 }
 
-int _get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops, int src)
+int _get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops,
+                    fdb_fileops_handle src_fops_handle)
 {
-    return normal_ops->get_fs_type(src);
+    return normal_ops->get_fs_type(src_fops_handle);
 }
 
 int _copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
-                        int fstype, int src, int dst, uint64_t src_off,
+                        int fstype, fdb_fileops_handle src_fops_handle,
+                        fdb_fileops_handle dst_fops_handle, uint64_t src_off,
                         uint64_t dst_off, uint64_t len)
 {
-    return normal_ops->copy_file_range(fstype, src, dst, src_off, dst_off, len);
+    return normal_ops->copy_file_range(fstype, src_fops_handle,
+                                       dst_fops_handle, src_off, dst_off, len);
+}
+
+void _destructor_cb(void *ctx, struct filemgr_ops *normal_ops,
+                     fdb_fileops_handle fops_handle) {
+    return normal_ops->destructor(fops_handle);
 }
 
 struct anomalous_callbacks default_callbacks = {
+    _constructor_cb,
     _open_cb,
     _pwrite_cb,
     _pread_cb,
@@ -179,7 +201,8 @@ struct anomalous_callbacks default_callbacks = {
     _aio_getevents_cb,
     _aio_destroy_cb,
     _get_fs_type_cb,
-    _copy_file_range_cb
+    _copy_file_range_cb,
+    _destructor_cb
 };
 
 struct anomalous_callbacks default_callbacks_backup = default_callbacks;
@@ -202,100 +225,123 @@ void filemgr_ops_anomalous_init(struct anomalous_callbacks *cbs, void *ctx) {
     }
 }
 
-int _filemgr_anomalous_open(const char *pathname, int flags, mode_t mode)
-{
-    return anon_cbs->open_cb(anon_ctx, normal_filemgr_ops, pathname, flags,
-                             mode);
+fdb_fileops_handle _filemgr_anomalous_constructor(void *ctx) {
+    return anon_cbs->constructor_cb(anon_ctx, normal_filemgr_ops);
 }
 
-ssize_t _filemgr_anomalous_pwrite(int fd, void *buf, size_t count,
+fdb_status _filemgr_anomalous_open(const char *pathname, fdb_fileops_handle *fileops_handle,
+                            int flags, mode_t mode)
+{
+    return (fdb_status)anon_cbs->open_cb(anon_ctx, normal_filemgr_ops, fileops_handle,
+                                         pathname, flags, mode);
+}
+
+fdb_ssize_t _filemgr_anomalous_pwrite(fdb_fileops_handle fileops_handle, void *buf, size_t count,
                                   cs_off_t offset)
 {
-    return anon_cbs->pwrite_cb(anon_ctx, normal_filemgr_ops, fd, buf, count,
+    return anon_cbs->pwrite_cb(anon_ctx, normal_filemgr_ops, fileops_handle, buf, count,
                                offset);
 }
 
-ssize_t _filemgr_anomalous_pread(int fd, void *buf, size_t count,
+fdb_ssize_t _filemgr_anomalous_pread(fdb_fileops_handle fileops_handle, void *buf, size_t count,
                                  cs_off_t offset)
 {
-    return anon_cbs->pread_cb(anon_ctx, normal_filemgr_ops, fd, buf, count,
+    return anon_cbs->pread_cb(anon_ctx, normal_filemgr_ops, fileops_handle, buf, count,
                               offset);
 }
 
-int _filemgr_anomalous_close(int fd)
+int _filemgr_anomalous_close(fdb_fileops_handle fileops_handle)
 {
-    return anon_cbs->close_cb(anon_ctx, normal_filemgr_ops, fd);
+    return anon_cbs->close_cb(anon_ctx, normal_filemgr_ops, fileops_handle);
 }
 
-cs_off_t _filemgr_anomalous_goto_eof(int fd)
+cs_off_t _filemgr_anomalous_goto_eof(fdb_fileops_handle fileops_handle)
 {
-    return anon_cbs->goto_eof_cb(anon_ctx, normal_filemgr_ops, fd);
+    return anon_cbs->goto_eof_cb(anon_ctx, normal_filemgr_ops, fileops_handle);
 }
 
-cs_off_t _filemgr_anomalous_file_size(const char *filename)
+cs_off_t _filemgr_anomalous_file_size(fdb_fileops_handle fileops_handle,
+                                      const char *filename)
 {
-    return anon_cbs->file_size_cb(anon_ctx, normal_filemgr_ops, filename);
+    return anon_cbs->file_size_cb(anon_ctx, normal_filemgr_ops, fileops_handle,
+                                  filename);
 }
 
-int _filemgr_anomalous_fsync(int fd)
+int _filemgr_anomalous_fsync(fdb_fileops_handle fileops_handle)
 {
-    return anon_cbs->fsync_cb(anon_ctx, normal_filemgr_ops, fd);
+    return anon_cbs->fsync_cb(anon_ctx, normal_filemgr_ops, fileops_handle);
 }
 
-int _filemgr_anomalous_fdatasync(int fd)
+int _filemgr_anomalous_fdatasync(fdb_fileops_handle fileops_handle)
 {
-    return anon_cbs->fdatasync_cb(anon_ctx, normal_filemgr_ops, fd);
+    return anon_cbs->fdatasync_cb(anon_ctx, normal_filemgr_ops, fileops_handle);
 }
 
-void _filemgr_anomalous_get_errno_str(char *buf, size_t size)
+void _filemgr_anomalous_get_errno_str(fdb_fileops_handle fileops_handle,
+                                      char *buf, size_t size)
 {
-    return anon_cbs->get_errno_str_cb(anon_ctx, normal_filemgr_ops, buf, size);
+    return anon_cbs->get_errno_str_cb(anon_ctx, normal_filemgr_ops, fileops_handle,
+                                      buf, size);
 }
 
-int _filemgr_anomalous_aio_init(struct async_io_handle *aio_handle)
+int _filemgr_anomalous_aio_init(fdb_fileops_handle fileops_handle,
+                                struct async_io_handle *aio_handle)
 {
-    return anon_cbs->aio_init_cb(anon_ctx, normal_filemgr_ops, aio_handle);
+    return anon_cbs->aio_init_cb(anon_ctx, normal_filemgr_ops, fileops_handle, aio_handle);
 }
 
-int _filemgr_anomalous_aio_prep_read(struct async_io_handle *aio_handle,
+int _filemgr_anomalous_aio_prep_read(fdb_fileops_handle fileops_handle,
+                                     struct async_io_handle *aio_handle,
                                      size_t aio_idx, size_t read_size,
                                      uint64_t offset)
 {
-    return anon_cbs->aio_prep_read_cb(anon_ctx, normal_filemgr_ops, aio_handle,
-                                      aio_idx, read_size, offset);
+    return anon_cbs->aio_prep_read_cb(anon_ctx, normal_filemgr_ops, fileops_handle,
+                                      aio_handle, aio_idx, read_size, offset);
 }
 
-int _filemgr_anomalous_aio_submit(struct async_io_handle *aio_handle, int num_subs)
+int _filemgr_anomalous_aio_submit(fdb_fileops_handle fileops_handle,
+                                  struct async_io_handle *aio_handle, int num_subs)
 {
-    return anon_cbs->aio_submit_cb(anon_ctx, normal_filemgr_ops, aio_handle,
+    return anon_cbs->aio_submit_cb(anon_ctx, normal_filemgr_ops, fileops_handle, aio_handle,
                                    num_subs);
 }
 
-int _filemgr_anomalous_aio_getevents(struct async_io_handle *aio_handle, int min,
+int _filemgr_anomalous_aio_getevents(fdb_fileops_handle fileops_handle,
+                                     struct async_io_handle *aio_handle, int min,
                                      int max, unsigned int timeout)
 {
-    return anon_cbs->aio_getevents_cb(anon_ctx, normal_filemgr_ops, aio_handle, min, max, timeout);
+    return anon_cbs->aio_getevents_cb(anon_ctx, normal_filemgr_ops, fileops_handle,
+                                      aio_handle, min, max, timeout);
 }
 
-int _filemgr_anomalous_aio_destroy(struct async_io_handle *aio_handle)
+int _filemgr_anomalous_aio_destroy(fdb_fileops_handle fileops_handle,
+                                   struct async_io_handle *aio_handle)
 {
-    return anon_cbs->aio_destroy_cb(anon_ctx, normal_filemgr_ops, aio_handle);
+    return anon_cbs->aio_destroy_cb(anon_ctx, normal_filemgr_ops, fileops_handle, aio_handle);
 }
 
-int _filemgr_anomalous_get_fs_type(int src_fd)
+int _filemgr_anomalous_get_fs_type(fdb_fileops_handle src_fileops_handle)
 {
-    return anon_cbs->get_fs_type_cb(anon_ctx, normal_filemgr_ops, src_fd);
+    return anon_cbs->get_fs_type_cb(anon_ctx, normal_filemgr_ops, src_fileops_handle);
 }
 
-int _filemgr_anomalous_copy_file_range(int fs_type, int src_fd, int dst_fd,
+int _filemgr_anomalous_copy_file_range(int fs_type, fdb_fileops_handle src_fileops_handle,
+                                       fdb_fileops_handle dst_fileops_handle,
                                        uint64_t src_off, uint64_t dst_off,
                                        uint64_t len)
 {
     return anon_cbs->copy_file_range_cb(anon_ctx, normal_filemgr_ops, fs_type,
-                                        src_fd, dst_fd, src_off, dst_off, len);
+                                        src_fileops_handle, dst_fileops_handle ,src_off,
+                                        dst_off, len);
+}
+
+void _filemgr_anomalous_destructor(fdb_fileops_handle fileops_handle)
+{
+    anon_cbs->destructor_cb(anon_ctx, normal_filemgr_ops, fileops_handle);
 }
 
 struct filemgr_ops anomalous_ops = {
+    _filemgr_anomalous_constructor,
     _filemgr_anomalous_open,
     _filemgr_anomalous_pwrite,
     _filemgr_anomalous_pread,
@@ -311,7 +357,9 @@ struct filemgr_ops anomalous_ops = {
     _filemgr_anomalous_aio_getevents,
     _filemgr_anomalous_aio_destroy,
     _filemgr_anomalous_get_fs_type,
-    _filemgr_anomalous_copy_file_range
+    _filemgr_anomalous_copy_file_range,
+    _filemgr_anomalous_destructor,
+    NULL
 };
 
 struct filemgr_ops * get_anomalous_filemgr_ops()

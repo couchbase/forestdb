@@ -100,6 +100,8 @@ fdb_config get_default_config(void) {
     // Breakpad minidump directory, set to current working dir
     fconfig.breakpad_minidump_dir = ".";
 
+    fconfig.custom_file_ops = NULL;
+
     return fconfig;
 }
 

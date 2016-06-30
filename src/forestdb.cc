@@ -749,6 +749,11 @@ fdb_kvs_config fdb_get_default_kvs_config(void) {
 }
 
 LIBFDB_API
+fdb_filemgr_ops_t* fdb_get_default_file_ops(void) {
+    return (fdb_filemgr_ops_t *) get_filemgr_ops();
+}
+
+LIBFDB_API
 fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
                     const char *filename,
                     fdb_config *fconfig)
@@ -1624,7 +1629,11 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         fconfig.addOptions(FILEMGR_CREATE_CRC32);
     }
 
-    handle->fileops = get_filemgr_ops();
+    if (config->custom_file_ops) {
+        handle->fileops = config->custom_file_ops;
+    } else {
+        handle->fileops = get_filemgr_ops();
+    }
     filemgr_open_result result = FileMgr::open(std::string(actual_filename),
                                                handle->fileops,
                                                &fconfig, &handle->log_callback);
@@ -4682,8 +4691,9 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
     aio_handle.block_size = handle->file->getConfig()->getBlockSize();
-    aio_handle.fd = handle->file->getFd();
-    if (handle->file->getOps()->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
+    aio_handle.fops_handle = handle->file->getFopsHandle();
+    if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
+                                         &aio_handle)== FDB_RESULT_SUCCESS) {
         aio_handle_ptr = &aio_handle;
     }
     uint8_t cond = 1;
@@ -5031,8 +5041,9 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
     aio_handle.block_size = handle->file->getConfig()->getBlockSize();
-    aio_handle.fd = handle->file->getFd();
-    if (handle->file->getOps()->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
+    aio_handle.fops_handle = handle->file->getFopsHandle();
+    if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
+                                         &aio_handle) == FDB_RESULT_SUCCESS) {
         aio_handle_ptr = &aio_handle;
     }
 
@@ -5307,7 +5318,8 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
     free(doc);
 
     if (aio_handle_ptr) {
-        handle->file->getOps()->aio_destroy(aio_handle_ptr);
+        handle->file->getOps()->aio_destroy(handle->file->getFopsHandle(),
+                                            aio_handle_ptr);
     }
 
     cond = 1;
@@ -7934,7 +7946,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "file: refCount %d\n", h->file->getRefCount_UNLOCKED());
     fprintf(stderr, "file: fMgrFlags %x\n", h->file->getFlags());
     fprintf(stderr, "file: blockSize %d\n", h->file->getBlockSize());
-    fprintf(stderr, "file: fd %d\n", h->file->getFd());
+    fprintf(stderr, "file: fd %d\n", handle_to_fd(h->file->getFopsHandle()));
     fprintf(stderr, "file: lastPos %" _F64"\n", h->file->getPos());
     fprintf(stderr, "file: fMgrStatus %d\n", h->file->getFileStatus());
     fprintf(stderr, "file: config: blocksize %d\n", h->file->getConfig()->getBlockSize());

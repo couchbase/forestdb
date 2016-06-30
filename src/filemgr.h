@@ -275,7 +275,7 @@ struct async_io_handle {
     uint64_t *offset_array;
     size_t queue_depth;
     size_t block_size;
-    int fd;
+    fdb_fileops_handle fops_handle;
 };
 
 typedef int filemgr_fs_type_t;
@@ -489,6 +489,10 @@ public:
         refCount++;
     }
 
+    void decrRefCount() {
+        refCount--;
+    }
+
     size_t getRefCount();
 
     uint32_t getRefCount_UNLOCKED() const {
@@ -507,12 +511,8 @@ public:
         return blockSize;
     }
 
-    void setFd(int to) {
-        fd = to;
-    }
-
-    int getFd() const {
-        return fd;
+    fdb_fileops_handle getFopsHandle() {
+        return fopsHandle;
     }
 
     void decrPos(uint64_t by) {
@@ -865,6 +865,20 @@ public:
 
     static uint64_t getBcacheUsedSpace(void);
 
+    /**
+     * This is a helper function that does 'file open ops' on a file
+     *
+     * @param filename: name of the file
+     * @param struct filemgr_ops: Pointer to ops to be performed on a file
+     * @param fdb_fileops_handle: Handle to the file
+     * @param flags: File open flags.
+     * @param mode: File open mode
+     * @return fdb_status: file close status converted to fdb_status
+     */
+    static fdb_status fileOpen(const char* filename, struct filemgr_ops *ops,
+                               fdb_fileops_handle* fops_handle, int flags,
+                               mode_t mode);
+
     static filemgr_open_result open(std::string filename,
                                     struct filemgr_ops *ops,
                                     FileMgrConfig *config,
@@ -873,6 +887,17 @@ public:
     static void freeFunc(FileMgr *file);
 
     static fdb_status shutdown();
+
+    /**
+     * This is a helper function that does 'file close ops' on a file
+     *
+     *
+     * @param struct filemgr_ops: Pointer to ops to be performed on a file
+     * @param fdb_fileops_handle: Handle to the file
+     * @return fdb_status: file close status converted to fdb_status
+     */
+    static fdb_status fileClose(struct filemgr_ops *ops,
+                                fdb_fileops_handle fops_handle);
 
     static fdb_status close(FileMgr *file,
                             bool cleanup_cache_onclose,
@@ -1086,7 +1111,7 @@ private:
     std::atomic<uint32_t> refCount;
     uint8_t fMgrFlags;
     uint32_t blockSize;
-    int fd;
+    fdb_fileops_handle fopsHandle;    // FileOps Handle
     std::atomic<uint64_t> lastPos;
     std::atomic<uint64_t> lastCommit;
     std::atomic<uint64_t> lastWritableBmpRevnum;

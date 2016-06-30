@@ -1135,6 +1135,14 @@ const char* fdb_get_lib_version();
 LIBFDB_API
 const char* fdb_get_file_version(fdb_file_handle *fhandle);
 
+/**
+ * Return the default file operations used by ForestDB.
+ *
+ * @return pointer to the struct having all the default file operations
+ */
+LIBFDB_API
+fdb_filemgr_ops_t* fdb_get_default_file_ops();
+
 #ifdef __cplusplus
 }
 #endif

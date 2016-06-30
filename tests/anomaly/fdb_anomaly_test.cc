@@ -47,7 +47,8 @@ typedef struct fail_ctx_t {
 } fail_ctx_t;
 
 ssize_t pwrite_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
-                          int fd, void *buf, size_t count, cs_off_t offset)
+                          fdb_fileops_handle fops_handle, void *buf, size_t count,
+                          cs_off_t offset)
 {
     fail_ctx_t *wctx = (fail_ctx_t *)ctx;
     wctx->num_ops++;
@@ -56,7 +57,7 @@ ssize_t pwrite_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
         errno = -2;
         return (ssize_t)FDB_RESULT_WRITE_FAIL;
     }
-    return normal_ops->pwrite(fd, buf, count, offset);
+    return normal_ops->pwrite(fops_handle, buf, count, offset);
 }
 
 void write_failure_test()
@@ -182,7 +183,8 @@ void write_failure_test()
 }
 
 ssize_t pread_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
-                         int fd, void *buf, size_t count, cs_off_t offset)
+                         fdb_fileops_handle fops_handle, void *buf, size_t count,
+                         cs_off_t offset)
 {
     fail_ctx_t *wctx = (fail_ctx_t *)ctx;
     wctx->num_ops++;
@@ -191,7 +193,7 @@ ssize_t pread_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
         errno = -2;
         return (ssize_t)FDB_RESULT_READ_FAIL;
     }
-    return normal_ops->pread(fd, buf, count, offset);
+    return normal_ops->pread(fops_handle, buf, count, offset);
 }
 
 void read_failure_test()
@@ -389,13 +391,14 @@ void *bad_thread(void *voidargs) {
 // Calling apis from a callback simulates concurrent access from multiple
 // threads
 ssize_t pwrite_hang_cb(void *ctx, struct filemgr_ops *normal_ops,
-                       int fd, void *buf, size_t count, cs_off_t offset)
+                       fdb_fileops_handle fops_handle, void *buf, size_t count,
+                       cs_off_t offset)
 {
     struct shared_data *data = (struct shared_data *)ctx;
     if (data->test_handle_busy) {
         bad_thread(ctx);
     }
-    return normal_ops->pwrite(fd, buf, count, offset);
+    return normal_ops->pwrite(fops_handle, buf, count, offset);
 }
 
 void handle_busy_test()
@@ -490,7 +493,8 @@ void handle_busy_test()
     TEST_RESULT("Handle Busy Test");
 }
 
-int get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops, int srcfd)
+int get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops,
+                   fdb_fileops_handle src_fileops_handle)
 {
     return FILEMGR_FS_EXT4_WITH_COW;
 }
@@ -581,7 +585,8 @@ static void append_batch_delta(void)
 }
 
 static int copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
-                              int fstype, int src, int dst,
+                              int fstype, fdb_fileops_handle src_fileops_handle,
+                              fdb_fileops_handle dst_fileops_handle,
                               uint64_t src_off, uint64_t dst_off, uint64_t len)
 {
     uint8_t *buf = alca(uint8_t, len);
@@ -594,8 +599,8 @@ static int copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
     printf("File Range Copy src bid - %" _F64
            " to dst bid = %" _F64 ", %" _F64" blocks\n",
            src_off / 4096, dst_off / 4096, (len / 4096) + 1);
-    normal_ops->pread(src, buf, len, src_off);
-    normal_ops->pwrite(dst, buf, len, dst_off);
+    normal_ops->pread(src_fileops_handle, buf, len, src_off);
+    normal_ops->pwrite(dst_fileops_handle, buf, len, dst_off);
     if (*append_delta) {
         // While the compactor is stuck doing compaction append more documents
         append_batch_delta();
@@ -778,15 +783,16 @@ void read_old_file()
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
+    fdb_fileops_handle fops_handle;
     // hack the last 9 bytes (magic number + block marker) in the file
-    int fd = cbs->open_cb(NULL, (struct filemgr_ops*)normal_ops_ptr,
-                          "anomaly_test1", O_RDWR, 0644);
+    cbs->open_cb(NULL, (struct filemgr_ops*)normal_ops_ptr,
+                 &fops_handle, "anomaly_test1", O_RDWR, 0644);
     uint64_t offset = cbs->file_size_cb(NULL, (struct filemgr_ops*)normal_ops_ptr,
-                                        "anomaly_test1");
+                                        fops_handle, "anomaly_test1");
     uint8_t magic[10] = {0xde, 0xad, 0xca, 0xfe, 0xbe, 0xef, 0xbe, 0xef, 0xee};
-    cbs->pwrite_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fd,
+    cbs->pwrite_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fops_handle,
                    (void*)magic, 9, offset-9);
-    cbs->close_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fd);
+    cbs->close_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fops_handle);
 
     // reopen
     s = fdb_open(&dbfile, "anomaly_test1", &config);
@@ -854,15 +860,18 @@ void corrupted_header_correct_superblock_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // copy the data in the file except for the last (header) block
-    int fd = cbs->open_cb(NULL, normal_ops, "anomaly_test1", O_RDWR, 0644);
-    int fd_dst = cbs->open_cb(NULL, normal_ops,
-                              "anomaly_test2", O_CREAT | O_RDWR, 0644);
-    uint64_t offset = cbs->file_size_cb(NULL, normal_ops, "anomaly_test1");
+    fdb_fileops_handle src_fops_handle, dst_fops_handle;
+    cbs->open_cb(NULL, normal_ops, &src_fops_handle, "anomaly_test1",
+                 O_RDWR, 0644);
+    cbs->open_cb(NULL, normal_ops, &dst_fops_handle, "anomaly_test2",
+                 O_CREAT | O_RDWR, 0644);
+    uint64_t offset = cbs->file_size_cb(NULL, normal_ops, src_fops_handle, "anomaly_test1");
     uint8_t *filedata = (uint8_t*)malloc(offset);
-    cbs->pread_cb(NULL, normal_ops, fd, (void*)filedata, offset, 0);
-    cbs->pwrite_cb(NULL, normal_ops, fd_dst, (void*)filedata, offset - 4096, 0);
-    cbs->close_cb(NULL, normal_ops, fd);
-    cbs->close_cb(NULL, normal_ops, fd_dst);
+    cbs->pread_cb(NULL, normal_ops, src_fops_handle, (void*)filedata, offset, 0);
+    cbs->pwrite_cb(NULL, normal_ops, dst_fops_handle, (void*)filedata,
+                   offset - 4096, 0);
+    cbs->close_cb(NULL, normal_ops, src_fops_handle);
+    cbs->close_cb(NULL, normal_ops, dst_fops_handle);
     free(filedata);
 
     // open the corrupted file

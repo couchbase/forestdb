@@ -26,6 +26,7 @@
 #endif
 
 #include "filemgr_ops.h"
+#include "filemgr.h"
 
 #include "libforestdb/forestdb.h"
 #include "test.h"
@@ -1190,10 +1191,12 @@ void corrupt_latest_superblock(const char* filename) {
     struct filemgr_ops *ops = get_filemgr_ops();
     int64_t offset = 8;
     int latest_sb = 0;
-    int fd = ops->open(filename, O_RDWR, 0644);
+    fdb_fileops_handle fops_handle;
+    FileMgr::fileOpen(filename, ops, &fops_handle, O_RDWR, 0644);
     uint64_t buf, highest_rev = 0;
     for (int i = 0; i < 4; ++i) {    // num of superblocks: 4
-        if (ops->pread(fd, &buf, sizeof(uint64_t), offset) == sizeof(uint64_t)) {
+        if (ops->pread(fops_handle, &buf, sizeof(uint64_t),
+                       offset) == sizeof(uint64_t)) {
             buf = _endian_decode(buf);
             assert(buf != highest_rev);
             if (buf > highest_rev) {
@@ -1203,7 +1206,7 @@ void corrupt_latest_superblock(const char* filename) {
             offset += 4096;
         } else {
             fprintf(stderr, "Warning: Could not find the latest superblock!\n");
-            ops->close(fd);
+            FileMgr::fileClose(ops, fops_handle);
             return;
         }
     }
@@ -1211,11 +1214,12 @@ void corrupt_latest_superblock(const char* filename) {
     // the latest super block
     uint64_t garbage = rand();
     offset = latest_sb * 4096 + (rand() % (4095 - sizeof("garbage")));
-    if (ops->pwrite(fd, &garbage, sizeof(garbage), offset) != sizeof(garbage)) {
+    if (ops->pwrite(fops_handle, &garbage, sizeof(garbage),
+                    offset) != sizeof(garbage)) {
         fprintf(stderr,
                 "\nWarning: Could not write garbage into the superblock!");
     }
-    ops->close(fd);
+    FileMgr::fileClose(ops, fops_handle);
 }
 
 void e2e_crash_recover_test(bool do_rollback) {

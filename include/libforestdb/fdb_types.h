@@ -18,8 +18,11 @@
 #ifndef _FDB_TYPES_H
 #define _FDB_TYPES_H
 
+#include "fdb_errors.h"
+
 #include <stdint.h>
 #include <stddef.h>
+#include <sys/types.h>
 #ifndef _MSC_VER
 #include <stdbool.h>
 #else
@@ -291,6 +294,96 @@ typedef struct {
 } fdb_encryption_key;
 
 /**
+ * Using off_t turned out to be a real challenge. On "unix-like" systems
+ * its size is set by a combination of #defines like: _LARGE_FILE,
+ * _FILE_OFFSET_BITS and/or _LARGEFILE_SOURCE etc. The interesting
+ * part is however Windows.
+ *
+ * Windows follows the LLP64 data model:
+ * http://en.wikipedia.org/wiki/LLP64#64-bit_data_models
+ *
+ * This means both the int and long int types have a size of 32 bits
+ * regardless if it's a 32 or 64 bits Windows system.
+ *
+ * And Windows defines the type off_t as being a signed long integer:
+ * http://msdn.microsoft.com/en-us/library/323b6b3k.aspx
+ *
+ * This means we can't use off_t on Windows if we deal with files
+ * that can have a size of 2Gb or more.
+ */
+typedef int64_t cs_off_t;
+
+struct async_io_handle;
+
+/**
+ * An opaque structure that is passed to the filemgr_ops.
+ * The structure will possess all the context that an external
+ * client requires for performing custom operations in their
+ * respective callbacks
+ */
+typedef struct fdb_fileops_handle_opaque* fdb_fileops_handle;
+
+#ifdef _MSC_VER
+    typedef unsigned long mode_t;
+    #include <BaseTsd.h>
+    typedef SSIZE_T fdb_ssize_t;
+#else
+    typedef ssize_t fdb_ssize_t;
+#endif
+
+/**
+ * This structure can be used to perform custom operations by
+ * the external client before performing a file operation on
+ * a forestdb file.
+ *
+ * An example usage of the open API is given below
+ *
+ * fdb_status client_open(const char* pathname, fdb_fileops_handle* fops_handle,
+ *                        int flags, mode_t mode) {
+ *     ClientObject* clObj = reinterpret_cast<ClientObject *>(*fops_handle);
+ *     return clObj->original_fdb_ops->open(pathname,
+ *                                          &clObj->original_fdb_handle,
+ *                                          flags, mode);
+ * }
+ */
+typedef struct filemgr_ops {
+    fdb_fileops_handle (*constructor)(void *ctx);
+    fdb_status (*open)(const char *pathname, fdb_fileops_handle *fops_handle,
+                       int flags, mode_t mode);
+    fdb_ssize_t (*pwrite)(fdb_fileops_handle fops_handle, void *buf, size_t count,
+                          cs_off_t offset);
+    fdb_ssize_t (*pread)(fdb_fileops_handle fops_handle, void *buf, size_t count,
+                         cs_off_t offset);
+    int (*close)(fdb_fileops_handle fops_handle);
+    cs_off_t (*goto_eof)(fdb_fileops_handle fops_handle);
+    cs_off_t (*file_size)(fdb_fileops_handle fops_handle,
+                          const char *filename);
+    int (*fdatasync)(fdb_fileops_handle fops_handle);
+    int (*fsync)(fdb_fileops_handle fops_handle);
+    void (*get_errno_str)(fdb_fileops_handle fops_handle, char *buf, size_t size);
+
+    // Async I/O operations
+    int (*aio_init)(fdb_fileops_handle fops_handle, struct async_io_handle *aio_handle);
+    int (*aio_prep_read)(fdb_fileops_handle fops_handle,
+                         struct async_io_handle *aio_handle, size_t aio_idx,
+                         size_t read_size, uint64_t offset);
+    int (*aio_submit)(fdb_fileops_handle fops_handle,
+                      struct async_io_handle *aio_handle, int num_subs);
+    int (*aio_getevents)(fdb_fileops_handle fops_handle,
+                         struct async_io_handle *aio_handle, int min,
+                         int max, unsigned int timeout);
+    int (*aio_destroy)(fdb_fileops_handle fops_handle,
+                       struct async_io_handle *aio_handle);
+
+    int (*get_fs_type)(fdb_fileops_handle src_fd);
+    int (*copy_file_range)(int fs_type, fdb_fileops_handle src_fops_handle,
+                           fdb_fileops_handle dst_fops_handle, uint64_t src_off,
+                           uint64_t dst_off, uint64_t len);
+    void (*destructor)(fdb_fileops_handle fops_handle);
+    void *ctx;
+} fdb_filemgr_ops_t;
+
+/**
  * ForestDB config options that are passed to fdb_open API.
  */
 typedef struct {
@@ -480,6 +573,10 @@ typedef struct {
      * Breakpad crash catcher settings
      */
     const char* breakpad_minidump_dir;
+    /**
+     * Custom file operations
+     */
+    fdb_filemgr_ops_t* custom_file_ops;
 
 } fdb_config;
 

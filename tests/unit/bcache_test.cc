@@ -136,7 +136,7 @@ void * worker(void *voidargs)
         bid = rand() % args->nblocks;
         ret = BlockCacheManager::getInstance()->read(args->file, bid, buf);
         if (ret <= 0) {
-            ret = args->file->getOps()->pread(args->file->getFd(), buf,
+            ret = args->file->getOps()->pread(args->file->getFopsHandle(), buf,
                                               args->file->getBlockSize(),
                                               bid * args->file->getBlockSize());
             TEST_CHK(ret == (ssize_t)args->file->getBlockSize());

@@ -1550,8 +1550,10 @@ size_t DocioHandle::batchReadDocs_Docio(uint64_t *offset_array,
         }
         if (_offset <= 0) {
             if (aio_handle) {
-                // The page is not resident in the cache. Prepare and perform Async I/O
-                file_Docio->getOps()->aio_prep_read(aio_handle, aio_size,
+                // The page is not resident in the cache.
+                // Prepare and perform Async I/O.
+                file_Docio->getOps()->aio_prep_read(file_Docio->getFopsHandle(),
+                                                    aio_handle, aio_size,
                                                     block_size, offset_array[i]);
                 if (++aio_size == (int) aio_handle->queue_depth) {
                     int num_sub = _submitAsyncIORequests_Docio(doc_array, doc_idx,
