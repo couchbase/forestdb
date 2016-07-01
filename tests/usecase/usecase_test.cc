@@ -22,6 +22,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -72,10 +76,14 @@ struct PoolEntry {
  */
 class FileHandlePool {
 public:
-    FileHandlePool(std::vector<std::string> filenames, int count) {
+    FileHandlePool(std::vector<std::string> filenames, int count,
+                   bool create_default_kvs, bool use_sequence_tree) {
         fdb_status status;
         fdb_config fconfig = fdb_get_default_config();
-        fconfig.multi_kv_instances = false;
+        if (use_sequence_tree) {
+            // enable seqtree since get_byseq
+            fconfig.seqtree_opt = FDB_SEQTREE_USE;
+        }
         fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
         for (int i = 0; i < count; ++i) {
             fdb_file_handle *dbfile;
@@ -84,7 +92,13 @@ public:
                               filenames.at(i % filenames.size()).c_str(),
                               &fconfig);
             fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-            status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+            if (create_default_kvs) {
+                status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+            } else {
+                std::string kvs(filenames.at(i % filenames.size()) + "_" +
+                                std::to_string(i));
+                status = fdb_kvs_open(dbfile, &db, kvs.c_str(), &kvs_config);
+            }
             fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
             PoolEntry *pe = new PoolEntry(i, true, dbfile, db);
             pool_vector.push_back(pe);
@@ -143,6 +157,22 @@ public:
                 *dbfile = pe->dbfile;
                 *db = pe->db;
                 return pe->index;
+            }
+        }
+    }
+
+    /**
+     * Acquire handle-set at specified index.
+     */
+    void getResourceAtIndex(int index,
+                            fdb_file_handle **dbfile, fdb_kvs_handle **db) {
+        while (true) {
+            bool inverse = true;
+            PoolEntry *pe = pool_vector.at(index % pool_vector.size());
+            if (pe && pe->available.compare_exchange_strong(inverse, false)) {
+                *dbfile = pe->dbfile;
+                *db = pe->db;
+                return;
             }
         }
     }
@@ -253,8 +283,10 @@ private:
  */
 class SnapHandlePool : public FileHandlePool {
 public:
-    SnapHandlePool(std::vector<std::string> filenames, int count)
-        : FileHandlePool(filenames, count) {
+    SnapHandlePool(std::vector<std::string> filenames, int count,
+                   bool create_default_kvs, bool use_sequence_tree)
+        : FileHandlePool(filenames, count, create_default_kvs,
+                         use_sequence_tree) {
         snap_pool_vector.resize(count, nullptr);
         mutex_init(&snaplock);
 
@@ -594,6 +626,7 @@ void test_readers_writers_with_handle_pool(int nhandles,
                                            int nfiles,
                                            int writers,
                                            int readers,
+                                           bool createDefaultKvs,
                                            bool useSnapHandlePool,
                                            int time) {
     TEST_INIT();
@@ -625,9 +658,9 @@ void test_readers_writers_with_handle_pool(int nhandles,
     // Prepare handle pool
     FileHandlePool *hp;
     if (!useSnapHandlePool) {
-        hp = new FileHandlePool(files, nhandles);
+        hp = new FileHandlePool(files, nhandles, createDefaultKvs, false);
     } else {
-        hp = new SnapHandlePool(files, nhandles);
+        hp = new SnapHandlePool(files, nhandles, createDefaultKvs, false);
     }
 
     thread_t *threads = new thread_t[writers + readers];
@@ -682,6 +715,122 @@ void test_readers_writers_with_handle_pool(int nhandles,
     TEST_RESULT(test_title.c_str());
 }
 
+void *compact_thread(void *args) {
+    const char *filename = static_cast<const char*>(args);
+    fdb_config config = fdb_get_default_config();
+    fdb_file_handle *dbfile;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    status = fdb_open(&dbfile, filename, &config);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    status = fdb_compact(dbfile, NULL);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    return nullptr;
+}
+
+/**
+ * Test that creates specified number of kvstores on a single file,
+ * and writes to them all, while compacting the file.
+ */
+void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
+                                              int itemCountPerStore) {
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+
+    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    (void)r;
+
+    if (numKvStores < 1) {
+        fprintf(stderr, "[ERROR] Illegal number for kv store count: %u!\n",
+                        numKvStores);
+        return;
+    }
+
+    std::vector<std::string> filenames;
+    filenames.push_back("usecase_test");
+
+    /* Prepare file handle pool */
+    FileHandlePool *fhp = new FileHandlePool(filenames, numKvStores,
+                                             false, true);
+
+    fdb_status status;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    char keybuf[256], bodybuf[256];
+
+    thread_t tid(0);
+    void *ret;
+
+    for (int i = 0; i < itemCountPerStore; ++i) {
+        for (int j = 0; j < numKvStores; ++j) {
+            fhp->getResourceAtIndex(j, &dbfile, &db);
+
+            sprintf(keybuf, "key_%d_%d", i, j);
+            sprintf(keybuf, "body_%d_%d", i, j);
+
+            status = fdb_set_kv(db,
+                                (void*)keybuf, strlen(keybuf) + 1,
+                                (void*)bodybuf, strlen(bodybuf) + 1);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+            fhp->returnResourceToPool(j);
+        }
+
+        if (i % (itemCountPerStore / 3) == 0) {
+            // Spin off a background thread that will compact the file
+            if (tid) {
+                thread_join(tid, &ret);
+            }
+            thread_create(&tid, compact_thread, (void*)filenames.at(0).c_str());
+        }
+
+        status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    }
+
+    thread_join(tid, &ret);
+
+    // Get total item count in disk
+    size_t total_doc_count = 0;
+    for (int k = 0; k < numKvStores; ++k) {
+        fhp->getResourceAtIndex(k, &dbfile, &db);
+
+        fdb_iterator *itr;
+        status = fdb_iterator_sequence_init(db, &itr, 0, 0, FDB_ITR_NONE);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        do {
+            ++total_doc_count;
+        } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
+
+        fdb_iterator_close(itr);
+
+        fhp->returnResourceToPool(k);
+    }
+
+    /* cleanup */
+    delete fhp;
+
+    /* shutdown */
+    fdb_shutdown();
+
+    /* validate */
+    fdb_assert(total_doc_count ==
+               static_cast<size_t>(numKvStores * itemCountPerStore),
+               total_doc_count, numKvStores * itemCountPerStore);
+
+#ifndef __DEBUG_USECASE
+    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    (void)r;
+#endif
+
+    memleak_end();
+    TEST_RESULT("Writes-On-Multiple-KV-Stores-With-Compaction test");
+}
+
 int main() {
 
     /* Test single writer with multiple readers sharing a common
@@ -690,6 +839,7 @@ int main() {
                                           1        /*number of files*/,
                                           1        /*writer count*/,
                                           4        /*reader count*/,
+                                          true     /*default kvs?*/,
                                           false    /*do not use snap handle pool*/,
                                           30       /*test time in seconds*/);
 
@@ -699,6 +849,7 @@ int main() {
                                           1        /*number of files*/,
                                           4        /*writer count*/,
                                           4        /*reader count*/,
+                                          false    /*default kvs?*/,
                                           false    /*do not use snap handle pool*/,
                                           30       /*test time in seconds*/);
 
@@ -709,6 +860,7 @@ int main() {
                                           1        /*number of files*/,
                                           4        /*writer count*/,
                                           4        /*reader count*/,
+                                          true     /*default kvs?*/,
                                           true     /*use snap handle pool*/,
                                           30       /*test time in seconds*/);
 
@@ -719,8 +871,13 @@ int main() {
                                           5        /*number of files*/,
                                           4        /*writer count*/,
                                           4        /*reader count*/,
+                                          false    /*default kvs?*/,
                                           true     /*use snap handle pool*/,
                                           30       /*test time in seconds*/);
 
+    /* Tests compaction of a file while a writer adds data to multiple
+       kv stores belonging to the file */
+    test_writes_on_kv_stores_with_compaction(256   /*number of kv stores*/,
+                                             1500  /*number of items per kvstore*/);
     return 0;
 }
