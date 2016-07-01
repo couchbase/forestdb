@@ -1436,11 +1436,13 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
     uint64_t offset = 0, _offset = 0;
     int num_events = 0;
 
-    int num_sub = file_Docio->ops->aio_submit(aio_handle, size);
+    int num_sub = file_Docio->getOps()->aio_submit(file_Docio->getFopsHandle(),
+                                                   aio_handle, size);
     if (num_sub < 0) {
         // Error loggings
         char errno_msg[512];
-        file_Docio->ops->get_errno_str(errno_msg, 512);
+        file_Docio->getOps()->get_errno_str(file_Docio->getFopsHandle(),
+                                            errno_msg, 512);
         fdb_log(log_callback, (fdb_status) num_sub,
                 "Error in submitting async I/O requests to a file '%s', errno msg: %s",
                 file_Docio->getFileName().c_str(), errno_msg);
@@ -1448,7 +1450,8 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
     } else if (num_sub != size) {
         // Error loggings
         char errno_msg[512];
-        file_Docio->ops->get_errno_str(errno_msg, 512);
+        file_Docio->getOps()->get_errno_str(file_Docio->getFopsHandle(),
+                                            errno_msg, 512);
         fdb_log(log_callback, (fdb_status) num_sub,
                 "Error in submitting async I/O requests to a file '%s', errno msg: %s, "
                 "%d requests were submitted, but only %d requests were processed",
@@ -1457,12 +1460,14 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
     }
 
     while (num_sub > 0) {
-        num_events = file_Docio->ops->aio_getevents(aio_handle, 1,
-                                                      num_sub, (unsigned int) -1);
+        num_events = file_Docio->getOps()->aio_getevents(file_Docio->getFopsHandle(),
+                                                         aio_handle, 1,
+                                                         num_sub, (unsigned int) -1);
         if (num_events < 0) {
             // Error loggings
             char errno_msg[512];
-            file_Docio->ops->get_errno_str(errno_msg, 512);
+            file_Docio->getOps()->get_errno_str(file_Docio->getFopsHandle(),
+                                                errno_msg, 512);
             fdb_log(log_callback, (fdb_status) num_events,
                     "Error in getting async I/O events from the completion queue "
                     "for a file '%s', errno msg: %s", file_Docio->getFileName().c_str(), errno_msg);
