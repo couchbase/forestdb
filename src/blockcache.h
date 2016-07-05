@@ -67,6 +67,15 @@ public:
     static void destroyInstance();
 
     /**
+     * Removes dirty blocks (not written to disk) and clean blocks for a file
+     * and the file entry itself from the global file list, if and only if a
+     * BlockCacheManager instance is available.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    static void eraseFileHistory(FileMgr *file);
+
+    /**
      * Read a given block from the block cache.
      *
      * @param file Pointer to the file manager instance

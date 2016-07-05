@@ -1585,6 +1585,10 @@ fdb_status FileMgr::close(FileMgr *file,
 {
     int rv = FDB_RESULT_SUCCESS;
 
+    if (!file) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     if ((--file->refCount) > 0) {
         // File is still accessed by other readers or writers.
         return FDB_RESULT_SUCCESS;
@@ -1724,10 +1728,7 @@ void FileMgr::removeAllBufferBlocks() {
     if (global_config.getNcacheBlock() > 0 &&
         bCache.load(std::memory_order_relaxed)) {
 
-        BlockCacheManager::getInstance()->removeDirtyBlocks(this);
-        BlockCacheManager::getInstance()->removeCleanBlocks(this);
-        BlockCacheManager::getInstance()->removeFile(this);
-
+        BlockCacheManager::eraseFileHistory(this);
         bCache.store(NULL, std::memory_order_relaxed);
     }
 }
@@ -1751,9 +1752,7 @@ void FileMgr::freeFunc(FileMgr *file)
     if (global_config.getNcacheBlock() > 0 &&
         file->bCache.load(std::memory_order_relaxed)) {
 
-        BlockCacheManager::getInstance()->removeDirtyBlocks(file);
-        BlockCacheManager::getInstance()->removeCleanBlocks(file);
-        BlockCacheManager::getInstance()->removeFile(file);
+        BlockCacheManager::eraseFileHistory(file);
         file->bCache.store(NULL, std::memory_order_relaxed);
     }
 

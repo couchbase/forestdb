@@ -1364,6 +1364,16 @@ BlockCacheManager::~BlockCacheManager() {
     }
 }
 
+void BlockCacheManager::eraseFileHistory(FileMgr *file) {
+    std::lock_guard<std::mutex> lock(instanceMutex);
+    BlockCacheManager* tmp = instance.load();
+    if (tmp) {
+        tmp->removeDirtyBlocks(file);
+        tmp->removeCleanBlocks(file);
+        tmp->removeFile(file);
+    }
+}
+
 uint64_t BlockCacheManager::getNumBlocks(FileMgr *file) {
     FileBlockCache *fcache = file->getBCache();
     if (fcache) {
