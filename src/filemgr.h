@@ -1107,7 +1107,7 @@ public:
 #endif //_LATENCY_STATS
 
 private:
-    std::string fileName;             // Current file name.
+    std::string fileName;             // Current file name
     std::atomic<uint32_t> refCount;
     uint8_t fMgrFlags;
     uint32_t blockSize;
@@ -1152,10 +1152,10 @@ private:
     spin_t dataSpinlock[DLOCK_MAX];
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-    // mutex for synchronization among multiple writers.
+    // mutex for synchronization among multiple writers
     mutex_lock_t writerLock;
 
-    // CRC the file is using.
+    // CRC the file is using
     crc_mode_e crcMode;
 
     // Encryption type
@@ -1172,10 +1172,15 @@ private:
     // spin lock for dirty_update_idx
     spin_t dirtyUpdateLock;
 
-    // Index for fdb_file_handle belonging to the same filemgr handle.
+    // Index for fdb_file_handle belonging to the same filemgr handle
     struct avl_tree handleIdx;
-    // Spin lock for file handle index.
+    // Spin lock for file handle index
     spin_t handleIdxLock;
+
+    // Global Atomic variable to track if filemgr's config has been initialized
+    static std::atomic<bool> fileMgrInitialized;
+    // Global static spin lock used by open() and close() methods
+    static spin_t fileMgrOpenlock;
 };
 
 /**

@@ -59,10 +59,11 @@ static volatile unsigned int initial_lock_status = 0;
 static spin_t initial_lock;
 #endif
 
-static volatile uint8_t filemgr_initialized = 0;
 extern volatile uint8_t bgflusher_initialized;
 static FileMgrConfig global_config;
-static spin_t filemgr_openlock;
+
+std::atomic<bool> FileMgr::fileMgrInitialized(false);
+spin_t FileMgr::fileMgrOpenlock;
 
 std::mutex FileMgrMap::initGuard;
 std::atomic<FileMgrMap *> FileMgrMap::instance(nullptr);
@@ -386,7 +387,7 @@ void FileMgr::init(FileMgrConfig *config)
 {
     // global initialization
     // initialized only once at first time
-    if (!filemgr_initialized) {
+    if (!fileMgrInitialized) {
 #ifndef SPIN_INITIALIZER
         // Note that only Windows passes through this routine
         if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
@@ -402,7 +403,7 @@ void FileMgr::init(FileMgrConfig *config)
 #endif
 
         spin_lock(&initial_lock);
-        if (!filemgr_initialized) {
+        if (!fileMgrInitialized) {
             memset(&sb_ops, 0x0, sizeof(sb_ops));
             global_config = *config;
 
@@ -415,10 +416,10 @@ void FileMgr::init(FileMgrConfig *config)
             spin_init(&temp_buf_lock);
 
             // initialize global lock
-            spin_init(&filemgr_openlock);
+            spin_init(&fileMgrOpenlock);
 
             // set the initialize flag
-            filemgr_initialized = 1;
+            fileMgrInitialized.store(true);
         }
         spin_unlock(&initial_lock);
     }
@@ -451,7 +452,7 @@ static void * _filemgr_get_temp_buf()
         void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
-                global_config.getBlockSize() + sizeof(struct temp_buf_item));
+                     global_config.getBlockSize() + sizeof(struct temp_buf_item));
 
         item = (struct temp_buf_item *)((uint8_t *) addr +
                                         global_config.getBlockSize());
@@ -952,12 +953,12 @@ filemgr_open_result FileMgr::open(std::string filename,
     }
 
     // check whether file is already opened or not
-    spin_lock(&filemgr_openlock);
+    spin_lock(&fileMgrOpenlock);
     FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
 
     if (file) {
         if (fail_if_exists) {
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
             result.rv = FDB_RESULT_EEXIST;
             return result;
         }
@@ -965,7 +966,7 @@ filemgr_open_result FileMgr::open(std::string filename,
         // already opened (return existing structure)
         if ((++file->refCount) > 1 &&
             file->fMgrStatus.load() != FILE_CLOSED) {
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
             return result;
@@ -998,7 +999,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                                        FDB_RESULT_NO_SUCH_FILE, "OPEN",
                                        filename.c_str());
                         FileMgr::freeFunc(file);
-                        spin_unlock(&filemgr_openlock);
+                        spin_unlock(&fileMgrOpenlock);
                         result.rv = FDB_RESULT_NO_SUCH_FILE;
                         return result;
                     }
@@ -1009,7 +1010,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                                    status, "OPEN", filename.c_str());
                     file->decrRefCount();
                     file->releaseSpinLock();
-                    spin_unlock(&filemgr_openlock);
+                    spin_unlock(&fileMgrOpenlock);
                     result.rv = status;
                     return result;
                 }
@@ -1022,7 +1023,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                 }
 
                 file->releaseSpinLock();
-                spin_unlock(&filemgr_openlock);
+                spin_unlock(&fileMgrOpenlock);
 
                 result.file = file;
                 result.rv = FDB_RESULT_SUCCESS;
@@ -1037,7 +1038,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             }
 
             file->releaseSpinLock();
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
             return result;
@@ -1059,7 +1060,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     if (status != FDB_RESULT_SUCCESS) {
         _log_errno_str(fops_handle, ops, log_callback, status, "OPEN",
                        filename.c_str());
-        spin_unlock(&filemgr_openlock);
+        spin_unlock(&fileMgrOpenlock);
         result.rv = status;
         return result;
     }
@@ -1071,7 +1072,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     if (status != FDB_RESULT_SUCCESS) {
         FileMgr::fileClose(ops, fops_handle);
         delete file;
-        spin_unlock(&filemgr_openlock);
+        spin_unlock(&fileMgrOpenlock);
         result.rv = status;
         return result;
     }
@@ -1090,7 +1091,7 @@ filemgr_open_result FileMgr::open(std::string filename,
         FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
         delete file->fileConfig;
         delete file;
-        spin_unlock(&filemgr_openlock);
+        spin_unlock(&fileMgrOpenlock);
         result.rv = (fdb_status) offset;
         return result;
     }
@@ -1118,7 +1119,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             delete file->staleData;
             delete file->fileConfig;
             delete file;
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
             result.rv = status;
             return result;
         }
@@ -1139,7 +1140,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             delete file->staleData;
             delete file->fileConfig;
             delete file;
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
             result.rv = status;
             return result;
         }
@@ -1187,7 +1188,7 @@ filemgr_open_result FileMgr::open(std::string filename,
         filemgr_prefetch(file, config, log_callback);
     }
 
-    spin_unlock(&filemgr_openlock);
+    spin_unlock(&fileMgrOpenlock);
 
     if (config->getOptions() & FILEMGR_SYNC) {
         file->fMgrFlags |= FILEMGR_SYNC;
@@ -1594,7 +1595,7 @@ fdb_status FileMgr::close(FileMgr *file,
         return FDB_RESULT_SUCCESS;
     }
 
-    spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
+    spin_lock(&fileMgrOpenlock);  // Grab the fileMgrOpenlock to avoid the race with
                                   // Filemgr::open() because file->fMgrLock won't
                                   // prevent the race condition.
 
@@ -1655,7 +1656,7 @@ fdb_status FileMgr::close(FileMgr *file,
             FileMgrMap::get()->removeEntry(file->getFileName());
 
             update_file_pointers(file);
-            spin_unlock(&filemgr_openlock);
+            spin_unlock(&fileMgrOpenlock);
 
             if (foreground_deletion) {
                 FileMgr::freeFunc(file);
@@ -1705,7 +1706,7 @@ fdb_status FileMgr::close(FileMgr *file,
                 FileMgrMap::get()->removeEntry(file->getFileName());
 
                 update_file_pointers(file);
-                spin_unlock(&filemgr_openlock);
+                spin_unlock(&fileMgrOpenlock);
 
                 FileMgr::freeFunc(file);
                 return (fdb_status) rv;
@@ -1719,7 +1720,7 @@ fdb_status FileMgr::close(FileMgr *file,
                    (fdb_status)rv, "CLOSE", file->fileName.c_str());
 
     file->releaseSpinLock();
-    spin_unlock(&filemgr_openlock);
+    spin_unlock(&fileMgrOpenlock);
     return (fdb_status) rv;
 }
 
@@ -1804,9 +1805,9 @@ void FileMgr::removeFile(FileMgr *file,
     }
 
     // remove from global hash table
-    spin_lock(&filemgr_openlock);
+    spin_lock(&fileMgrOpenlock);
     FileMgrMap::get()->removeEntry(file->fileName);
-    spin_unlock(&filemgr_openlock);
+    spin_unlock(&fileMgrOpenlock);
 
     if (!lazy_file_deletion_enabled ||
         (file->newFile && file->newFile->inPlaceCompaction)) {
@@ -1833,7 +1834,7 @@ fdb_status FileMgr::shutdown()
 {
     fdb_status ret = FDB_RESULT_SUCCESS;
     void *open_file;
-    if (filemgr_initialized) {
+    if (fileMgrInitialized) {
 
 #ifndef SPIN_INITIALIZER
         // Windows: check if spin lock is already destroyed.
@@ -1847,7 +1848,7 @@ fdb_status FileMgr::shutdown()
         spin_lock(&initial_lock);
 #endif
 
-        if (!filemgr_initialized) {
+        if (!fileMgrInitialized) {
             // filemgr is already shut down
 #ifdef SPIN_INITIALIZER
             spin_unlock(&initial_lock);
@@ -1855,16 +1856,16 @@ fdb_status FileMgr::shutdown()
             return ret;
         }
 
-        spin_lock(&filemgr_openlock);
+        spin_lock(&fileMgrOpenlock);
         open_file = FileMgrMap::get()->scan(_filemgr_is_closed, nullptr);
-        spin_unlock(&filemgr_openlock);
+        spin_unlock(&fileMgrOpenlock);
         if (!open_file) {
             FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
             FileMgrMap::shutdown();
             if (global_config.getNcacheBlock() > 0) {
                 BlockCacheManager::getInstance()->destroyInstance();
             }
-            filemgr_initialized = 0;
+            fileMgrInitialized.store(false);
 #ifndef SPIN_INITIALIZER
             initial_lock_status = 0;
 #else
@@ -2698,10 +2699,10 @@ static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
 
 FileMgr* FileMgr::searchStaleLinks() {
     FileMgr *very_old_file;
-    spin_lock(&filemgr_openlock);
+    spin_lock(&fileMgrOpenlock);
     very_old_file = reinterpret_cast<FileMgr *>(
                     FileMgrMap::get()->scan(_filemgr_check_stale_link, this));
-    spin_unlock(&filemgr_openlock);
+    spin_unlock(&fileMgrOpenlock);
     return very_old_file;
 }
 
@@ -2778,7 +2779,7 @@ void FileMgr::removePending(FileMgr *old_file,
     }
 }
 
-// Note: filemgr_openlock should be held before calling this function.
+// Note: fileMgrOpenlock should be held before calling this function.
 fdb_status FileMgr::destroyFile(std::string filename,
                                 FileMgrConfig *config,
                                 std::unordered_set<std::string> *destroy_file_set) {
@@ -2990,11 +2991,11 @@ bool FileMgr::isInPlaceCompactionSet() {
 
 void FileMgr::mutexOpenlock(FileMgrConfig *config) {
     init(config);
-    spin_lock(&filemgr_openlock);
+    spin_lock(&fileMgrOpenlock);
 }
 
 void FileMgr::mutexOpenunlock(void) {
-    spin_unlock(&filemgr_openlock);
+    spin_unlock(&fileMgrOpenlock);
 }
 
 void FileMgr::mutexLock() {
