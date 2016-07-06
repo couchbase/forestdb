@@ -57,6 +57,7 @@
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
 #define FILEMGR_EXCL_CREATE 0x80 // fail open if file already exists
 
+class SuperblockBase;
 class FileMgrConfig {
 public:
     FileMgrConfig()
@@ -297,6 +298,11 @@ class FileMgr;
  */
 typedef void *filemgr_factory_scan_cb(FileMgr *file, void *ctx);
 typedef void filemgr_factory_free_cb(FileMgr *file);
+
+/**
+ * Callback definitions for SuperblockBase (or its child class) initialization.
+ */
+typedef void (*superblock_init_cb)(FileMgr *file);
 
 /**
  * File Manager factory singleton class whose purpose is to maintain an
@@ -678,11 +684,11 @@ public:
         return fMgrVersion;
     }
 
-    void setSb(struct superblock *to) {
+    void setSb(SuperblockBase *to) {
         fMgrSb = to;
     }
 
-    struct superblock* getSb() {
+    SuperblockBase* getSb() {
         return fMgrSb;
     }
 
@@ -861,7 +867,7 @@ public:
      * @param ops Set of superblock operations to be assigned.
      * @return void.
      */
-    static void setSbOperation(struct sb_ops ops);
+    static void setSbInitializer(superblock_init_cb func);
 
     static uint64_t getBcacheUsedSpace(void);
 
@@ -1136,7 +1142,7 @@ private:
     filemgr_magic_t fMgrVersion;
 
     // superblock
-    struct superblock *fMgrSb;
+    SuperblockBase *fMgrSb;
 
     KvsStatOperations kvsStatOps;
 

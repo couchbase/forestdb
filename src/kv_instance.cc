@@ -1149,7 +1149,10 @@ fdb_kvs_create_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
-        uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
+        uint64_t cur_bmp_revnum = 0;
+        if (file->getSb()) {
+            cur_bmp_revnum = file->getSb()->getBmpRevnum();
+        }
         root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
         fs = root_handle->file->commitBid(
@@ -1697,7 +1700,10 @@ fdb_kvs_remove_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
-        uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
+        uint64_t cur_bmp_revnum = 0;
+        if (file->getSb()) {
+            cur_bmp_revnum = file->getSb()->getBmpRevnum();
+        }
         root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
         fs = root_handle->file->commitBid(

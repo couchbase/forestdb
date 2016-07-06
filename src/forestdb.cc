@@ -379,7 +379,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
 
             bid_t sb_last_hdr_bid = BLK_NOT_FOUND;
             if (handle->file->getSb()) {
-                sb_last_hdr_bid = handle->file->getSb()->last_hdr_bid.load();
+                sb_last_hdr_bid = handle->file->getSb()->getLastHdrBid();
             }
             if (!handle->shandle && handle->file->getSb() &&
                 sb_last_hdr_bid != BLK_NOT_FOUND) {
@@ -545,9 +545,9 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
         if (ver_superblock_support(handle->file->getVersion()) &&
             offset >= filesize) {
             // circular scan
-            struct superblock *sb = handle->file->getSb();
-            if (sb && sb->config) {
-                offset = blocksize * sb->config->num_sb;
+            SuperblockBase *sb = handle->file->getSb();
+            if (sb) {
+                offset = blocksize * sb->getConfig().num_sb;
                 cur_bmp_revnum++;
             }
         }
@@ -662,6 +662,12 @@ INLINE void init_initial_lock_status() {
 }
 #endif
 
+static void standard_sb_init(FileMgr *file) {
+    struct sb_config sconfig = SuperblockBase::getDefaultConfig();
+    SuperblockBase *sb = new Superblock(file, sconfig);
+    file->setSb(sb);
+}
+
 LIBFDB_API
 fdb_status fdb_init(fdb_config *config)
 {
@@ -710,12 +716,8 @@ fdb_status fdb_init(fdb_config *config)
                                      compactor_register_file_removing,
                                      compactor_is_file_removed);
         if (ver_superblock_support(ver_get_latest_magic())) {
-            struct sb_ops sb_ops = {sb_init, sb_get_default_config,
-                                    sb_read_latest, sb_alloc_block,
-                                    sb_bmp_is_writable, sb_get_bmp_revnum,
-                                    sb_get_min_live_revnum, sb_free};
-            FileMgr::setSbOperation(sb_ops);
-            sb_bmp_mask_init();
+            FileMgr::setSbInitializer(standard_sb_init);
+            Superblock::initBmpMask();
         }
 
         // initialize compaction daemon
@@ -1685,8 +1687,9 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
 
     // fetch previous superblock bitmap info if exists
     // (this should be done after 'handle->dhandle' is initialized)
-    if (handle->file->getSb()) {
-        status = sb_bmp_fetch_doc(handle);
+    SuperblockBase *sb = handle->file->getSb();
+    if (sb) {
+        status = sb->readBmpDoc(handle);
         if (status != FDB_RESULT_SUCCESS) {
             delete handle->dhandle;
             FileMgr::close(handle->file, false, NULL,
@@ -1757,15 +1760,15 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         // get the BID of the latest block
         // (it is OK if the block is not a DB header)
         bool dirty_data_exists = false;
-        struct superblock *sb = handle->file->getSb();
+        SuperblockBase *sb = handle->file->getSb();
 
-        if (sb_bmp_exists(sb)) {
+        if (sb && sb->bmpExists()) {
             dirty_data_exists = false;
-            bid_t sb_last_hdr_bid = sb->last_hdr_bid.load();
+            bid_t sb_last_hdr_bid = sb->getLastHdrBid();
             if (sb_last_hdr_bid != BLK_NOT_FOUND) {
                 // add 1 since we subtract 1 from 'hdr_bid' below soon
                 hdr_bid = sb_last_hdr_bid + 1;
-                if (sb->cur_alloc_bid.load() != hdr_bid) {
+                if (sb->getCurAllocBid() != hdr_bid) {
                     // seq number has been increased since the last commit
                     seqnum = fdb_kvs_get_committed_seqnum(handle);
                 }
@@ -1778,7 +1781,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         }
 
         if (hdr_bid == BLK_NOT_FOUND ||
-            (sb && hdr_bid <= sb->config->num_sb)) {
+            (sb && hdr_bid <= sb->getConfig().num_sb)) {
             hdr_bid = 0;
         } else if (hdr_bid > 0) {
             --hdr_bid;
@@ -1886,10 +1889,14 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 }
             }
 
+            uint64_t sb_min_live_revnum = 0;
+            if (sb) {
+                sb_min_live_revnum = sb->getMinLiveHdrRevnum();
+            }
             if (header_len && // header exists
                 config->block_reusing_threshold > 0 && // block reuse is enabled
                 config->block_reusing_threshold < 100 &&
-                header_revnum < sb_get_min_live_revnum(handle->file)) {
+                header_revnum < sb_min_live_revnum) {
                 // cannot perform rollback/snapshot beyond the last live header
                 header_len = 0;
             }
@@ -4040,12 +4047,17 @@ fdb_commit_start:
                                                     false);
     }
 
+    SuperblockBase *sb = handle->file->getSb();
     // Note: Getting header BID must be done after
     //       all other data are written into the file!!
     //       Or, header BID inconsistency will occur (it will
     //       point to wrong block).
     handle->last_hdr_bid = handle->file->alloc_FileMgr(&handle->log_callback);
-    cur_bmp_revnum = sb_get_bmp_revnum(handle->file);
+    if (sb) {
+        cur_bmp_revnum = sb->getBmpRevnum();
+    } else {
+        cur_bmp_revnum = 0;
+    }
 
     if (handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
         earliest_txn = handle->file->getWal()->getEarliestTxn_Wal(
@@ -4073,44 +4085,44 @@ fdb_commit_start:
         handle->file->getGlobalTxn()->prev_revnum = handle->cur_header_revnum;
     }
 
-    if (handle->file->getSb()) {
+    if (sb) {
         // sync superblock
-        sb_update_header(handle);
-        if (sb_check_sync_period(handle) && wal_flushed) {
+        sb->updateHeader(handle);
+        if (sb->checkSyncPeriod() && wal_flushed) {
             sb_decision_t decision;
             bool block_reclaimed = false;
 
-            decision = sb_check_block_reusing(handle);
+            decision = sb->checkBlockReuse(handle);
             if (decision == SBD_RECLAIM) {
                 // gather reusable blocks
                 handle->bhandle->discardBlocks();
-                block_reclaimed = sb_reclaim_reusable_blocks(handle);
+                block_reclaimed = sb->reclaimReusableBlocks(handle);
                 if (block_reclaimed) {
-                    sb_bmp_append_doc(handle);
+                    sb->appendBmpDoc(handle);
                 }
             } else if (decision == SBD_RESERVE) {
                 // reserve reusable blocks
                 handle->bhandle->discardBlocks();
-                block_reclaimed = sb_reserve_next_reusable_blocks(handle);
+                block_reclaimed = sb->reserveNextReusableBlocks(handle);
                 if (block_reclaimed) {
-                    sb_rsv_append_doc(handle);
+                    sb->appendRsvBmpDoc(handle);
                 }
             } else if (decision == SBD_SWITCH) {
                 // switch reserved reusable blocks
                 handle->bhandle->discardBlocks();
-                sb_switch_reserved_blocks(handle->file);
+                sb->switchReservedBlocks();
             }
             // header should be updated one more time
             // since block reclaiming or stale block gathering changes root nodes
             // of each tree. but at this time we don't increase header revision number.
             handle->cur_header_revnum = fdb_set_file_header(handle, false);
-            sb_update_header(handle);
-            sb_sync_circular(handle);
+            sb->updateHeader(handle);
+            sb->syncCircular(handle);
             // reset allocation counter for next reclaim check
-            sb_reset_num_alloc(handle);
+            sb->resetNumAlloc();
         } else {
             // update superblock for every commit
-            sb_sync_circular(handle);
+            sb->syncCircular(handle);
         }
     }
 
@@ -4205,10 +4217,12 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
     new_file->getGlobalTxn()->prev_hdr_bid = handle->last_hdr_bid;
     // file header should be set after stale-block tree is updated.
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
-    if (handle->file->getSb()) {
+
+    SuperblockBase *sb = handle->file->getSb();
+    if (sb) {
         // sync superblock
-        sb_update_header(handle);
-        sb_sync_circular(handle);
+        sb->updateHeader(handle);
+        sb->syncCircular(handle);
     }
     status = new_file->commit_FileMgr(
                               !(handle->config.durability_opt & FDB_DRB_ASYNC),
@@ -4530,7 +4544,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
         if (ver_superblock_support(handle->file->getVersion()) &&
             offset >= filesize && cur_bmp_revnum < stop_bmp_revnum) {
             // circular scan
-            offset = blocksize * handle->file->getSb()->config->num_sb;
+            offset = blocksize * handle->file->getSb()->getConfig().num_sb;
             cur_bmp_revnum++;
         }
     } while(true);
@@ -5394,7 +5408,12 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
         if (rhandle->config.block_reusing_threshold > 0 &&
             rhandle->config.block_reusing_threshold < 100) {
             // block reuse is enabled
-            if (old_hdr_revnum < sb_get_min_live_revnum(rhandle->file)) {
+            SuperblockBase *sb = rhandle->file->getSb();
+            uint64_t sb_min_live_revnum = 0;
+            if (sb) {
+                sb_min_live_revnum = sb->getMinLiveHdrRevnum();
+            }
+            if (old_hdr_revnum < sb_min_live_revnum) {
                 // gone past the last live header
                 return FDB_RESULT_NO_DB_INSTANCE;
             }
@@ -6237,7 +6256,7 @@ move_delta_next_loop:
         if (ver_superblock_support(handle->file->getVersion()) &&
             offset >= file_limit && cur_bmp_revnum < stop_bmp_revnum) {
             // circular scan
-            offset = blocksize * handle->file->getSb()->config->num_sb;
+            offset = blocksize * handle->file->getSb()->getConfig().num_sb;
             cur_bmp_revnum++;
         }
     } while (true);
@@ -6696,6 +6715,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     fdb_seqnum_t seqnum;
     uint64_t new_file_kv_info_offset = BLK_NOT_FOUND;
     struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+    SuperblockBase *sb = handle->file->getSb();
 
     // Copy the old file's seqnum to the new file.
     // (KV instances' seq numbers will be copied along with the KV header)
@@ -6737,7 +6757,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    sb_return_reusable_blocks(handle);
+    sb->returnReusableBlocks(handle);
 
     // last header should be appended at the end of the file
     handle->last_hdr_bid = handle->file->getPos() /
@@ -6763,11 +6783,10 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     }
 
     handle->bhandle->resetSubblockInfo();
-
-    if (handle->file->getSb()) {
+    if (sb) {
         // sync superblock
-        sb_update_header(handle);
-        sb_sync_circular(handle);
+        sb->updateHeader(handle);
+        sb->syncCircular(handle);
     }
 
     // Mark new file as newly compacted
@@ -6930,10 +6949,10 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     //  during the last loop of delta move; new index root node
     //  should be stored in the DB header).
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
-    if (handle->file->getSb()) {
+    if (sb) {
         // sync superblock
-        sb_update_header(handle);
-        sb_sync_circular(handle);
+        sb->updateHeader(handle);
+        sb->syncCircular(handle);
     }
     fs = handle->file->commit_FileMgr(false, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -7243,13 +7262,13 @@ fdb_status _fdb_close_root(FdbKvsHandle *handle)
         _fdb_abort_transaction(handle);
     }
 
-    if (handle->file->getSb() &&
-        !(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+    SuperblockBase *sb = handle->file->getSb();
+    if (sb && !(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
         // sync superblock before close (only for writable handles)
         fdb_sync_db_header(handle);
-        bool updated = sb_update_header(handle);
+        bool updated = sb->updateHeader(handle);
         if (updated) {
-            sb_sync_circular(handle);
+            sb->syncCircular(handle);
         }
     }
 
@@ -7645,8 +7664,15 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     fdb_check_file_reopen(handle, &fMgrStatus);
     fdb_sync_db_header(handle);
 
+
+    SuperblockBase *sb = handle->file->getSb();
+    uint64_t sb_min_live_revnum = 0;
+    if (sb) {
+        sb->getMinLiveHdrRevnum();
+    }
+
     // There are as many DB headers in a file as the file's header revision num
-    array_size = handle->cur_header_revnum - sb_get_min_live_revnum(handle->file);
+    array_size = handle->cur_header_revnum - sb_min_live_revnum;
     if (!array_size) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
@@ -7691,7 +7717,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             break; // header doesn't exist, terminate iteration
         }
         if (ver_superblock_support(version) &&
-            revnum < sb_get_min_live_revnum(handle->file)) {
+            revnum < sb_min_live_revnum) {
             break; // eariler than the last block reclaiming
         }
 

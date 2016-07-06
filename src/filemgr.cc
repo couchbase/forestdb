@@ -81,7 +81,7 @@ static bool lazy_file_deletion_enabled = false;
 static register_file_removal_func register_file_removal = NULL;
 static check_file_removal_func is_file_removed = NULL;
 
-static struct sb_ops sb_ops;
+static superblock_init_cb sb_initializer = NULL;
 
 static void spin_init_wrap(void *lock) {
     spin_init((spin_t*)lock);
@@ -404,7 +404,6 @@ void FileMgr::init(FileMgrConfig *config)
 
         spin_lock(&initial_lock);
         if (!fileMgrInitialized) {
-            memset(&sb_ops, 0x0, sizeof(sb_ops));
             global_config = *config;
 
             if (global_config.getNcacheBlock() > 0)
@@ -434,9 +433,9 @@ void FileMgr::setLazyFileDeletion(bool enable,
     is_file_removed = check_func;
 }
 
-void FileMgr::setSbOperation(struct sb_ops ops)
+void FileMgr::setSbInitializer(superblock_init_cb func)
 {
-    sb_ops = ops;
+    sb_initializer = func;
 }
 
 static void * _filemgr_get_temp_buf()
@@ -452,7 +451,7 @@ static void * _filemgr_get_temp_buf()
         void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
-                     global_config.getBlockSize() + sizeof(struct temp_buf_item));
+                global_config.getBlockSize() + sizeof(struct temp_buf_item));
 
         item = (struct temp_buf_item *)((uint8_t *) addr +
                                         global_config.getBlockSize());
@@ -546,9 +545,9 @@ ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
 }
 
 int FileMgr::isWritable(bid_t bid) {
-    if (sb_bmp_exists(fMgrSb) && sb_ops.is_writable) {
+    if (fMgrSb && fMgrSb->bmpExists()) {
         // block reusing is enabled
-        return sb_ops.is_writable(this, bid);
+        return fMgrSb->isWritable(bid);
     } else {
         uint64_t pos = bid * blockSize;
         // Note that we don't need to grab fMgrLock here because
@@ -561,8 +560,8 @@ int FileMgr::isWritable(bid_t bid) {
 }
 
 uint64_t FileMgr::getSbBmpRevnum() {
-    if (fMgrSb && sb_ops.get_bmp_revnum) {
-        return sb_ops.get_bmp_revnum(this);
+    if (fMgrSb) {
+        return fMgrSb->getBmpRevnum();
     } else {
         return 0;
     }
@@ -594,8 +593,8 @@ static fdb_status _filemgr_read_header(FileMgr *file,
 
     if (file->getSb()) {
         // superblock exists .. file size does not start from zero.
-        min_filesize = file->getSb()->config->num_sb * file->getBlockSize();
-        bid_t sb_last_hdr_bid = file->getSb()->last_hdr_bid.load();
+        min_filesize = file->getSb()->getConfig().num_sb * file->getBlockSize();
+        bid_t sb_last_hdr_bid = file->getSb()->getLastHdrBid();
         if (sb_last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
@@ -904,16 +903,21 @@ static fdb_status _filemgr_load_sb(FileMgr *file,
                                    ErrLogCallback *log_callback)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
-    struct sb_config sconfig;
 
-    if (sb_ops.init && sb_ops.get_default_config && sb_ops.read_latest) {
-        sconfig = sb_ops.get_default_config();
+    if (sb_initializer) {
+        if (!file->getSb()) {
+            sb_initializer(file);
+        }
         if (file->getPos()) {
             // existing file
-            status = sb_ops.read_latest(file, sconfig, log_callback);
+            status = file->getSb()->readLatest(log_callback);
         } else {
             // new file
-            status = sb_ops.init(file, sconfig, log_callback);
+            status = file->getSb()->init(log_callback);
+        }
+        if (status != FDB_RESULT_SUCCESS) {
+            delete file->getSb();
+            file->setSb(nullptr);
         }
     }
 
@@ -1134,9 +1138,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
                            status, "READ", filename.c_str());
             FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
-            if (file->getSb()) {
-                sb_ops.release(file);
-            }
+            delete file->getSb();
             delete file->staleData;
             delete file->fileConfig;
             delete file;
@@ -1146,7 +1148,7 @@ filemgr_open_result FileMgr::open(std::string filename,
         }
 
         if (file->getSb() &&
-            file->accessHeader()->revnum != file->getSb()->last_hdr_revnum.load()) {
+            file->accessHeader()->revnum != file->getSb()->getLastHdrRevnum()) {
             // superblock exists but the corresponding DB header does not match.
             // read another candidate.
             continue;
@@ -1438,9 +1440,9 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
             memcpy(&_revnum, _buf + hdr_len, sizeof(filemgr_header_revnum_t));
             cur_revnum = _endian_decode(_revnum);
 
-            if (sb_bmp_exists(fMgrSb)) {
+            if (fMgrSb && fMgrSb->bmpExists()) {
                 // first check revnum
-                if (cur_revnum <= sb_ops.get_min_live_revnum(this)) {
+                if (cur_revnum <= fMgrSb->getMinLiveHdrRevnum()) {
                     // previous headers already have been reclaimed
                     // no more logical prev header
                     break;
@@ -1503,8 +1505,8 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
         memcpy(&_revnum, _buf + hdr_len,
                sizeof(filemgr_header_revnum_t));
         prev_revnum = _endian_decode(_revnum);
-        if (prev_revnum >= cur_revnum ||
-                prev_revnum < sb_ops.get_min_live_revnum(this)) {
+        if ( prev_revnum >= cur_revnum ||
+             prev_revnum < fMgrSb->getMinLiveHdrRevnum() ) {
             // no more prev header, or broken linked list
             break;
         }
@@ -1781,9 +1783,7 @@ void FileMgr::freeFunc(FileMgr *file)
     }
 
     // free superblock
-    if (sb_ops.release) {
-        sb_ops.release(file);
-    }
+    delete file->getSb();
 
     // free file structure
     delete file->staleData;
@@ -1890,9 +1890,8 @@ bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
 
     // block reusing is not allowed for being compacted file
     // for easy implementation.
-    if (getFileStatus() == FILE_NORMAL &&
-        fMgrSb && sb_ops.alloc_block) {
-        bid = sb_ops.alloc_block(this);
+    if (getFileStatus() == FILE_NORMAL && fMgrSb) {
+        bid = fMgrSb->allocBlock();
     }
     if (bid == BLK_NOT_FOUND) {
         bid = lastPos.load() / blockSize;
@@ -2235,9 +2234,9 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
         return FDB_RESULT_WRITE_FAIL;
     }
 
-    if (sb_bmp_exists(fMgrSb)) {
+    if (fMgrSb && fMgrSb->bmpExists()) {
         // block reusing is enabled
-        if (!sb_ops.is_writable(this, bid)) {
+        if (!fMgrSb->isWritable(bid)) {
             const char *msg = "Write error: trying to write at the offset "
                               "%" _F64 " that is not identified as a reusable "
                               "block in a database file '%s'";
@@ -2248,7 +2247,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
     } else if (pos < curr_commit_pos) {
         // stale blocks are not reused yet
         if (fMgrSb == NULL ||
-            (fMgrSb && pos >= fMgrSb->config->num_sb * blockSize)) {
+            (fMgrSb && pos >= fMgrSb->getConfig().num_sb * blockSize)) {
             // (non-sequential update is exceptionally allowed for superblocks)
             const char *msg = "Write error: trying to write at the offset "
                               "%" _F64 " that is smaller than the current "
@@ -2405,8 +2404,8 @@ fdb_status FileMgr::write_FileMgr(bid_t bid, void *buf,
 fdb_status FileMgr::commit_FileMgr(bool sync, ErrLogCallback *log_callback) {
     // append header at the end of the file
     uint64_t bmp_revnum = 0;
-    if (sb_ops.get_bmp_revnum) {
-        bmp_revnum = sb_ops.get_bmp_revnum(this);
+    if (fMgrSb) {
+        bmp_revnum = fMgrSb->getBmpRevnum();
     }
     return commitBid(BLK_NOT_FOUND, bmp_revnum, sync, log_callback);
 }
@@ -2554,11 +2553,11 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
         _filemgr_release_temp_buf(buf);
     }
 
-    if (sb_bmp_exists(fMgrSb) &&
-        fMgrSb->cur_alloc_bid.load() != BLK_NOT_FOUND &&
+    if (fMgrSb && fMgrSb->bmpExists() &&
+        fMgrSb->getCurAllocBid() != BLK_NOT_FOUND &&
         fMgrStatus.load() == FILE_NORMAL) {
         // block reusing is currently enabled
-        lastCommit.store(fMgrSb->cur_alloc_bid.load() * blockSize);
+        lastCommit.store(fMgrSb->getCurAllocBid() * blockSize);
     } else {
         lastCommit.store(lastPos.load());
     }
@@ -2888,9 +2887,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                         destroy_set->clear();
                     }
                     FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
-                    if (sb_ops.release && disk_file.fMgrSb) {
-                        sb_ops.release(&disk_file);
-                    }
+                    delete disk_file.fMgrSb;
                     return status;
                 }
                 if (disk_file.fMgrHeader.data) {
@@ -2917,9 +2914,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     disk_file.fMgrHeader.data = nullptr;
                 }
                 FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
-                if (sb_ops.release && disk_file.fMgrSb) {
-                    sb_ops.release(&disk_file);
-                }
+                delete disk_file.fMgrSb;
                 if (status == FDB_RESULT_SUCCESS) {
                     if (filemgr_does_file_exist(filename.c_str())
                                                == FDB_RESULT_SUCCESS) {

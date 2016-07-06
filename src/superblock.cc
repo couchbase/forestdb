@@ -113,730 +113,160 @@ INLINE int _bmp_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 #endif
 }
 
-static void _add_bmp_idx(struct avl_tree *bmp_idx, bid_t bid, bid_t count)
-{
-    bid_t cur, start_id, stop_id;
-    struct avl_node *a;
-    struct bmp_idx_node *item, query;
-
-    // 256 blocks per node
-    start_id = bid >> 8;
-    stop_id = (bid+count-1) >> 8;
-
-    for (cur=start_id; cur<=stop_id; ++cur) {
-        query.id = cur;
-        a = avl_search(bmp_idx, &query.avl, _bmp_idx_cmp);
-        if (a) {
-            // already exists .. do nothing
-        } else {
-            // create a node
-            item = (struct bmp_idx_node*)calloc(1, sizeof(struct bmp_idx_node));
-            item->id = query.id;
-            avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
-        }
-    }
+Superblock::Superblock(FileMgr *_file, struct sb_config _sconfig) {
+    _init(_file, _sconfig);
 }
 
-static void _free_bmp_idx(struct avl_tree *bmp_idx)
-{
-    // free all supplemental bmp idx nodes
-    struct avl_node *a;
-    struct bmp_idx_node *item;
-    a = avl_first(bmp_idx);
-    while (a) {
-        item = _get_entry(a, struct bmp_idx_node, avl);
-        a = avl_next(a);
-        avl_remove(bmp_idx, &item->avl);
-        free(item);
-    }
+Superblock::~Superblock() {
+    _free();
 }
 
-static void _construct_bmp_idx(struct avl_tree *bmp_idx,
-                               uint8_t *bmp,
-                               uint64_t bmp_size,
-                               bid_t start_bid)
-{
-    uint64_t i, node_idx;
-    uint64_t *bmp64 = (uint64_t*)bmp;
-    struct bmp_idx_node *item;
-
-    if (start_bid == BLK_NOT_FOUND) {
-        start_bid = 0;
-    }
-
-    // Since a single byte includes 8 bitmaps, an 8-byte integer contains 64 bitmaps.
-    // By converting bitmap array to uint64_t array, we can quickly verify if a
-    // 64-bitmap-group has at least one non-zero bit or not.
-    for (i=start_bid/64; i<bmp_size/64; ++i) {
-        // in this loop, 'i' denotes bitmap group number.
-        node_idx = i/4;
-        if (bmp64[i]) {
-            item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
-            item->id = node_idx;
-            avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
-            // skip other bitmaps in the same bitmap index node
-            // (1 bitmap index node == 4 bitmap groups == 256 bitmaps)
-            i = (node_idx+1)*4;
-        }
-    }
-
-    // If there are remaining bitmaps, check if they are non-zero or not one by one.
-    if (bmp_size % 64) {
-        uint8_t off;
-        uint64_t idx, start;
-
-        start = (bmp_size/64)*64;
-        if (start < start_bid) {
-            start = start_bid;
-        }
-
-        for (i=start; i<bmp_size; ++i) {
-            // in this loop, 'i' denotes bitmap number (i.e., BID).
-            idx = div8(i);
-            off = mod8(i);
-            if (bmp[idx] & bmp_basic_mask[off]) {
-                node_idx = i >> 8;
-                item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
-                item->id = node_idx;
-                avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
-                i = (node_idx+1)*256;
-            }
-        }
-    }
+void Superblock::_init(FileMgr *_file, struct sb_config sconfig) {
+    file = _file;
+    config = sconfig;
+    revnum = 0;
+    bmpRevnum = 0;
+    bmpSize = 0;
+    bmp = NULL;
+    bmpRCount = 0;
+    bmpWCount = 0;
+    spin_init(&bmpLock);
+    bmpPrevSize = 0;
+    bmpPrev = NULL;
+    bmpDocOffset = NULL;
+    bmpDocs = NULL;
+    numBmpDocs = 0;
+    numInitFreeBlocks = 0;
+    numFreeBlocks = 0;
+    curAllocBid = BLK_NOT_FOUND;
+    lastHdrBid = BLK_NOT_FOUND;
+    minLiveHdrRevnum = 0;
+    minLiveHdrBid = BLK_NOT_FOUND;
+    lastHdrRevnum = 0;
+    numAlloc = 0;
+    rsvBmp = NULL;
+    avl_init(&bmpIdx, NULL);
+    spin_init(&lock);
 }
 
-INLINE size_t _bmp_size_to_num_docs(uint64_t bmp_size)
-{
-    if (bmp_size) {
-        // 8 bitmaps per byte
-        uint64_t num_bits_per_doc = 8 * SB_MAX_BITMAP_DOC_SIZE;
-        return (bmp_size + num_bits_per_doc - 1) / num_bits_per_doc;
-    } else {
-        return 0;
-    }
-}
-
-INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
-{
-    return (bmp[div8(bid)] & bmp_basic_mask[mod8(bid)]);
-}
-
-static void sb_bmp_barrier_on(struct superblock *sb)
-{
-    sb->bmp_rcount++;
-    if (sb->bmp_wcount.load()) {
-        // now bmp pointer & related variables are being changed.
-        // decrease count and grab lock until the change is done.
-        sb->bmp_rcount--;
-        spin_lock(&sb->bmp_lock);
-
-        // got control: means that change is done.
-        // re-increase the count
-        sb->bmp_rcount++;
-        spin_unlock(&sb->bmp_lock);
-    }
-}
-
-static void sb_bmp_barrier_off(struct superblock *sb)
-{
-    sb->bmp_rcount--;
-}
-
-static void sb_bmp_change_begin(struct superblock *sb)
-{
-    // grab lock and increase writer count
-    // now new readers cannot increase the reader count
-    // (note that there is always one bitmap writer at a time)
-    spin_lock(&sb->bmp_lock);
-    sb->bmp_wcount++;
-
-    // wait until previous BMP readers terminate
-    // (they are very short bitmap accessing routines so that
-    //  will not take long time).
-    size_t spin = 0;
-    while (sb->bmp_rcount.load()) {
-       if (++spin > 64) {
-#ifdef HAVE_SCHED_H
-            sched_yield();
-#elif _MSC_VER
-            SwitchToThread();
-#endif
-       }
-    }
-
-    // now 1) all previous readers terminated
-    //     2) new readers will be blocked
-}
-
-static void sb_bmp_change_end(struct superblock *sb)
-{
-    sb->bmp_wcount--;
-    spin_unlock(&sb->bmp_lock);
-    // now resume all pending readers
-}
-
-void sb_bmp_append_doc(FdbKvsHandle *handle)
-{
-    // == write bitmap into system docs ==
-    // calculate # docs (1MB by default)
-    // (1MB bitmap covers 32GB DB file)
-    size_t i;
-    uint64_t num_docs;
-    char doc_key[64];
-    struct superblock *sb = handle->file->getSb();
-
-    // mark stale if previous doc offset exists
-    if (sb->bmp_doc_offset) {
-        for (i=0; i<sb->num_bmp_docs; ++i) {
-            handle->file->markStale(sb->bmp_doc_offset[i],
-                                    _fdb_get_docsize(sb->bmp_docs[i].length));
-        }
-
-        free(sb->bmp_doc_offset);
-        free(sb->bmp_docs);
-        sb->bmp_doc_offset = NULL;
-        sb->bmp_docs = NULL;
-    }
-
-    uint64_t sb_bmp_size = sb->bmp_size.load();
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
-    if (num_docs) {
-        sb->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
-        sb->bmp_docs = (struct docio_object*)
-                       calloc(num_docs, sizeof(struct docio_object));
-    }
-
-    // bitmap doc offsets
-    for (i=0; i<num_docs; ++i) {
-        // append a system doc for bitmap chunk
-        memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
-        sprintf(doc_key, "bitmap_%" _F64 "_%d", sb->bmp_revnum, (int)i);
-        sb->bmp_docs[i].key = (void*)doc_key;
-        sb->bmp_docs[i].meta = NULL;
-        sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
-
-        sb->bmp_docs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
-        sb->bmp_docs[i].length.metalen = 0;
-        if (i == num_docs - 1) {
-            // the last doc
-            sb->bmp_docs[i].length.bodylen =
-                (sb_bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
-        } else {
-            // otherwise: 1MB
-            sb->bmp_docs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
-        }
-        sb->bmp_docs[i].seqnum = 0;
-        sb->bmp_doc_offset[i] =
-            handle->dhandle->appendSystemDoc_Docio(&sb->bmp_docs[i]);
-    }
-}
-
-void sb_rsv_append_doc(FdbKvsHandle *handle)
+fdb_status Superblock::init(ErrLogCallback * log_callback)
 {
     size_t i;
-    uint64_t num_docs;
-    char doc_key[64];
-    struct superblock *sb = handle->file->getSb();
-    struct sb_rsv_bmp *rsv = NULL;
+    bid_t sb_bid;
+    fdb_status fs;
 
-    if (!sb) {
-        return;
-    }
-
-    rsv = sb->rsv_bmp;
-    if (!rsv || rsv->status.load() != SB_RSV_INITIALIZING) {
-        return;
-    }
-
-    rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
-    if (num_docs) {
-        rsv->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
-        rsv->bmp_docs = (struct docio_object*)
-                        calloc(num_docs, sizeof(struct docio_object));
-    }
-
-    // bitmap doc offsets
-    for (i=0; i<num_docs; ++i) {
-        // append a system doc for bitmap chunk
-        memset(&rsv->bmp_docs[i], 0x0, sizeof(struct docio_object));
-        sprintf(doc_key, "bitmap_%" _F64 "_%d", rsv->bmp_revnum, (int)i);
-        rsv->bmp_docs[i].key = (void*)doc_key;
-        rsv->bmp_docs[i].meta = NULL;
-        rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
-
-        rsv->bmp_docs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
-        rsv->bmp_docs[i].length.metalen = 0;
-        if (i == num_docs - 1) {
-            // the last doc
-            rsv->bmp_docs[i].length.bodylen =
-                (rsv->bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
-        } else {
-            // otherwise: 1MB
-            rsv->bmp_docs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
-        }
-        rsv->bmp_docs[i].seqnum = 0;
-        rsv->bmp_doc_offset[i] =
-            handle->dhandle->appendSystemDoc_Docio(&rsv->bmp_docs[i]);
-    }
-
-    // now 'rsv_bmp' is available.
-    rsv->status = SB_RSV_READY;
-}
-
-fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
-{
-    // == read bitmap from system docs ==
-    size_t i;
-    uint64_t num_docs;
-    int64_t r_offset;
-    char doc_key[64];
-    struct superblock *sb = handle->file->getSb();
-    struct sb_rsv_bmp *rsv = NULL;
-
-    // skip if previous bitmap exists OR
-    // there is no bitmap to be fetched (fast screening)
-    if (sb->bmp.load(std::memory_order_relaxed) ||
-        sb->bmp_size.load() == 0) {
+    // exit if superblock is already initialized.
+    if (revnum) {
         return FDB_RESULT_SUCCESS;
     }
-
-    spin_lock(&sb->lock);
-
-    // check once again if superblock is already initialized
-    // while the thread was blocked by the lock.
-    if (sb->bmp.load(std::memory_order_relaxed)) {
-        spin_unlock(&sb->lock);
-        return FDB_RESULT_SUCCESS;
+    // no data should be written in the file before initialization of superblock.
+    if (file->getPos() > 0) {
+        return FDB_RESULT_SB_INIT_FAIL;
     }
 
-    uint64_t sb_bmp_size = sb->bmp_size.load();
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
-    if (!num_docs) {
-        spin_unlock(&sb->lock);
-        return FDB_RESULT_SUCCESS;
+    // initialize staleData instance if not exist
+    if (!file->getStaleData()) {
+        file->setStaleData(new StaleDataManager(file));
     }
 
-    free(sb->bmp);
-    sb->bmp = (uint8_t*)calloc(1, (sb_bmp_size+7) / 8);
+    file->setVersion(ver_get_latest_magic());
 
-    for (i=0; i<num_docs; ++i) {
-        memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
-        // pre-allocated buffer for key
-        sb->bmp_docs[i].key = (void*)doc_key;
-        // directly point to the bitmap
-        sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+    // write initial superblocks
+    for (i=0; i<config.num_sb; ++i) {
+        // allocate
+        sb_bid = file->alloc_FileMgr(log_callback);
+        if (sb_bid != i) {
+            // other data was written during sb_write .. error
+            fs = FDB_RESULT_SB_RACE_CONDITION;
+            fdb_log(log_callback, fs,
+                    "Other writer interfered during sb_write (number: %" _F64 ")",
+                    i);
+            return fs;
+        }
 
-        r_offset = handle->dhandle->readDoc_Docio(sb->bmp_doc_offset[i],
-                                  &sb->bmp_docs[i], true);
-        if (r_offset <= 0) {
-            // read fail
-            free(sb->bmp);
-            sb->bmp = NULL;
-
-            spin_unlock(&sb->lock);
-            return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
+        fs = writeSb(i, log_callback);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
         }
     }
 
-    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb_bmp_size,
-                       sb->cur_alloc_bid.load());
-
-    rsv = sb->rsv_bmp;
-    if (rsv && rsv->status.load() == SB_RSV_INITIALIZING) {
-        // reserved bitmap exists
-        rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
-        if (!num_docs) {
-            spin_unlock(&sb->lock);
-            return FDB_RESULT_SUCCESS;
-        }
-
-        rsv->bmp = (uint8_t*)calloc(1, (rsv->bmp_size+7) / 8);
-
-        for (i=0; i<num_docs; ++i) {
-
-            memset(&rsv->bmp_docs[i], 0x0, sizeof(struct docio_object));
-            // pre-allocated buffer for key
-            rsv->bmp_docs[i].key = (void*)doc_key;
-            // directly point to the (reserved) bitmap
-            rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
-
-            r_offset = handle->dhandle->readDoc_Docio(rsv->bmp_doc_offset[i],
-                                      &rsv->bmp_docs[i], true);
-            if (r_offset <= 0) {
-                // read fail
-                free(rsv->bmp);
-                free(sb->bmp);
-                rsv->bmp = sb->bmp = NULL;
-
-                spin_unlock(&sb->lock);
-                return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
-            }
-        }
-
-        _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size, 0);
-        rsv->status = SB_RSV_READY;
-    }
-
-    spin_unlock(&sb->lock);
     return FDB_RESULT_SUCCESS;
 }
 
-bool sb_check_sync_period(FdbKvsHandle *handle)
+fdb_status Superblock::readLatest(ErrLogCallback *log_callback)
 {
-    struct superblock *sb = handle->file->getSb();
-
-    if (sb && sb->num_alloc * handle->file->getBlockSize() > SB_SYNC_PERIOD) {
-        return true;
-    }
-    return false;
-}
-
-bool sb_update_header(FdbKvsHandle *handle)
-{
-    bool ret = false;
-    struct superblock *sb = handle->file->getSb();
-
-    if (sb && (sb->last_hdr_bid.load() != handle->last_hdr_bid) &&
-        (sb->last_hdr_revnum.load() < handle->cur_header_revnum)) {
-
-        sb->last_hdr_bid = handle->last_hdr_bid;
-        sb->last_hdr_revnum.store(handle->cur_header_revnum.load());
-
-        uint64_t lw_revnum = handle->file->getLastWritableBmpRevnum();
-        if (lw_revnum == sb->bmp_revnum &&
-            sb->bmp_prev) {
-            free(sb->bmp_prev);
-            sb->bmp_prev = NULL;
-        }
-        ret = true;
-    }
-
-    return ret;
-}
-
-void sb_reset_num_alloc(FdbKvsHandle *handle)
-{
-    if (handle->file->getSb()) {
-        handle->file->getSb()->num_alloc = 0;
-    }
-}
-
-fdb_status sb_sync_circular(FdbKvsHandle *handle)
-{
-    uint64_t sb_revnum;
+    size_t i, max_sb_no = config.num_sb;
+    uint64_t max_revnum = 0;
+    uint64_t revnum_limit = static_cast<uint64_t>(-1);
     fdb_status fs;
+    std::vector<Superblock *> sb_arr;
+    //Superblock **sb_arr = new Superblock*[config.num_sb];
 
-    sb_revnum = handle->file->getSb()->revnum.load();
-    fs = sb_write(handle->file,
-                  sb_revnum % handle->file->getSb()->config->num_sb,
-                  &handle->log_callback);
-    return fs;
+    // initialize staleData instance if not exist
+    if (!file->getStaleData()) {
+        file->setStaleData(new StaleDataManager(file));
+    }
+
+    if (revnum) {
+        // Superblock is already read previously.
+        // This means that there are some problems with the current superblock
+        // so that we have to read another candidate.
+
+        // Note: 'sb->revnum' denotes the revnum of next superblock to be
+        // written, so we need to subtract 1 from it to get the revnum of
+        // the current superblock successfully read from the file.
+        revnum_limit = revnum.load() - 1;
+        _free();
+    }
+
+    // read all superblocks
+    for (i=0; i<config.num_sb; ++i) {
+        sb_arr.push_back(new Superblock(file, config));
+        fs = sb_arr[i]->readGivenNum(i, log_callback);
+
+        uint64_t cur_revnum = sb_arr[i]->getRevnum();
+        if (fs == FDB_RESULT_SUCCESS &&
+            cur_revnum >= max_revnum &&
+            cur_revnum < revnum_limit) {
+            max_sb_no = i;
+            max_revnum = cur_revnum;
+        }
+    }
+
+    if (max_sb_no == config.num_sb) {
+        // all superblocks are broken
+        fs = FDB_RESULT_SB_READ_FAIL;
+        for (i=0; i<config.num_sb; ++i) {
+            delete sb_arr[i];
+        }
+        // no readable superblock
+        // (if not corrupted, it may be a normal old version file)
+        return fs;
+    }
+
+    // re-read the target superblock
+    readGivenNum(max_sb_no, log_callback);
+
+    // set last commit position
+    if (curAllocBid.load() != BLK_NOT_FOUND) {
+        file->setLastCommit(curAllocBid.load() * file->getConfig()->getBlockSize());
+    } else {
+        // otherwise, last_commit == file->pos
+        // (already set by FileMgr::open() function)
+    }
+
+    revnum++;
+    avl_init(&bmpIdx, NULL);
+
+    // free temporary superblocks
+    for (i=0; i<config.num_sb; ++i) {
+        delete sb_arr[i];
+    }
+
+    return FDB_RESULT_SUCCESS;
 }
 
-sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
-
-{
-    // start block reusing when
-    // 1) if blocks are not reused yet in this file:
-    //    when file size becomes larger than the threshold
-    // 2) otherwise:
-    //    when # free blocks decreases under the threshold
-
-    uint64_t live_datasize;
-    uint64_t filesize;
-    uint64_t ratio;
-    struct superblock *sb = handle->file->getSb();
-
-    if (!sb) {
-        return SBD_NONE;
-    }
-
-    if (handle->file->getFileStatus() != FILE_NORMAL) {
-        // being compacted file does not allow block reusing
-        return SBD_NONE;
-    }
-
-    uint64_t block_reusing_threshold =
-                        handle->file->getConfig()->getBlockReusingThreshold();
-    if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
-        // circular block reusing is disabled
-        return SBD_NONE;
-    }
-
-    filesize = handle->file->getPos();
-    if (filesize < SB_MIN_BLOCK_REUSING_FILESIZE) {
-        return SBD_NONE;
-    }
-
-    // at least # keeping headers should exist
-    // since the last block reusing
-    if (handle->cur_header_revnum <=
-        sb->min_live_hdr_revnum + handle->file->getConfig()->getNumKeepingHeaders()) {
-        return SBD_NONE;
-    }
-
-    live_datasize = fdb_estimate_space_used(handle->fhandle);
-    if (filesize == 0 || live_datasize == 0 ||
-        live_datasize > filesize) {
-        return SBD_NONE;
-    }
-
-    ratio = (filesize - live_datasize) * 100 / filesize;
-
-    if (ratio > block_reusing_threshold) {
-        if (!sb_bmp_exists(sb)) {
-            // block reusing has not been started yet
-            return SBD_RECLAIM;
-        } else {
-            // stale blocks are already being reused before
-            if (sb->num_free_blocks == 0) {
-                if (sb->rsv_bmp) {
-                    // reserved bitmap exists
-                    return SBD_SWITCH;
-                } else {
-                    // re-reclaim
-                    return SBD_RECLAIM;
-                }
-            } else if ( (sb->num_free_blocks * 100 <
-                         sb->num_init_free_blocks * SB_PRE_RECLAIM_RATIO)) {
-                if (sb->num_init_free_blocks * handle->file->getConfig()->getBlockSize()
-                    > SB_MIN_BLOCK_REUSING_FILESIZE)  {
-                    return SBD_RESERVE;
-                }
-            }
-        }
-    }
-
-    return SBD_NONE;
-}
-
-bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
-{
-    size_t i;
-    uint64_t num_blocks, bmp_size_byte;
-    stale_header_info sheader;
-    reusable_block_list blist;
-    struct superblock *sb = handle->file->getSb();
-
-    // should flush all dirty blocks in cache
-    handle->file->sync_FileMgr(false, &handle->log_callback);
-
-    sheader = fdb_get_smallest_active_header(handle);
-    if (sheader.bid == BLK_NOT_FOUND) {
-        return false;
-    }
-
-    // get reusable block list
-    blist = handle->file->getStaleData()->getReusableBlocks(handle, sheader);
-
-    // update superblock's bitmap
-    uint8_t *new_bmp = NULL, *old_bmp = NULL;
-    num_blocks = handle->file->getPos() / handle->file->getBlockSize();
-    // 8 bitmaps per byte
-    bmp_size_byte = (num_blocks+7) / 8;
-    fdb_assert(num_blocks >= SB_DEFAULT_NUM_SUPERBLOCKS,
-               num_blocks, SB_DEFAULT_NUM_SUPERBLOCKS);
-    new_bmp = (uint8_t*)calloc(1, bmp_size_byte);
-
-    // free pre-existing bmp index
-    _free_bmp_idx(&sb->bmp_idx);
-
-    for (i=0; i<blist.n_blocks; ++i) {
-        sb_bmp_set(new_bmp, blist.blocks[i].bid, blist.blocks[i].count);
-        if (i==0 && sb->cur_alloc_bid.load() == BLK_NOT_FOUND) {
-            sb->cur_alloc_bid.store(blist.blocks[i].bid);
-        }
-        sb->num_free_blocks += blist.blocks[i].count;
-        // add info for supplementary bmp index
-        _add_bmp_idx(&sb->bmp_idx, blist.blocks[i].bid, blist.blocks[i].count);
-    }
-    free(blist.blocks);
-
-    sb_bmp_change_begin(sb);
-    old_bmp = sb->bmp.load(std::memory_order_relaxed);
-    sb->bmp.store(new_bmp, std::memory_order_relaxed);
-    sb->bmp_size = num_blocks;
-    sb->min_live_hdr_revnum = sheader.revnum;
-    sb->min_live_hdr_bid = sheader.bid;
-    sb->bmp_revnum++;
-    sb->num_init_free_blocks = sb->num_free_blocks;
-    sb_bmp_change_end(sb);
-    free(old_bmp);
-
-    return true;
-}
-
-bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
-{
-    size_t i;
-    uint64_t num_blocks, bmp_size_byte;
-    stale_header_info sheader;
-    reusable_block_list blist;
-    struct superblock *sb = handle->file->getSb();
-    struct sb_rsv_bmp *rsv = NULL;
-
-    if (sb->rsv_bmp) {
-        // next bitmap already reclaimed
-        return false;
-    }
-
-    sheader = fdb_get_smallest_active_header(handle);
-    if (sheader.bid == BLK_NOT_FOUND) {
-        return false;
-    }
-
-    // get reusable block list
-    blist = handle->file->getStaleData()->getReusableBlocks(handle, sheader);
-
-    // calculate bitmap size
-    num_blocks = handle->file->getPos() / handle->file->getBlockSize();
-    bmp_size_byte = (num_blocks+7) / 8;
-    if (num_blocks) {
-        rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
-        rsv->bmp = (uint8_t*)calloc(1, bmp_size_byte);
-        rsv->cur_alloc_bid = BLK_NOT_FOUND;
-
-        // the initial status is 'INITIALIZING' so that 'rsv_bmp' is not
-        // available until executing sb_rsv_append_doc().
-        rsv->status = SB_RSV_INITIALIZING;
-        avl_init(&rsv->bmp_idx, NULL);
-        rsv->bmp_size = num_blocks;
-
-        for (i=0; i<blist.n_blocks; ++i) {
-            sb_bmp_set(rsv->bmp, blist.blocks[i].bid, blist.blocks[i].count);
-            if (i==0 && rsv->cur_alloc_bid == BLK_NOT_FOUND) {
-                rsv->cur_alloc_bid = blist.blocks[i].bid;
-            }
-            rsv->num_free_blocks += blist.blocks[i].count;
-            _add_bmp_idx(&rsv->bmp_idx, blist.blocks[i].bid, blist.blocks[i].count);
-        }
-        free(blist.blocks);
-
-        rsv->min_live_hdr_revnum = sheader.revnum;
-        rsv->min_live_hdr_bid = sheader.bid;
-        rsv->bmp_revnum = sb->bmp_revnum+1;
-        sb->rsv_bmp = rsv;
-    }
-
-    return true;
-}
-
-static void _rsv_free(struct sb_rsv_bmp *rsv);
-void sb_return_reusable_blocks(FdbKvsHandle *handle)
-{
-    uint64_t node_id;
-    bid_t cur;
-    struct superblock *sb = handle->file->getSb();
-    struct sb_rsv_bmp *rsv;
-    struct avl_node *a;
-    struct bmp_idx_node *item, query;
-
-    if (!sb) {
-        // we don't need to do this.
-        return;
-    }
-
-    // re-insert all remaining bitmap into stale list
-    uint64_t sb_bmp_size = sb->bmp_size.load();
-    for (cur = sb->cur_alloc_bid.load(); cur < sb_bmp_size; ++cur) {
-        if (_is_bmp_set(sb->bmp, cur)) {
-            handle->file->addStaleBlock(cur, 1);
-        }
-
-        if ((cur % 256) == 0 && cur > 0) {
-            // node ID changes
-            // remove & free current bmp node
-            node_id = cur / 256;
-            query.id = node_id - 1;
-            a = avl_search(&sb->bmp_idx, &query.avl, _bmp_idx_cmp);
-            if (a) {
-                item = _get_entry(a, struct bmp_idx_node, avl);
-                avl_remove(&sb->bmp_idx, a);
-                free(item);
-            }
-
-            // move to next bmp node
-            do {
-                a = avl_first(&sb->bmp_idx);
-                if (a) {
-                    item = _get_entry(a, struct bmp_idx_node, avl);
-                    if (item->id <= node_id) {
-                        avl_remove(&sb->bmp_idx, a);
-                        free(item);
-                        continue;
-                    }
-                    cur = item->id * 256;
-                    break;
-                }
-
-                // no more reusable block
-                cur = sb_bmp_size;
-                break;
-            } while (true);
-        }
-    }
-    sb->num_free_blocks = 0;
-    sb->cur_alloc_bid.store(BLK_NOT_FOUND);
-
-    // do the same work for the reserved blocks if exist
-    rsv = sb->rsv_bmp;
-    uint32_t cond = SB_RSV_READY;
-    if (rsv && rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
-
-        for (cur = rsv->cur_alloc_bid; cur < rsv->bmp_size; ++cur) {
-            if (_is_bmp_set(rsv->bmp, cur)) {
-                handle->file->addStaleBlock(cur, 1);
-            }
-
-            if ((cur % 256) == 0 && cur > 0) {
-                // node ID changes
-                // remove & free current bmp node
-                node_id = cur / 256;
-                query.id = node_id - 1;
-                a = avl_search(&rsv->bmp_idx, &query.avl, _bmp_idx_cmp);
-                if (a) {
-                    item = _get_entry(a, struct bmp_idx_node, avl);
-                    avl_remove(&rsv->bmp_idx, a);
-                    free(item);
-                }
-
-                // move to next bmp node
-                do {
-                    a = avl_first(&rsv->bmp_idx);
-                    if (a) {
-                        item = _get_entry(a, struct bmp_idx_node, avl);
-                        if (item->id <= node_id) {
-                            avl_remove(&rsv->bmp_idx, a);
-                            free(item);
-                            continue;
-                        }
-                        cur = item->id * 256;
-                        break;
-                    }
-
-                    // no more reusable block
-                    cur = rsv->bmp_size;
-                    break;
-                } while (true);
-            }
-        }
-        rsv->num_free_blocks = 0;
-        rsv->cur_alloc_bid = BLK_NOT_FOUND;
-
-        _free_bmp_idx(&rsv->bmp_idx);
-        _rsv_free(rsv);
-        free(rsv);
-        sb->rsv_bmp = NULL;
-    }
-
-    // re-store into stale tree using next header's revnum
-    filemgr_header_revnum_t revnum = handle->cur_header_revnum;
-    handle->file->getStaleData()->gatherRegions(handle, revnum + 1,
-                                                BLK_NOT_FOUND,
-                                                BLK_NOT_FOUND, 0, false );
-}
-
-void sb_bmp_mask_init()
+void Superblock::initBmpMask()
 {
     // preset masks to speed up bitmap set/clear operations
     size_t i, pos, len;
@@ -855,512 +285,30 @@ void sb_bmp_mask_init()
     }
 }
 
-INLINE void _sb_bmp_update(uint8_t *bmp, bid_t bid, uint64_t len, int mode)
+void Superblock::_free()
 {
-    // mode==0: bitmap clear
-    // mode==1: bitmap set
-
-    uint64_t front_pos, front_len, rear_pos, rear_len;
-    uint64_t mid_pos, mid_len;
-
-    //      front_len        rear_len
-    //      <->              <-->
-    // 00000111 | 11111111 | 11110000
-    //      ^     <------> mid
-    //      front_pos
-
-    front_pos = bid;
-    front_len = 8 - mod8(front_pos);
-
-    if (front_len >= len) {
-        front_len = len;
-        rear_pos = rear_len = mid_pos = mid_len = 0;
-    } else {
-        rear_pos = rd8(bid + len);
-        rear_len = mod8(bid + len);
-
-        mid_pos = bid + front_len;
-        mid_len = len - front_len - rear_len;
+    if (rsvBmp) {
+        rsvBmp->status = SB_RSV_VOID;
+        freeBmpIdx(&rsvBmp->bmpIdx);
+        freeRsv(rsvBmp);
+        free(rsvBmp);
     }
+    freeBmpIdx(&bmpIdx);
 
-    // front bitmaps
-    if (front_len) {
-        if (mode) {
-            bmp[div8(front_pos)] |= bmp_2d_mask[mod8(front_pos)][front_len];
-        } else {
-            bmp[div8(front_pos)] &= ~bmp_2d_mask[mod8(front_pos)][front_len];
-        }
-    }
-    // rear bitmaps
-    if (rear_len) {
-        if (mode) {
-            bmp[div8(rear_pos)] |= bmp_2d_mask[mod8(rear_pos)][rear_len];
-        } else {
-            bmp[div8(rear_pos)] &= ~bmp_2d_mask[mod8(rear_pos)][rear_len];
-        }
-    }
+    free(bmp);
+    free(bmpPrev);
+    free(bmpDocOffset);
+    // note that each docio object doesn't need to be freed
+    // as key/body fields point to static memory regions.
+    free(bmpDocs);
+    spin_destroy(&lock);
 
-    // mid bitmaps
-    uint8_t mask = (mode)?(0xff):(0x0);
-    if (mid_len == 8) {
-        // 8 bitmaps (1 byte)
-        bmp[div8(mid_pos)] = mask;
-    } else if (mid_len < 64) {
-        // 16 ~ 56 bitmaps (2 ~ 7 bytes)
-        size_t i;
-        for (i=0; i<mid_len; i+=8) {
-            bmp[div8(mid_pos+i)] = mask;
-        }
-    } else {
-        // larger than 64 bitmaps (8 bytes)
-        memset(bmp + div8(mid_pos), mask, div8(mid_len));
-    }
+    bmp = NULL;
+    bmpDocOffset = NULL;
+    bmpDocs = NULL;
 }
 
-void sb_bmp_set(uint8_t *bmp, bid_t bid, uint64_t len)
-{
-    _sb_bmp_update(bmp, bid, len, 1);
-}
-
-void sb_bmp_clear(uint8_t *bmp, bid_t bid, uint64_t len)
-{
-    _sb_bmp_update(bmp, bid, len, 0);
-}
-
-bool sb_switch_reserved_blocks(FileMgr *file)
-{
-    size_t i;
-    struct superblock *sb = file->getSb();
-    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
-
-    // reserved block should exist
-    if (!rsv) {
-        return false;
-    }
-    // should be in a normal status
-    uint32_t cond = SB_RSV_READY;
-    if (!rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
-        return false;
-    }
-    // now status becomes 'VOID' so that rsv_bmp is not available.
-
-    // mark stale previous system docs
-    if (sb->bmp_doc_offset) {
-        for (i=0; i<sb->num_bmp_docs; ++i) {
-            file->markStale(sb->bmp_doc_offset[i],
-                            _fdb_get_docsize(sb->bmp_docs[i].length));
-        }
-
-        free(sb->bmp_doc_offset);
-        free(sb->bmp_docs);
-        sb->bmp_doc_offset = NULL;
-        sb->bmp_docs = NULL;
-    }
-
-    // should flush all dirty blocks in cache
-    file->sync_FileMgr(false, NULL);
-
-    // free current bitmap idx
-    _free_bmp_idx(&sb->bmp_idx);
-
-    // temporarily keep current bitmap
-    sb_bmp_change_begin(sb);
-    uint8_t *old_prev_bmp = NULL;
-    if (sb->bmp_prev) {
-        old_prev_bmp = sb->bmp_prev;
-    }
-    sb->bmp_prev = sb->bmp;
-    sb->bmp_prev_size = sb->bmp_size.load();
-
-    // copy all pointers from rsv to sb
-    sb->bmp_revnum = rsv->bmp_revnum;
-    sb->bmp_size.store(rsv->bmp_size);
-    sb->bmp = rsv->bmp;
-    sb->bmp_idx = rsv->bmp_idx;
-    sb->bmp_doc_offset = rsv->bmp_doc_offset;
-    sb->bmp_docs = rsv->bmp_docs;
-    sb->num_bmp_docs = rsv->num_bmp_docs;
-    sb->num_free_blocks = sb->num_init_free_blocks = rsv->num_free_blocks;
-    sb->cur_alloc_bid.store(rsv->cur_alloc_bid);
-    sb->min_live_hdr_revnum = rsv->min_live_hdr_revnum;
-    sb->min_live_hdr_bid = rsv->min_live_hdr_bid;
-    sb_bmp_change_end(sb);
-
-    free(old_prev_bmp);
-    free(sb->rsv_bmp);
-    sb->rsv_bmp = NULL;
-
-    return true;
-}
-
-bid_t sb_alloc_block(FileMgr *file)
-{
-    uint64_t i, node_idx, node_off, bmp_idx, bmp_off;
-    bid_t ret = BLK_NOT_FOUND;
-    struct superblock *sb = file->getSb();
-    struct avl_node *a;
-    struct bmp_idx_node *item, query;
-
-    sb->num_alloc++;
-sb_alloc_start_over:
-    if (!sb_bmp_exists(sb)) {
-        // no bitmap
-        return BLK_NOT_FOUND;
-    }
-
-    if (sb->num_free_blocks == 0) {
-        bool switched = false;
-        if (sb->rsv_bmp) {
-            switched = sb_switch_reserved_blocks(file);
-        }
-        if (switched) {
-            goto sb_alloc_start_over;
-        } else {
-            sb->cur_alloc_bid = BLK_NOT_FOUND;
-            return BLK_NOT_FOUND;
-        }
-    }
-
-    ret = sb->cur_alloc_bid.load();
-    sb->num_free_blocks--;
-
-    if (sb->num_free_blocks == 0) {
-        bool switched = false;
-        if (sb->rsv_bmp) {
-            switched = sb_switch_reserved_blocks(file);
-        }
-        if (!switched) {
-            sb->cur_alloc_bid = BLK_NOT_FOUND;
-        }
-        return ret;
-    }
-
-    // find allocable block in the same bmp idx node
-    node_idx = ret >> 8;
-    node_off = (ret & 0xff)+1;
-    do {
-        for (i=node_off; i<256; ++i) {
-            bmp_idx = div8(i) + (node_idx * 32);
-            bmp_off = mod8(i);
-
-            if ((bmp_idx * 8 + bmp_off) >= sb->bmp_size.load()) {
-                break;
-            }
-
-            if (sb->bmp[bmp_idx] & bmp_basic_mask[bmp_off]) {
-                sb->cur_alloc_bid.store(bmp_idx * 8 + bmp_off);
-                return ret;
-            }
-        }
-
-        // current bmp_node does not include any free block .. remove
-        query.id = node_idx;
-        a = avl_search(&sb->bmp_idx, &query.avl, _bmp_idx_cmp);
-        if (a) {
-            item = _get_entry(a, struct bmp_idx_node, avl);
-            avl_remove(&sb->bmp_idx, a);
-            free(item);
-        }
-
-        // get next allocable bmp_node
-        a = avl_first(&sb->bmp_idx);
-        if (!a) {
-            // no more free bmp_node
-            sb->num_free_blocks = 0;
-            bool switched = false;
-            if (sb->rsv_bmp) {
-                switched = sb_switch_reserved_blocks(file);
-            }
-            if (!switched) {
-                sb->cur_alloc_bid = BLK_NOT_FOUND;
-            }
-            break;
-        }
-        item = _get_entry(a, struct bmp_idx_node, avl);
-        node_idx = item->id;
-        node_off = 0;
-    } while (true);
-
-    return ret;
-}
-
-bool sb_bmp_is_writable(FileMgr *file, bid_t bid)
-{
-    if (bid < file->getSb()->config->num_sb) {
-        // superblocks are always writable
-        return true;
-    }
-
-    bool ret = false;
-    bid_t last_commit = file->getLastCommit() / file->getBlockSize();
-    uint64_t lw_bmp_revnum = file->getLastWritableBmpRevnum();
-    struct superblock *sb = file->getSb();
-
-    sb_bmp_barrier_on(sb);
-
-    uint8_t *sb_bmp = sb->bmp;
-    if (sb->bmp_revnum == lw_bmp_revnum) {
-        // Same bitmap revision number: there are 2 possible cases
-        //
-        // (1) normal case
-        //               writable blocks
-        //            <---->          <--->
-        // +-------------------------------------------+
-        // |       xxxxxxxxx          xxxxxxxxxx       | (x: reused blocks)
-        // +-------------------------------------------+
-        //            ^                   ^
-        //            last_commit         cur_alloc
-        //
-        // (2) when file size grows after block reusing
-        //                                   writable blocks
-        //                             <------->       <--------->
-        // +-------------------------------------------+---------+
-        // |       xxxxxxxxx          xxxxxxxxxx       |         |
-        // +-------------------------------------------+---------+
-        //                             ^               ^         ^
-        //                             last_commit     bmp_size  cur_alloc
-
-        if (bid < sb->bmp_size.load()) {
-            // BID is in the bitmap .. check if bitmap is set.
-            if (_is_bmp_set(sb_bmp, bid) &&
-                bid < sb->cur_alloc_bid.load() &&
-                bid >= last_commit) {
-                ret = true;
-            }
-        } else {
-            // BID is out-of-range of the bitmap
-            if (bid >= last_commit) {
-                ret = true;
-            }
-        }
-    } else {
-        // Different bitmap revision number: there are also 2 possible cases
-        //
-        // (1) normal case
-        //     writable blocks                 writable blocks
-        //         <---->                          <--->
-        // +-------------------------------------------+
-        // |       xxxxxxxxx          xxxxxxxxxx       |
-        // +-------------------------------------------+
-        //              ^                          ^
-        //              cur_alloc                  last_commit
-        //
-        // (2) when file size grows after block reusing
-        //         writable blocks             writable blocks
-        //      <---->       <------>      <-----------x--------->
-        // +-------------------------------------------+---------+
-        // |    xxxxxx       xxxxxxxx                  |         |
-        // +-------------------------------------------+---------+
-        //                                 ^           ^         ^
-        //                                 last_commit bmp_size  cur_alloc
-
-        // the block is writable if
-        // 1) BID >= last_commit OR
-        // 2) BID < cur_alloc_bid AND corresponding bitmap is set.
-        if (bid >= last_commit) {
-            // if prev_bmp exists, last commit position is still located on the
-            // previous bitmap (since prev_bmp is released when a commit is invoked
-            // in the new bitmap).
-            // So in this case, we have to check both previous/current bitmaps.
-            //
-            // (1: previous bitmap (sb->bmp_prev), 2: current bitmap (sb->bmp))
-            //
-            //        writable blocks          writable blocks
-            //    <-->      <---->   <-->          <> <> <>
-            // +-------------------------------------------+
-            // |  2222 1111 222222   2222   111111111 22 11|
-            // +-------------------------------------------+
-            //                                     ^
-            //                                     last_commit
-            if (sb->bmp_prev) {
-                if (bid < sb->bmp_prev_size &&
-                    _is_bmp_set(sb->bmp_prev, bid)) {
-                    ret = true;
-                }
-                if (bid < sb->bmp_size.load() &&
-                    _is_bmp_set(sb_bmp, bid)) {
-                    ret = true;
-                }
-                if (bid >= sb->bmp_size.load()) {
-                    // blocks newly allocated beyond the bitmap size:
-                    // always writable
-                    ret = true;
-                }
-            } else {
-                // bmp_prev doesn't exist even though bmp_revnum is different
-                // this happens on the first block reclaim only
-                // so all blocks whose 'BID >= last_commit' are writable.
-                ret = true;
-            }
-        }
-
-        if (bid < sb->bmp_size.load() &&
-            bid < sb->cur_alloc_bid.load() &&
-            _is_bmp_set(sb_bmp, bid)) {
-            // 'cur_alloc_bid' is always smaller than 'bmp_size'
-            // except for the case 'cur_alloc_bid == BLK_NOT_FOUND'
-            ret = true;
-        }
-    }
-
-    sb_bmp_barrier_off(sb);
-
-    return ret;
-}
-
-fdb_status sb_write(FileMgr *file, size_t sb_no,
-                    ErrLogCallback * log_callback)
-{
-    ssize_t r;
-    int real_blocksize = file->getBlockSize();
-    int blocksize = file->getBlockSize() - BLK_MARKER_SIZE;
-    uint8_t *buf = alca(uint8_t, real_blocksize);
-    uint32_t crc, _crc;
-    uint64_t enc_u64;
-    uint64_t num_docs;
-    size_t i, offset;
-    fdb_status fs;
-
-    memset(buf, 0x0, real_blocksize);
-
-    offset = 0;
-    // magic number
-    enc_u64 = _endian_encode(file->getVersion());
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // revision number
-    uint64_t sb_revnum = file->getSb()->revnum.load();
-    enc_u64 = _endian_encode(sb_revnum);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // bitmap's revision number
-    enc_u64 = _endian_encode(file->getSb()->bmp_revnum);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // cur_alloc_bid
-    bid_t sb_cur_alloc_bid = file->getSb()->cur_alloc_bid.load();
-    enc_u64 = _endian_encode(sb_cur_alloc_bid);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // last header bid
-    bid_t sb_last_hdr_bid = file->getSb()->last_hdr_bid.load();
-    enc_u64 = _endian_encode(sb_last_hdr_bid);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // last header rev number
-    uint64_t sb_last_hdr_revnum = file->getSb()->last_hdr_revnum.load();
-    enc_u64 = _endian_encode(sb_last_hdr_revnum);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // minimum active header revnum
-    enc_u64 = _endian_encode(file->getSb()->min_live_hdr_revnum);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // minimum active header BID
-    enc_u64 = _endian_encode(file->getSb()->min_live_hdr_bid);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // # initial free blocks
-    enc_u64 = _endian_encode(file->getSb()->num_init_free_blocks);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // # free blocks
-    enc_u64 = _endian_encode(file->getSb()->num_free_blocks);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // bitmap size
-    uint64_t sb_bmp_size = file->getSb()->bmp_size.load();
-    enc_u64 = _endian_encode(sb_bmp_size);
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    bool rsv_bmp_enabled = false;
-
-    uint32_t cond = SB_RSV_READY;
-    if (file->getSb()->rsv_bmp &&
-        file->getSb()->rsv_bmp->status.compare_exchange_strong(cond,
-                                                          SB_RSV_WRITING) ) {
-        rsv_bmp_enabled = true;
-        // status becomes 'WRITING' so that switching will be postponed.
-        // note that 'rsv_bmp' is not currently used yet so that
-        // it won't block any other tasks except for switching.
-    }
-
-    // reserved bitmap size (0 if not exist)
-    if (rsv_bmp_enabled) {
-        enc_u64 = _endian_encode(file->getSb()->rsv_bmp->bmp_size);
-    } else {
-        enc_u64 = 0;
-    }
-    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-    offset += sizeof(enc_u64);
-
-    // bitmap doc offsets
-    num_docs = _bmp_size_to_num_docs(sb_bmp_size);
-    for (i=0; i<num_docs; ++i) {
-        enc_u64 = _endian_encode(file->getSb()->bmp_doc_offset[i]);
-        memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-        offset += sizeof(enc_u64);
-    }
-
-    // reserved bitmap doc offsets
-    if (rsv_bmp_enabled) {
-        num_docs = _bmp_size_to_num_docs(file->getSb()->rsv_bmp->bmp_size);
-        for (i=0; i<num_docs; ++i) {
-            enc_u64 = _endian_encode(file->getSb()->rsv_bmp->bmp_doc_offset[i]);
-            memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
-            offset += sizeof(enc_u64);
-        }
-
-        file->getSb()->rsv_bmp->status = SB_RSV_READY;
-    }
-
-    // CRC
-    crc = get_checksum(buf, offset, file->getCrcMode());
-    _crc = _endian_encode(crc);
-    memcpy(buf + offset, &_crc, sizeof(_crc));
-
-    // set block marker
-    memset(buf + blocksize, BLK_MARKER_SB, BLK_MARKER_SIZE);
-
-    // directly write a block bypassing block cache
-    r = file->writeBlocks(buf, 1, sb_no);
-    if (r != real_blocksize) {
-        char errno_msg[512];
-        file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
-        fs = FDB_RESULT_SB_RACE_CONDITION;
-        fdb_log(log_callback, fs,
-                "Failed to write the superblock (number: %" _F64 "), %s",
-                sb_no, errno_msg);
-        return fs;
-    }
-
-    // increase superblock's revision number
-    file->getSb()->revnum++;
-
-    return FDB_RESULT_SUCCESS;
-}
-
-static void _rsv_free(struct sb_rsv_bmp *rsv)
-{
-    free(rsv->bmp);
-    free(rsv->bmp_doc_offset);
-    free(rsv->bmp_docs);
-}
-
-static fdb_status _sb_read_given_no(FileMgr *file,
-                                    size_t sb_no,
-                                    struct superblock *sb,
+fdb_status Superblock::readGivenNum(size_t sb_no,
                                     ErrLogCallback *log_callback)
 {
     ssize_t r;
@@ -1383,7 +331,8 @@ static fdb_status _sb_read_given_no(FileMgr *file,
         file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
-                "Failed to read the superblock: file read failure (SB No.: %" _F64 "), %s",
+                "Failed to read the superblock: "
+                "file read failure (SB No.: %" _F64 "), %s",
                 sb_no, errno_msg);
         return fs;
     }
@@ -1417,54 +366,54 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     // revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->revnum = _endian_decode(enc_u64);
+    revnum = _endian_decode(enc_u64);
 
     // bitmap's revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->bmp_revnum = _endian_decode(enc_u64);
+    bmpRevnum = _endian_decode(enc_u64);
 
-    // cur_alloc_bid
+    // curAllocBid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->cur_alloc_bid = _endian_decode(enc_u64);
+    curAllocBid = _endian_decode(enc_u64);
 
     // last header bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->last_hdr_bid = _endian_decode(enc_u64);
+    lastHdrBid = _endian_decode(enc_u64);
 
     // last header rev number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->last_hdr_revnum = _endian_decode(enc_u64);
+    lastHdrRevnum = _endian_decode(enc_u64);
 
     // minimum active header revnum
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->min_live_hdr_revnum = _endian_decode(enc_u64);
+    minLiveHdrRevnum = _endian_decode(enc_u64);
 
     // minimum active header BID
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->min_live_hdr_bid = _endian_decode(enc_u64);
+    minLiveHdrBid = _endian_decode(enc_u64);
 
     // # initial free blocks
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->num_init_free_blocks = _endian_decode(enc_u64);
+    numInitFreeBlocks = _endian_decode(enc_u64);
 
     // # free blocks
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->num_free_blocks = _endian_decode(enc_u64);
+    numFreeBlocks = _endian_decode(enc_u64);
 
     // bitmap size
     uint64_t sb_bmp_size;
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
     sb_bmp_size = _endian_decode(enc_u64);
-    sb->bmp_size = sb_bmp_size;
+    bmpSize = sb_bmp_size;
 
     // reserved bitmap size
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1474,19 +423,19 @@ static fdb_status _sb_read_given_no(FileMgr *file,
         // reserved bitmap array exists
         rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
         rsv->bmp = NULL;
-        rsv->bmp_size = dummy64;
-        rsv->cur_alloc_bid = BLK_NOT_FOUND;
+        rsv->bmpSize = dummy64;
+        rsv->curAllocBid = BLK_NOT_FOUND;
         rsv->status = SB_RSV_INITIALIZING;
     }
 
     // temporarily set bitmap array to NULL
     // (it will be allocated by fetching function)
-    sb->bmp = NULL;
+    bmp = NULL;
 
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
+    numBmpDocs = num_docs = bmpSizeToNumDocs(sb_bmp_size);
     if (num_docs) {
-        sb->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
-        sb->bmp_docs = (struct docio_object*)
+        bmpDocOffset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+        bmpDocs = (struct docio_object*)
                        calloc(num_docs, sizeof(struct docio_object));
     }
 
@@ -1494,15 +443,15 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     for (i=0; i<num_docs; ++i) {
         memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
         offset += sizeof(enc_u64);
-        sb->bmp_doc_offset[i] = _endian_decode(enc_u64);
+        bmpDocOffset[i] = _endian_decode(enc_u64);
     }
 
     // read reserved bmp docs if exist
     if (rsv) {
-        rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
-        if (rsv->num_bmp_docs) {
-            rsv->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
-            rsv->bmp_docs = (struct docio_object*)
+        rsv->numBmpDocs = num_docs = bmpSizeToNumDocs(rsv->bmpSize);
+        if (rsv->numBmpDocs) {
+            rsv->bmpDocOffset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+            rsv->bmpDocs = (struct docio_object*)
                             calloc(num_docs, sizeof(struct docio_object));
         }
 
@@ -1510,9 +459,9 @@ static fdb_status _sb_read_given_no(FileMgr *file,
         for (i=0; i<num_docs; ++i) {
             memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
             offset += sizeof(enc_u64);
-            rsv->bmp_doc_offset[i] = _endian_decode(enc_u64);
+            rsv->bmpDocOffset[i] = _endian_decode(enc_u64);
         }
-        sb->rsv_bmp = rsv;
+        rsvBmp = rsv;
     }
 
     // CRC
@@ -1520,10 +469,10 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     memcpy(&_crc, buf + offset, sizeof(_crc));
     crc_file = _endian_decode(_crc);
     if (crc != crc_file) {
-        free(sb->bmp_doc_offset);
-        free(sb->bmp_docs);
-        sb->bmp_doc_offset = NULL;
-        sb->bmp_docs = NULL;
+        free(bmpDocOffset);
+        free(bmpDocs);
+        bmpDocOffset = NULL;
+        bmpDocs = NULL;
 
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
@@ -1536,263 +485,1194 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
-static void _sb_free(struct superblock *sb)
+void Superblock::beginBmpBarrier()
 {
-    if (sb->rsv_bmp) {
-        sb->rsv_bmp->status = SB_RSV_VOID;
-        _free_bmp_idx(&sb->rsv_bmp->bmp_idx);
-        _rsv_free(sb->rsv_bmp);
-        free(sb->rsv_bmp);
+    bmpRCount++;
+    if (bmpWCount.load()) {
+        // now bmp pointer & related variables are being changed.
+        // decrease count and grab lock until the change is done.
+        bmpRCount--;
+        spin_lock(&bmpLock);
+
+        // got control: means that change is done.
+        // re-increase the count
+        bmpRCount++;
+        spin_unlock(&bmpLock);
     }
-    _free_bmp_idx(&sb->bmp_idx);
-
-    free(sb->bmp);
-    free(sb->bmp_prev);
-    free(sb->bmp_doc_offset);
-    // note that each docio object doesn't need to be freed
-    // as key/body fields point to static memory regions.
-    free(sb->bmp_docs);
-    free(sb->config);
-    spin_destroy(&sb->lock);
-
-    sb->bmp = NULL;
-    sb->bmp_doc_offset = NULL;
-    sb->bmp_docs = NULL;
-    sb->config = NULL;
 }
 
-static void _sb_init(struct superblock *sb, struct sb_config sconfig)
+void Superblock::endBmpBarrier()
 {
-    *sb->config = sconfig;
-    sb->revnum = 0;
-    sb->bmp_revnum = 0;
-    sb->bmp_size = 0;
-    sb->bmp = NULL;
-    sb->bmp_rcount = 0;
-    sb->bmp_wcount = 0;
-    spin_init(&sb->bmp_lock);
-    sb->bmp_prev_size = 0;
-    sb->bmp_prev = NULL;
-    sb->bmp_doc_offset = NULL;
-    sb->bmp_docs = NULL;
-    sb->num_bmp_docs = 0;
-    sb->num_init_free_blocks = 0;
-    sb->num_free_blocks = 0;
-    sb->cur_alloc_bid = BLK_NOT_FOUND;
-    sb->last_hdr_bid = BLK_NOT_FOUND;
-    sb->min_live_hdr_revnum = 0;
-    sb->min_live_hdr_bid = BLK_NOT_FOUND;
-    sb->last_hdr_revnum = 0;
-    sb->num_alloc = 0;
-    sb->rsv_bmp = NULL;
-    avl_init(&sb->bmp_idx, NULL);
-    spin_init(&sb->lock);
+    bmpRCount--;
 }
 
-INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
+void Superblock::beginBmpChange()
 {
-    // since variables in 'src' won't be freed, just copy its pointers
-    dst->config = src->config;
-    dst->revnum.store(src->revnum.load());
-    dst->bmp_revnum = src->bmp_revnum;
-    dst->bmp_size.store(src->bmp_size.load());
-    dst->bmp.store(src->bmp.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    dst->bmp_rcount.store(src->bmp_rcount.load());
-    dst->bmp_wcount.store(src->bmp_wcount.load());
-    spin_init(&dst->bmp_lock);
-    dst->bmp_prev_size = src->bmp_prev_size;
-    dst->bmp_prev = src->bmp_prev;
-    dst->bmp_idx = src->bmp_idx;
-    dst->bmp_doc_offset = src->bmp_doc_offset;
-    dst->bmp_docs = src->bmp_docs;
-    dst->num_bmp_docs = src->num_bmp_docs;
-    dst->num_init_free_blocks = src->num_init_free_blocks;
-    dst->num_free_blocks = src->num_free_blocks;
-    dst->rsv_bmp = src->rsv_bmp;
-    dst->cur_alloc_bid.store(src->cur_alloc_bid.load());
-    dst->last_hdr_bid.store(src->last_hdr_bid.load());
-    dst->min_live_hdr_revnum = src->min_live_hdr_revnum;
-    dst->min_live_hdr_bid = src->min_live_hdr_bid;
-    dst->last_hdr_revnum.store(src->last_hdr_revnum.load());
-    dst->num_alloc = src->num_alloc;
-    spin_init(&dst->lock);
+    // grab lock and increase writer count
+    // now new readers cannot increase the reader count
+    // (note that there is always one bitmap writer at a time)
+    spin_lock(&bmpLock);
+    bmpWCount++;
+
+    // wait until previous BMP readers terminate
+    // (they are very short bitmap accessing routines so that
+    //  will not take long time).
+    size_t spin = 0;
+    while (bmpRCount.load()) {
+       if (++spin > 64) {
+#ifdef HAVE_SCHED_H
+            sched_yield();
+#elif _MSC_VER
+            SwitchToThread();
+#endif
+       }
+    }
+
+    // now 1) all previous readers terminated
+    //     2) new readers will be blocked
 }
 
-fdb_status sb_read_latest(FileMgr *file,
-                          struct sb_config sconfig,
-                          ErrLogCallback *log_callback)
+void Superblock::endBmpChange()
 {
-    size_t i, max_sb_no = sconfig.num_sb;
-    uint64_t max_revnum = 0;
-    uint64_t revnum_limit = (uint64_t)0xffffffffffffffff;
-    fdb_status fs;
-    struct superblock *sb_arr;
+    bmpWCount--;
+    spin_unlock(&bmpLock);
+    // now resume all pending readers
+}
 
-    // initialize staleData instance if not exist
-    if (!file->getStaleData()) {
-        file->setStaleData(new StaleDataManager(file));
+bool Superblock::switchReservedBlocks()
+{
+    size_t i;
+    struct sb_rsv_bmp *rsv = rsvBmp;
+
+    // reserved block should exist
+    if (!rsv) {
+        return false;
+    }
+    // should be in a normal status
+    uint32_t cond = SB_RSV_READY;
+    if (!rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
+        return false;
+    }
+    // now status becomes 'VOID' so that rsvBmp is not available.
+
+    // mark stale previous system docs
+    if (bmpDocOffset) {
+        for (i=0; i<numBmpDocs; ++i) {
+            file->markStale(bmpDocOffset[i],
+                            _fdb_get_docsize(bmpDocs[i].length));
+        }
+
+        free(bmpDocOffset);
+        free(bmpDocs);
+        bmpDocOffset = NULL;
+        bmpDocs = NULL;
     }
 
-    if (file->getSb()) {
-        // Superblock is already read previously.
-        // This means that there are some problems with the current superblock
-        // so that we have to read another candidate.
+    // should flush all dirty blocks in cache
+    file->sync_FileMgr(false, NULL);
 
-        // Note: 'sb->revnum' denotes the revnum of next superblock to be
-        // written, so we need to subtract 1 from it to get the revnum of
-        // the current superblock successfully read from the file.
-        revnum_limit = file->getSb()->revnum.load() - 1;
-        sb_free(file);
+    // free current bitmap idx
+    freeBmpIdx(&bmpIdx);
+
+    // temporarily keep current bitmap
+    beginBmpChange();
+    uint8_t *old_prev_bmp = NULL;
+    if (bmpPrev) {
+        old_prev_bmp = bmpPrev;
+    }
+    bmpPrev = bmp;
+    bmpPrevSize = bmpSize.load();
+
+    // copy all pointers from rsv to sb
+    bmpRevnum = rsv->bmpRevnum;
+    bmpSize.store(rsv->bmpSize);
+    bmp = rsv->bmp;
+    bmpIdx = rsv->bmpIdx;
+    bmpDocOffset = rsv->bmpDocOffset;
+    bmpDocs = rsv->bmpDocs;
+    numBmpDocs = rsv->numBmpDocs;
+    numFreeBlocks = numInitFreeBlocks = rsv->numFreeBlocks;
+    curAllocBid.store(rsv->curAllocBid);
+    minLiveHdrRevnum = rsv->minLiveHdrRevnum;
+    minLiveHdrBid = rsv->minLiveHdrBid;
+    endBmpChange();
+
+    free(old_prev_bmp);
+    free(rsvBmp);
+    rsvBmp = NULL;
+
+    return true;
+}
+
+bid_t Superblock::allocBlock()
+{
+    uint64_t i, node_idx, node_off, bmp_idx_no, bmp_off;
+    bid_t ret = BLK_NOT_FOUND;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
+
+    numAlloc++;
+sb_alloc_start_over:
+    if (!bmpExists()) {
+        // no bitmap
+        return BLK_NOT_FOUND;
     }
 
-    sb_arr = alca(struct superblock,
-                  sconfig.num_sb * sizeof(struct superblock));
-    memset(sb_arr, 0x0, sconfig.num_sb * sizeof(struct superblock));
-
-    // read all superblocks
-    for (i=0; i<sconfig.num_sb; ++i) {
-        sb_arr[i].config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
-        _sb_init(&sb_arr[i], sconfig);
-        fs = _sb_read_given_no(file, i, &sb_arr[i], log_callback);
-
-        uint64_t cur_revnum = sb_arr[i].revnum.load();
-        if (fs == FDB_RESULT_SUCCESS &&
-            cur_revnum >= max_revnum &&
-            cur_revnum < revnum_limit) {
-            max_sb_no = i;
-            max_revnum = cur_revnum;
+    if (numFreeBlocks == 0) {
+        bool switched = false;
+        if (rsvBmp) {
+            switched = switchReservedBlocks();
+        }
+        if (switched) {
+            goto sb_alloc_start_over;
+        } else {
+            curAllocBid = BLK_NOT_FOUND;
+            return BLK_NOT_FOUND;
         }
     }
 
-    if (max_sb_no == sconfig.num_sb) {
-        // all superblocks are broken
-        fs = FDB_RESULT_SB_READ_FAIL;
-        for (i=0; i<sconfig.num_sb; ++i) {
-            _sb_free(&sb_arr[i]);
+    ret = curAllocBid.load();
+    numFreeBlocks--;
+
+    if (numFreeBlocks == 0) {
+        bool switched = false;
+        if (rsvBmp) {
+            switched = switchReservedBlocks();
         }
-        // no readable superblock
-        // (if not corrupted, it may be a normal old version file)
-        return fs;
-    }
-
-    file->setSb((struct superblock*)calloc(1, sizeof(struct superblock)));
-    _sb_copy(file->getSb(), &sb_arr[max_sb_no]);
-
-    // set last commit position
-    if (file->getSb()->cur_alloc_bid.load() != BLK_NOT_FOUND) {
-        file->setLastCommit(file->getSb()->cur_alloc_bid.load() *
-                            file->getConfig()->getBlockSize());
-    } else {
-        // otherwise, last_commit == file->pos
-        // (already set by FileMgr::open() function)
-    }
-
-    file->getSb()->revnum++;
-    avl_init(&file->getSb()->bmp_idx, NULL);
-
-    // free the other superblocks
-    for (i=0; i<sconfig.num_sb; ++i) {
-        if (i != max_sb_no) {
-            _sb_free(&sb_arr[i]);
+        if (!switched) {
+            curAllocBid = BLK_NOT_FOUND;
         }
+        return ret;
     }
 
-    return FDB_RESULT_SUCCESS;
-}
+    // find allocable block in the same bmp idx node
+    node_idx = ret >> 8;
+    node_off = (ret & 0xff)+1;
+    do {
+        for (i=node_off; i<256; ++i) {
+            bmp_idx_no = div8(i) + (node_idx * 32);
+            bmp_off = mod8(i);
 
-uint64_t sb_get_bmp_revnum(FileMgr *file)
-{
-    if (file->getSb()) {
-        return file->getSb()->bmp_revnum;
-    } else {
-        return 0;
-    }
-}
+            if ((bmp_idx_no * 8 + bmp_off) >= bmpSize.load()) {
+                break;
+            }
 
-filemgr_header_revnum_t sb_get_min_live_revnum(FileMgr *file)
-{
-    if (file->getSb()) {
-        return file->getSb()->min_live_hdr_revnum;
-    } else {
-        return 0;
-    }
-}
+            if (bmp[bmp_idx_no] & bmp_basic_mask[bmp_off]) {
+                curAllocBid.store(bmp_idx_no * 8 + bmp_off);
+                return ret;
+            }
+        }
 
-uint64_t sb_get_num_free_blocks(FileMgr *file)
-{
-    if (file->getSb()) {
-        return file->getSb()->num_free_blocks;
-    } else {
-        return 0;
-    }
-}
+        // current bmp_node does not include any free block .. remove
+        query.id = node_idx;
+        a = avl_search(&bmpIdx, &query.avl, _bmp_idx_cmp);
+        if (a) {
+            item = _get_entry(a, struct bmp_idx_node, avl);
+            avl_remove(&bmpIdx, a);
+            free(item);
+        }
 
-struct sb_config sb_get_default_config()
-{
-    struct sb_config ret;
-    ret.num_sb = SB_DEFAULT_NUM_SUPERBLOCKS;
+        // get next allocable bmp_node
+        a = avl_first(&bmpIdx);
+        if (!a) {
+            // no more free bmp_node
+            numFreeBlocks = 0;
+            bool switched = false;
+            if (rsvBmp) {
+                switched = switchReservedBlocks();
+            }
+            if (!switched) {
+                curAllocBid = BLK_NOT_FOUND;
+            }
+            break;
+        }
+        item = _get_entry(a, struct bmp_idx_node, avl);
+        node_idx = item->id;
+        node_off = 0;
+    } while (true);
+
     return ret;
 }
 
-fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
-                   ErrLogCallback * log_callback)
+bool Superblock::isWritable(bid_t bid)
 {
-    size_t i;
-    bid_t sb_bid;
+    if (bid < config.num_sb) {
+        // superblocks are always writable
+        return true;
+    }
+
+    bool ret = false;
+    bid_t last_commit = file->getLastCommit() / file->getBlockSize();
+    uint64_t lw_bmp_revnum = file->getLastWritableBmpRevnum();
+
+    beginBmpBarrier();
+
+    uint8_t *sb_bmp = bmp;
+    if (bmpRevnum == lw_bmp_revnum) {
+        // Same bitmap revision number: there are 2 possible cases
+        //
+        // (1) normal case
+        //               writable blocks
+        //            <---->          <--->
+        // +-------------------------------------------+
+        // |       xxxxxxxxx          xxxxxxxxxx       | (x: reused blocks)
+        // +-------------------------------------------+
+        //            ^                   ^
+        //            last_commit         cur_alloc
+        //
+        // (2) when file size grows after block reusing
+        //                                   writable blocks
+        //                             <------->       <--------->
+        // +-------------------------------------------+---------+
+        // |       xxxxxxxxx          xxxxxxxxxx       |         |
+        // +-------------------------------------------+---------+
+        //                             ^               ^         ^
+        //                             last_commit     bmpSize  cur_alloc
+
+        if (bid < bmpSize.load()) {
+            // BID is in the bitmap .. check if bitmap is set.
+            if (isBmpSet(sb_bmp, bid) &&
+                bid < curAllocBid.load() &&
+                bid >= last_commit) {
+                ret = true;
+            }
+        } else {
+            // BID is out-of-range of the bitmap
+            if (bid >= last_commit) {
+                ret = true;
+            }
+        }
+    } else {
+        // Different bitmap revision number: there are also 2 possible cases
+        //
+        // (1) normal case
+        //     writable blocks                 writable blocks
+        //         <---->                          <--->
+        // +-------------------------------------------+
+        // |       xxxxxxxxx          xxxxxxxxxx       |
+        // +-------------------------------------------+
+        //              ^                          ^
+        //              cur_alloc                  last_commit
+        //
+        // (2) when file size grows after block reusing
+        //         writable blocks             writable blocks
+        //      <---->       <------>      <-----------x--------->
+        // +-------------------------------------------+---------+
+        // |    xxxxxx       xxxxxxxx                  |         |
+        // +-------------------------------------------+---------+
+        //                                 ^           ^         ^
+        //                                 last_commit bmpSize  cur_alloc
+
+        // the block is writable if
+        // 1) BID >= last_commit OR
+        // 2) BID < curAllocBid AND corresponding bitmap is set.
+        if (bid >= last_commit) {
+            // if prev_bmp exists, last commit position is still located on the
+            // previous bitmap (since prev_bmp is released when a commit is invoked
+            // in the new bitmap).
+            // So in this case, we have to check both previous/current bitmaps.
+            //
+            // (1: previous bitmap (sb->bmpPrev), 2: current bitmap (sb->bmp))
+            //
+            //        writable blocks          writable blocks
+            //    <-->      <---->   <-->          <> <> <>
+            // +-------------------------------------------+
+            // |  2222 1111 222222   2222   111111111 22 11|
+            // +-------------------------------------------+
+            //                                     ^
+            //                                     last_commit
+            if (bmpPrev) {
+                if (bid < bmpPrevSize &&
+                    isBmpSet(bmpPrev, bid)) {
+                    ret = true;
+                }
+                if (bid < bmpSize.load() &&
+                    isBmpSet(sb_bmp, bid)) {
+                    ret = true;
+                }
+                if (bid >= bmpSize.load()) {
+                    // blocks newly allocated beyond the bitmap size:
+                    // always writable
+                    ret = true;
+                }
+            } else {
+                // bmpPrev doesn't exist even though bmpRevnum is different
+                // this happens on the first block reclaim only
+                // so all blocks whose 'BID >= last_commit' are writable.
+                ret = true;
+            }
+        }
+
+        if (bid < bmpSize.load() &&
+            bid < curAllocBid.load() &&
+            isBmpSet(sb_bmp, bid)) {
+            // 'curAllocBid' is always smaller than 'bmpSize'
+            // except for the case 'curAllocBid == BLK_NOT_FOUND'
+            ret = true;
+        }
+    }
+
+    endBmpBarrier();
+
+    return ret;
+}
+
+
+fdb_status Superblock::writeSb(size_t sb_no,
+                    ErrLogCallback * log_callback)
+{
+    ssize_t r;
+    int real_blocksize = file->getBlockSize();
+    int blocksize = file->getBlockSize() - BLK_MARKER_SIZE;
+    uint8_t *buf = alca(uint8_t, real_blocksize);
+    uint32_t crc, _crc;
+    uint64_t enc_u64;
+    uint64_t num_docs;
+    size_t i, offset;
     fdb_status fs;
 
-    // exit if superblock already exists.
-    if (file->getSb()) {
+    memset(buf, 0x0, real_blocksize);
+
+    offset = 0;
+    // magic number
+    enc_u64 = _endian_encode(file->getVersion());
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // revision number
+    uint64_t sb_revnum = revnum.load();
+    enc_u64 = _endian_encode(sb_revnum);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // bitmap's revision number
+    enc_u64 = _endian_encode(bmpRevnum);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // curAllocBid
+    bid_t sb_cur_alloc_bid = curAllocBid.load();
+    enc_u64 = _endian_encode(sb_cur_alloc_bid);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // last header bid
+    bid_t sb_last_hdr_bid = lastHdrBid.load();
+    enc_u64 = _endian_encode(sb_last_hdr_bid);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // last header rev number
+    uint64_t sb_last_hdr_revnum = lastHdrRevnum.load();
+    enc_u64 = _endian_encode(sb_last_hdr_revnum);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // minimum active header revnum
+    enc_u64 = _endian_encode(minLiveHdrRevnum);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // minimum active header BID
+    enc_u64 = _endian_encode(minLiveHdrBid);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // # initial free blocks
+    enc_u64 = _endian_encode(numInitFreeBlocks);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // # free blocks
+    enc_u64 = _endian_encode(numFreeBlocks);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // bitmap size
+    uint64_t sb_bmp_size = bmpSize.load();
+    enc_u64 = _endian_encode(sb_bmp_size);
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    bool rsv_bmp_enabled = false;
+
+    uint32_t cond = SB_RSV_READY;
+    if (rsvBmp &&
+        rsvBmp->status.compare_exchange_strong(cond, SB_RSV_WRITING) ) {
+        rsv_bmp_enabled = true;
+        // status becomes 'WRITING' so that switching will be postponed.
+        // note that 'rsvBmp' is not currently used yet so that
+        // it won't block any other tasks except for switching.
+    }
+
+    // reserved bitmap size (0 if not exist)
+    if (rsv_bmp_enabled) {
+        enc_u64 = _endian_encode(rsvBmp->bmpSize);
+    } else {
+        enc_u64 = 0;
+    }
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+
+    // bitmap doc offsets
+    num_docs = bmpSizeToNumDocs(sb_bmp_size);
+    for (i=0; i<num_docs; ++i) {
+        enc_u64 = _endian_encode(bmpDocOffset[i]);
+        memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+        offset += sizeof(enc_u64);
+    }
+
+    // reserved bitmap doc offsets
+    if (rsv_bmp_enabled) {
+        num_docs = bmpSizeToNumDocs(rsvBmp->bmpSize);
+        for (i=0; i<num_docs; ++i) {
+            enc_u64 = _endian_encode(rsvBmp->bmpDocOffset[i]);
+            memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+            offset += sizeof(enc_u64);
+        }
+
+        rsvBmp->status = SB_RSV_READY;
+    }
+
+    // CRC
+    crc = get_checksum(buf, offset, file->getCrcMode());
+    _crc = _endian_encode(crc);
+    memcpy(buf + offset, &_crc, sizeof(_crc));
+
+    // set block marker
+    memset(buf + blocksize, BLK_MARKER_SB, BLK_MARKER_SIZE);
+
+    // directly write a block bypassing block cache
+    r = file->writeBlocks(buf, 1, sb_no);
+    if (r != real_blocksize) {
+        char errno_msg[512];
+        file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
+        fs = FDB_RESULT_SB_RACE_CONDITION;
+        fdb_log(log_callback, fs,
+                "Failed to write the superblock (number: %" _F64 "), %s",
+                sb_no, errno_msg);
+        return fs;
+    }
+
+    // increase superblock's revision number
+    revnum++;
+
+    return FDB_RESULT_SUCCESS;
+}
+
+
+void Superblock::appendBmpDoc(FdbKvsHandle *handle)
+{
+    // == write bitmap into system docs ==
+    // calculate # docs (1MB by default)
+    // (1MB bitmap covers 32GB DB file)
+    size_t i;
+    uint64_t num_docs;
+    char doc_key[64];
+
+    // mark stale if previous doc offset exists
+    if (bmpDocOffset) {
+        for (i=0; i<numBmpDocs; ++i) {
+            file->markStale(bmpDocOffset[i], _fdb_get_docsize(bmpDocs[i].length));
+        }
+
+        free(bmpDocOffset);
+        free(bmpDocs);
+        bmpDocOffset = NULL;
+        bmpDocs = NULL;
+    }
+
+    uint64_t sb_bmp_size = bmpSize.load();
+    numBmpDocs = num_docs = bmpSizeToNumDocs(sb_bmp_size);
+    if (num_docs) {
+        bmpDocOffset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+        bmpDocs = (struct docio_object*)calloc(num_docs, sizeof(struct docio_object));
+    }
+
+    // bitmap doc offsets
+    for (i=0; i<num_docs; ++i) {
+        // append a system doc for bitmap chunk
+        memset(&bmpDocs[i], 0x0, sizeof(struct docio_object));
+        sprintf(doc_key, "bitmap_%" _F64 "_%d", bmpRevnum, (int)i);
+        bmpDocs[i].key = (void*)doc_key;
+        bmpDocs[i].meta = NULL;
+        bmpDocs[i].body = bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+        bmpDocs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
+        bmpDocs[i].length.metalen = 0;
+        if (i == num_docs - 1) {
+            // the last doc
+            bmpDocs[i].length.bodylen =
+                (sb_bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
+        } else {
+            // otherwise: 1MB
+            bmpDocs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
+        }
+        bmpDocs[i].seqnum = 0;
+        bmpDocOffset[i] =
+            handle->dhandle->appendSystemDoc_Docio(&bmpDocs[i]);
+    }
+}
+
+void Superblock::appendRsvBmpDoc(FdbKvsHandle *handle)
+{
+    size_t i;
+    uint64_t num_docs;
+    char doc_key[64];
+    struct sb_rsv_bmp *rsv = NULL;
+
+    rsv = rsvBmp;
+    if (!rsv || rsv->status.load() != SB_RSV_INITIALIZING) {
+        return;
+    }
+
+    rsv->numBmpDocs = num_docs = bmpSizeToNumDocs(rsv->bmpSize);
+    if (num_docs) {
+        rsv->bmpDocOffset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+        rsv->bmpDocs = (struct docio_object*)
+                        calloc(num_docs, sizeof(struct docio_object));
+    }
+
+    // bitmap doc offsets
+    for (i=0; i<num_docs; ++i) {
+        // append a system doc for bitmap chunk
+        memset(&rsv->bmpDocs[i], 0x0, sizeof(struct docio_object));
+        sprintf(doc_key, "bitmap_%" _F64 "_%d", rsv->bmpRevnum, (int)i);
+        rsv->bmpDocs[i].key = (void*)doc_key;
+        rsv->bmpDocs[i].meta = NULL;
+        rsv->bmpDocs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+        rsv->bmpDocs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
+        rsv->bmpDocs[i].length.metalen = 0;
+        if (i == num_docs - 1) {
+            // the last doc
+            rsv->bmpDocs[i].length.bodylen =
+                (rsv->bmpSize / 8) % SB_MAX_BITMAP_DOC_SIZE;
+        } else {
+            // otherwise: 1MB
+            rsv->bmpDocs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
+        }
+        rsv->bmpDocs[i].seqnum = 0;
+        rsv->bmpDocOffset[i] =
+            handle->dhandle->appendSystemDoc_Docio(&rsv->bmpDocs[i]);
+    }
+
+    // now 'rsvBmp' is available.
+    rsv->status = SB_RSV_READY;
+}
+
+fdb_status Superblock::readBmpDoc(FdbKvsHandle *handle)
+{
+    // == read bitmap from system docs ==
+    size_t i;
+    uint64_t num_docs;
+    int64_t r_offset;
+    char doc_key[64];
+    struct sb_rsv_bmp *rsv = NULL;
+
+    // skip if previous bitmap exists OR
+    // there is no bitmap to be fetched (fast screening)
+    if (bmp.load(std::memory_order_relaxed) ||
+        bmpSize.load() == 0) {
         return FDB_RESULT_SUCCESS;
     }
-    // no data should be written in the file before initialization of superblock.
-    if (file->getPos() > 0) {
-        return FDB_RESULT_SB_INIT_FAIL;
+
+    spin_lock(&lock);
+
+    // check once again if superblock is already initialized
+    // while the thread was blocked by the lock.
+    if (bmp.load(std::memory_order_relaxed)) {
+        spin_unlock(&lock);
+        return FDB_RESULT_SUCCESS;
     }
 
-    // initialize staleData instance if not exist
-    if (!file->getStaleData()) {
-        file->setStaleData(new StaleDataManager(file));
+    uint64_t sb_bmp_size = bmpSize.load();
+    numBmpDocs = num_docs = bmpSizeToNumDocs(sb_bmp_size);
+    if (!num_docs) {
+        spin_unlock(&lock);
+        return FDB_RESULT_SUCCESS;
     }
 
-    file->setSb((struct superblock*)calloc(1, sizeof(struct superblock)));
-    file->getSb()->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
-    file->setVersion(ver_get_latest_magic());
-    _sb_init(file->getSb(), sconfig);
+    free(bmp);
+    bmp = (uint8_t*)calloc(1, (sb_bmp_size+7) / 8);
 
-    // write initial superblocks
-    for (i=0; i<file->getSb()->config->num_sb; ++i) {
-        // allocate
-        sb_bid = file->alloc_FileMgr(log_callback);
-        if (sb_bid != i) {
-            // other data was written during sb_write .. error
-            fs = FDB_RESULT_SB_RACE_CONDITION;
-            fdb_log(log_callback, fs,
-                    "Other writer interfered during sb_write (number: %" _F64 ")",
-                    i);
-            free(file->getSb()->config);
-            free(file->getSb());
-            return fs;
+    for (i=0; i<num_docs; ++i) {
+        memset(&bmpDocs[i], 0x0, sizeof(struct docio_object));
+        // pre-allocated buffer for key
+        bmpDocs[i].key = (void*)doc_key;
+        // directly point to the bitmap
+        bmpDocs[i].body = bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+        r_offset = handle->dhandle->readDoc_Docio(bmpDocOffset[i],
+                                                  &bmpDocs[i], true);
+        if (r_offset <= 0) {
+            // read fail
+            free(bmp);
+            bmp = NULL;
+
+            spin_unlock(&lock);
+            return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
+        }
+    }
+
+    constructBmpIdx(&bmpIdx, bmp, sb_bmp_size,
+                       curAllocBid.load());
+
+    rsv = rsvBmp;
+    if (rsv && rsv->status.load() == SB_RSV_INITIALIZING) {
+        // reserved bitmap exists
+        rsv->numBmpDocs = num_docs = bmpSizeToNumDocs(rsv->bmpSize);
+        if (!num_docs) {
+            spin_unlock(&lock);
+            return FDB_RESULT_SUCCESS;
         }
 
-        fs = sb_write(file, i, log_callback);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
+        rsv->bmp = (uint8_t*)calloc(1, (rsv->bmpSize+7) / 8);
+
+        for (i=0; i<num_docs; ++i) {
+
+            memset(&rsv->bmpDocs[i], 0x0, sizeof(struct docio_object));
+            // pre-allocated buffer for key
+            rsv->bmpDocs[i].key = (void*)doc_key;
+            // directly point to the (reserved) bitmap
+            rsv->bmpDocs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+            r_offset = handle->dhandle->readDoc_Docio(rsv->bmpDocOffset[i],
+                                                      &rsv->bmpDocs[i], true);
+            if (r_offset <= 0) {
+                // read fail
+                free(rsv->bmp);
+                free(bmp);
+                rsv->bmp = bmp = NULL;
+
+                spin_unlock(&lock);
+                return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
+            }
         }
+
+        constructBmpIdx(&rsv->bmpIdx, rsv->bmp, rsv->bmpSize, 0);
+        rsv->status = SB_RSV_READY;
     }
 
+    spin_unlock(&lock);
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status sb_free(FileMgr *file)
+bool Superblock::checkSyncPeriod()
 {
-    if (file->getSb()) {
-        _sb_free(file->getSb());
-        free(file->getSb());
-        file->setSb(NULL);
+    if (numAlloc * file->getBlockSize() > SB_SYNC_PERIOD) {
+        return true;
     }
-
-    return FDB_RESULT_SUCCESS;
+    return false;
 }
 
+bool Superblock::updateHeader(FdbKvsHandle *handle)
+{
+    bool ret = false;
+
+    if ((lastHdrBid.load() != handle->last_hdr_bid) &&
+        (lastHdrRevnum.load() < handle->cur_header_revnum)) {
+
+        lastHdrBid = handle->last_hdr_bid;
+        lastHdrRevnum.store(handle->cur_header_revnum.load());
+
+        uint64_t lw_revnum = handle->file->getLastWritableBmpRevnum();
+        if (lw_revnum == bmpRevnum &&
+            bmpPrev) {
+            free(bmpPrev);
+            bmpPrev = NULL;
+        }
+        ret = true;
+    }
+
+    return ret;
+}
+
+fdb_status Superblock::syncCircular(FdbKvsHandle *handle)
+{
+    uint64_t sb_revnum;
+    fdb_status fs;
+
+    sb_revnum = revnum.load();
+    fs = writeSb(sb_revnum % config.num_sb,
+                  &handle->log_callback);
+    return fs;
+}
+
+sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
+
+{
+    // start block reusing when
+    // 1) if blocks are not reused yet in this file:
+    //    when file size becomes larger than the threshold
+    // 2) otherwise:
+    //    when # free blocks decreases under the threshold
+
+    uint64_t live_datasize;
+    uint64_t filesize;
+    uint64_t ratio;
+
+    if (file->getFileStatus() != FILE_NORMAL) {
+        // being compacted file does not allow block reusing
+        return SBD_NONE;
+    }
+
+    uint64_t block_reusing_threshold =
+                        file->getConfig()->getBlockReusingThreshold();
+    if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
+        // circular block reusing is disabled
+        return SBD_NONE;
+    }
+
+    filesize = file->getPos();
+    if (filesize < SB_MIN_BLOCK_REUSING_FILESIZE) {
+        return SBD_NONE;
+    }
+
+    // at least # keeping headers should exist
+    // since the last block reusing
+    if (handle->cur_header_revnum <=
+        minLiveHdrRevnum + file->getConfig()->getNumKeepingHeaders()) {
+        return SBD_NONE;
+    }
+
+    live_datasize = fdb_estimate_space_used(handle->fhandle);
+    if (filesize == 0 || live_datasize == 0 ||
+        live_datasize > filesize) {
+        return SBD_NONE;
+    }
+
+    ratio = (filesize - live_datasize) * 100 / filesize;
+
+    if (ratio > block_reusing_threshold) {
+        if (!bmpExists()) {
+            // block reusing has not been started yet
+            return SBD_RECLAIM;
+        } else {
+            // stale blocks are already being reused before
+            if (numFreeBlocks == 0) {
+                if (rsvBmp) {
+                    // reserved bitmap exists
+                    return SBD_SWITCH;
+                } else {
+                    // re-reclaim
+                    return SBD_RECLAIM;
+                }
+            } else if ( (numFreeBlocks * 100 <
+                         numInitFreeBlocks * SB_PRE_RECLAIM_RATIO)) {
+                if ( numInitFreeBlocks * file->getConfig()->getBlockSize()
+                         > SB_MIN_BLOCK_REUSING_FILESIZE )  {
+                    return SBD_RESERVE;
+                }
+            }
+        }
+    }
+
+    return SBD_NONE;
+}
+
+bool Superblock::reclaimReusableBlocks(FdbKvsHandle *handle)
+{
+    size_t i;
+    uint64_t num_blocks, bmp_size_byte;
+    stale_header_info sheader;
+    reusable_block_list blist;
+
+    // should flush all dirty blocks in cache
+    file->sync_FileMgr(false, &handle->log_callback);
+
+    sheader = fdb_get_smallest_active_header(handle);
+    if (sheader.bid == BLK_NOT_FOUND) {
+        return false;
+    }
+
+    // get reusable block list
+    blist = file->getStaleData()->getReusableBlocks(handle, sheader);
+
+    // update superblock's bitmap
+    uint8_t *new_bmp = NULL, *old_bmp = NULL;
+    num_blocks = file->getPos() / file->getBlockSize();
+    // 8 bitmaps per byte
+    bmp_size_byte = (num_blocks+7) / 8;
+    fdb_assert(num_blocks >= SB_DEFAULT_NUM_SUPERBLOCKS,
+               num_blocks, SB_DEFAULT_NUM_SUPERBLOCKS);
+    new_bmp = (uint8_t*)calloc(1, bmp_size_byte);
+
+    // free pre-existing bmp index
+    freeBmpIdx(&bmpIdx);
+
+    for (i=0; i<blist.n_blocks; ++i) {
+        setBmp(new_bmp, blist.blocks[i].bid, blist.blocks[i].count);
+        if (i==0 && curAllocBid.load() == BLK_NOT_FOUND) {
+            curAllocBid.store(blist.blocks[i].bid);
+        }
+        numFreeBlocks += blist.blocks[i].count;
+        // add info for supplementary bmp index
+        addBmpIdx(&bmpIdx, blist.blocks[i].bid, blist.blocks[i].count);
+    }
+    free(blist.blocks);
+
+    beginBmpChange();
+    old_bmp = bmp.load(std::memory_order_relaxed);
+    bmp.store(new_bmp, std::memory_order_relaxed);
+    bmpSize = num_blocks;
+    minLiveHdrRevnum = sheader.revnum;
+    minLiveHdrBid = sheader.bid;
+    bmpRevnum++;
+    numInitFreeBlocks = numFreeBlocks;
+    endBmpChange();
+    free(old_bmp);
+
+    return true;
+}
+
+bool Superblock::reserveNextReusableBlocks(FdbKvsHandle *handle)
+{
+    size_t i;
+    uint64_t num_blocks, bmp_size_byte;
+    stale_header_info sheader;
+    reusable_block_list blist;
+    struct sb_rsv_bmp *rsv = NULL;
+
+    if (rsvBmp) {
+        // next bitmap already reclaimed
+        return false;
+    }
+
+    sheader = fdb_get_smallest_active_header(handle);
+    if (sheader.bid == BLK_NOT_FOUND) {
+        return false;
+    }
+
+    // get reusable block list
+    blist = file->getStaleData()->getReusableBlocks(handle, sheader);
+
+    // calculate bitmap size
+    num_blocks = file->getPos() / file->getBlockSize();
+    bmp_size_byte = (num_blocks+7) / 8;
+    if (num_blocks) {
+        rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
+        rsv->bmp = (uint8_t*)calloc(1, bmp_size_byte);
+        rsv->curAllocBid = BLK_NOT_FOUND;
+
+        // the initial status is 'INITIALIZING' so that 'rsvBmp' is not
+        // available until executing sb_rsv_append_doc().
+        rsv->status = SB_RSV_INITIALIZING;
+        avl_init(&rsv->bmpIdx, NULL);
+        rsv->bmpSize = num_blocks;
+
+        for (i=0; i<blist.n_blocks; ++i) {
+            setBmp(rsv->bmp, blist.blocks[i].bid, blist.blocks[i].count);
+            if (i==0 && rsv->curAllocBid == BLK_NOT_FOUND) {
+                rsv->curAllocBid = blist.blocks[i].bid;
+            }
+            rsv->numFreeBlocks += blist.blocks[i].count;
+            addBmpIdx(&rsv->bmpIdx, blist.blocks[i].bid, blist.blocks[i].count);
+        }
+        free(blist.blocks);
+
+        rsv->minLiveHdrRevnum = sheader.revnum;
+        rsv->minLiveHdrBid = sheader.bid;
+        rsv->bmpRevnum = bmpRevnum+1;
+        rsvBmp = rsv;
+    }
+
+    return true;
+}
+
+void Superblock::returnReusableBlocks(FdbKvsHandle *handle)
+{
+    uint64_t node_id;
+    bid_t cur;
+    struct sb_rsv_bmp *rsv;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
+
+    // re-insert all remaining bitmap into stale list
+    uint64_t sb_bmp_size = bmpSize.load();
+    for (cur = curAllocBid.load(); cur < sb_bmp_size; ++cur) {
+        if (isBmpSet(bmp, cur)) {
+            file->addStaleBlock(cur, 1);
+        }
+
+        if ((cur % 256) == 0 && cur > 0) {
+            // node ID changes
+            // remove & free current bmp node
+            node_id = cur / 256;
+            query.id = node_id - 1;
+            a = avl_search(&bmpIdx, &query.avl, _bmp_idx_cmp);
+            if (a) {
+                item = _get_entry(a, struct bmp_idx_node, avl);
+                avl_remove(&bmpIdx, a);
+                free(item);
+            }
+
+            // move to next bmp node
+            do {
+                a = avl_first(&bmpIdx);
+                if (a) {
+                    item = _get_entry(a, struct bmp_idx_node, avl);
+                    if (item->id <= node_id) {
+                        avl_remove(&bmpIdx, a);
+                        free(item);
+                        continue;
+                    }
+                    cur = item->id * 256;
+                    break;
+                }
+
+                // no more reusable block
+                cur = sb_bmp_size;
+                break;
+            } while (true);
+        }
+    }
+    numFreeBlocks = 0;
+    curAllocBid.store(BLK_NOT_FOUND);
+
+    // do the same work for the reserved blocks if exist
+    rsv = rsvBmp;
+    uint32_t cond = SB_RSV_READY;
+    if (rsv && rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
+
+        for (cur = rsv->curAllocBid; cur < rsv->bmpSize; ++cur) {
+            if (isBmpSet(rsv->bmp, cur)) {
+                file->addStaleBlock(cur, 1);
+            }
+
+            if ((cur % 256) == 0 && cur > 0) {
+                // node ID changes
+                // remove & free current bmp node
+                node_id = cur / 256;
+                query.id = node_id - 1;
+                a = avl_search(&rsv->bmpIdx, &query.avl, _bmp_idx_cmp);
+                if (a) {
+                    item = _get_entry(a, struct bmp_idx_node, avl);
+                    avl_remove(&rsv->bmpIdx, a);
+                    free(item);
+                }
+
+                // move to next bmp node
+                do {
+                    a = avl_first(&rsv->bmpIdx);
+                    if (a) {
+                        item = _get_entry(a, struct bmp_idx_node, avl);
+                        if (item->id <= node_id) {
+                            avl_remove(&rsv->bmpIdx, a);
+                            free(item);
+                            continue;
+                        }
+                        cur = item->id * 256;
+                        break;
+                    }
+
+                    // no more reusable block
+                    cur = rsv->bmpSize;
+                    break;
+                } while (true);
+            }
+        }
+        rsv->numFreeBlocks = 0;
+        rsv->curAllocBid = BLK_NOT_FOUND;
+
+        freeBmpIdx(&rsv->bmpIdx);
+        freeRsv(rsv);
+        free(rsv);
+        rsvBmp = NULL;
+    }
+
+    // re-store into stale tree using next header's revnum
+    filemgr_header_revnum_t revnum = handle->cur_header_revnum;
+    file->getStaleData()->gatherRegions(handle, revnum + 1,
+                                                BLK_NOT_FOUND,
+                                                BLK_NOT_FOUND, 0, false );
+}
+
+void Superblock::updateBmp(uint8_t *target_bmp, bid_t bid, uint64_t len, int mode)
+{
+    // mode==0: bitmap clear
+    // mode==1: bitmap set
+
+    uint64_t front_pos, front_len, rear_pos, rear_len;
+    uint64_t mid_pos, mid_len;
+
+    //      front_len        rear_len
+    //      <->              <-->
+    // 00000111 | 11111111 | 11110000
+    //      ^     <------> mid
+    //      front_pos
+
+    front_pos = bid;
+    front_len = 8 - mod8(front_pos);
+
+    if (front_len >= len) {
+        front_len = len;
+        rear_pos = rear_len = mid_pos = mid_len = 0;
+    } else {
+        rear_pos = rd8(bid + len);
+        rear_len = mod8(bid + len);
+
+        mid_pos = bid + front_len;
+        mid_len = len - front_len - rear_len;
+    }
+
+    // front bitmaps
+    if (front_len) {
+        if (mode) {
+            target_bmp[div8(front_pos)] |= bmp_2d_mask[mod8(front_pos)][front_len];
+        } else {
+            target_bmp[div8(front_pos)] &= ~bmp_2d_mask[mod8(front_pos)][front_len];
+        }
+    }
+    // rear bitmaps
+    if (rear_len) {
+        if (mode) {
+            target_bmp[div8(rear_pos)] |= bmp_2d_mask[mod8(rear_pos)][rear_len];
+        } else {
+            target_bmp[div8(rear_pos)] &= ~bmp_2d_mask[mod8(rear_pos)][rear_len];
+        }
+    }
+
+    // mid bitmaps
+    uint8_t mask = (mode)?(0xff):(0x0);
+    if (mid_len == 8) {
+        // 8 bitmaps (1 byte)
+        target_bmp[div8(mid_pos)] = mask;
+    } else if (mid_len < 64) {
+        // 16 ~ 56 bitmaps (2 ~ 7 bytes)
+        size_t i;
+        for (i=0; i<mid_len; i+=8) {
+            target_bmp[div8(mid_pos+i)] = mask;
+        }
+    } else {
+        // larger than 64 bitmaps (8 bytes)
+        memset(target_bmp + div8(mid_pos), mask, div8(mid_len));
+    }
+}
+
+void Superblock::setBmp(uint8_t *target_bmp, bid_t bid, uint64_t len)
+{
+    updateBmp(target_bmp, bid, len, 1);
+}
+
+void Superblock::clearBmp(uint8_t *target_bmp, bid_t bid, uint64_t len)
+{
+    updateBmp(target_bmp, bid, len, 0);
+}
+
+void Superblock::addBmpIdx(struct avl_tree *target_idx, bid_t bid, bid_t count)
+{
+    bid_t cur, start_id, stop_id;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
+
+    // 256 blocks per node
+    start_id = bid >> 8;
+    stop_id = (bid+count-1) >> 8;
+
+    for (cur=start_id; cur<=stop_id; ++cur) {
+        query.id = cur;
+        a = avl_search(target_idx, &query.avl, _bmp_idx_cmp);
+        if (a) {
+            // already exists .. do nothing
+        } else {
+            // create a node
+            item = (struct bmp_idx_node*)calloc(1, sizeof(struct bmp_idx_node));
+            item->id = query.id;
+            avl_insert(target_idx, &item->avl, _bmp_idx_cmp);
+        }
+    }
+}
+
+void Superblock::freeBmpIdx(struct avl_tree *target_idx)
+{
+    // free all supplemental bmp idx nodes
+    struct avl_node *a;
+    struct bmp_idx_node *item;
+    a = avl_first(target_idx);
+    while (a) {
+        item = _get_entry(a, struct bmp_idx_node, avl);
+        a = avl_next(a);
+        avl_remove(target_idx, &item->avl);
+        free(item);
+    }
+}
+
+void Superblock::constructBmpIdx(struct avl_tree *target_idx,
+                               uint8_t *src_bmp,
+                               uint64_t src_bmp_size,
+                               bid_t start_bid)
+{
+    uint64_t i, node_idx;
+    uint64_t *bmp64 = (uint64_t*)src_bmp;
+    struct bmp_idx_node *item;
+
+    if (start_bid == BLK_NOT_FOUND) {
+        start_bid = 0;
+    }
+
+    // Since a single byte includes 8 bitmaps, an 8-byte integer contains 64 bitmaps.
+    // By converting bitmap array to uint64_t array, we can quickly verify if a
+    // 64-bitmap-group has at least one non-zero bit or not.
+    for (i=start_bid/64; i<src_bmp_size/64; ++i) {
+        // in this loop, 'i' denotes bitmap group number.
+        node_idx = i/4;
+        if (bmp64[i]) {
+            item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
+            item->id = node_idx;
+            avl_insert(target_idx, &item->avl, _bmp_idx_cmp);
+            // skip other bitmaps in the same bitmap index node
+            // (1 bitmap index node == 4 bitmap groups == 256 bitmaps)
+            i = (node_idx+1)*4;
+        }
+    }
+
+    // If there are remaining bitmaps, check if they are non-zero or not one by one.
+    if (src_bmp_size % 64) {
+        uint8_t off;
+        uint64_t idx, start;
+
+        start = (src_bmp_size/64)*64;
+        if (start < start_bid) {
+            start = start_bid;
+        }
+
+        for (i=start; i<src_bmp_size; ++i) {
+            // in this loop, 'i' denotes bitmap number (i.e., BID).
+            idx = div8(i);
+            off = mod8(i);
+            if (src_bmp[idx] & bmp_basic_mask[off]) {
+                node_idx = i >> 8;
+                item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
+                item->id = node_idx;
+                avl_insert(target_idx, &item->avl, _bmp_idx_cmp);
+                i = (node_idx+1)*256;
+            }
+        }
+    }
+}
+
+size_t Superblock::bmpSizeToNumDocs(uint64_t bmp_size)
+{
+    if (bmp_size) {
+        // 8 bitmaps per byte
+        uint64_t num_bits_per_doc = 8 * SB_MAX_BITMAP_DOC_SIZE;
+        return (bmp_size + num_bits_per_doc - 1) / num_bits_per_doc;
+    } else {
+        return 0;
+    }
+}
+
+bool Superblock::isBmpSet(uint8_t *bmp, bid_t bid)
+{
+    return (bmp[div8(bid)] & bmp_basic_mask[mod8(bid)]);
+}
+
+
+void Superblock::freeRsv(struct sb_rsv_bmp *rsv)
+{
+    free(rsv->bmp);
+    free(rsv->bmpDocOffset);
+    free(rsv->bmpDocs);
+}
 

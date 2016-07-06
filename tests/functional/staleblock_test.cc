@@ -91,7 +91,7 @@ start_data_loading:
     } while (file_info.file_size < SB_MIN_BLOCK_REUSING_FILESIZE);
 
     // expect block reclaim only for valid threshold value
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     if (fconfig.block_reusing_threshold == 65) {
         TEST_CHK(sb_decision == SBD_RECLAIM);
     } else {
@@ -186,7 +186,7 @@ void reuse_with_snapshot_test() {
         TEST_STATUS(status);
     } while (file_info.file_size < SB_MIN_BLOCK_REUSING_FILESIZE);
 
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // open snapshot
@@ -205,7 +205,7 @@ void reuse_with_snapshot_test() {
         status = fdb_set_kv(db, keybuf, strlen(keybuf),
                             bodybuf, strlen(bodybuf));
         TEST_STATUS(status);
-        sb_decision = sb_check_block_reusing(db);
+        sb_decision = db->file->getSb()->checkBlockReuse(db);
         i++;
     } while (sb_decision != SBD_NONE);
 
@@ -494,7 +494,7 @@ void snapshot_before_block_reuse_test(bool inmem) {
     }
 
     // verify in reclaim mode
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // expect pre-reuse data retained
@@ -687,7 +687,7 @@ void snapshot_inmem_before_block_reuse_test() {
     }
 
     // verify in reclaim mode
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // expect pre-reuse data retained
@@ -796,7 +796,7 @@ void variable_value_size_test() {
         TEST_STATUS(status);
     } while (file_info.file_size < SB_MIN_BLOCK_REUSING_FILESIZE);
 
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -923,7 +923,7 @@ void rollback_with_num_keeping_headers() {
     n = i;
 
     // expect block reclaim
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // reclaim old header via 11th commit
@@ -1015,7 +1015,7 @@ void crash_and_recover_with_num_keeping_test() {
     ndocs = i;
 
     // expect block reclaim
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -1077,7 +1077,7 @@ void crash_and_recover_with_num_keeping_test() {
     }
 
     // not reusing blocks
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_NONE);
 
     // append until reuse
@@ -1088,7 +1088,7 @@ void crash_and_recover_with_num_keeping_test() {
                             bodybuf, strlen(bodybuf));
         TEST_STATUS(status);
     }
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     status = fdb_kvs_close(snap_db);
@@ -1157,7 +1157,7 @@ void reuse_on_delete_test() {
     ndocs = i;
 
     // expect NO REUSE
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_NONE);
     status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
     TEST_STATUS(status);
@@ -1169,7 +1169,7 @@ void reuse_on_delete_test() {
         TEST_STATUS(status);
     }
 
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // reload 1/4 all keys again and expect no file size growth
@@ -1184,7 +1184,7 @@ void reuse_on_delete_test() {
     }
 
     // expect to still be in reuse mode
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     status = fdb_close(dbfile);
@@ -1256,7 +1256,7 @@ void fragmented_reuse_test() {
     }
 
     // verify blocks not being reused
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_NONE);
 
     // manual compaction
@@ -1272,7 +1272,7 @@ void fragmented_reuse_test() {
         status = fdb_del_kv(db, keybuf, strlen(keybuf));
         TEST_STATUS(status);
     }
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_NONE);
 
     // delete rest of docs
@@ -1288,7 +1288,7 @@ void fragmented_reuse_test() {
         TEST_STATUS(status);
     }
 
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision != SBD_NONE);
 
     status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -1361,7 +1361,7 @@ void enter_reuse_via_separate_kvs_test() {
     } while (file_info.file_size < SB_MIN_BLOCK_REUSING_FILESIZE);
     ndocs = i;
 
-    sb_decision = sb_check_block_reusing(db);
+    sb_decision = db->file->getSb()->checkBlockReuse(db);
     TEST_CHK(sb_decision == SBD_RECLAIM);
 
     // commit
@@ -1489,7 +1489,7 @@ void superblock_recovery_test() {
         TEST_STATUS(status);
     };
 
-    TEST_CHK(sb_check_block_reusing(db) == SBD_RECLAIM);
+    TEST_CHK(db->file->getSb()->checkBlockReuse(db) == SBD_RECLAIM);
 
     // close previous handle
     status = fdb_kvs_close(db);
