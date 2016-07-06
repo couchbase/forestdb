@@ -611,7 +611,7 @@ static fdb_status _filemgr_read_header(FileMgr *file,
             file->setLastCommit(file->getPos());
             const char *msg = "Crash Detected: %" _F64 " non-block aligned "
                 "bytes discarded from a database file '%s'\n";
-            DBG(msg, remain, file->fileName.c_str());
+            DBG(msg, remain, file->getFileName().c_str());
             // TODO: Need to add a better error code
             fdb_log(log_callback, FDB_RESULT_READ_FAIL,
                     msg, remain, file->getFileName().c_str());
@@ -632,7 +632,7 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                 status = (fdb_status)rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %u\n";
-                DBG(msg, file->fileName.c_str(), file->getBlockSize());
+                DBG(msg, file->getFileName().c_str(), file->getBlockSize());
                 fdb_log(log_callback, status, msg, file->getFileName().c_str(),
                         file->getBlockSize());
                 break;
@@ -724,7 +724,7 @@ static fdb_status _filemgr_read_header(FileMgr *file,
 #endif
                         const char *msg = "Crash Detected: CRC on disk %u != (%u | %u) "
                             "in a database file '%s'\n";
-                        DBG(msg, crc_file, crc32, crc32c, file->fileName.c_str());
+                        DBG(msg, crc_file, crc32, crc32c, file->getFileName().c_str());
                         fdb_log(log_callback, status, msg, crc_file, crc32, crc32c,
                                 file->getFileName().c_str());
                     }
@@ -740,7 +740,7 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                 if (block_counter == 1) {
                     const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
                         "in a database file '%s'\n";
-                    DBG(msg, marker[0], file->fileName.c_str());
+                    DBG(msg, marker[0], file->getFileName().c_str());
                     fdb_log(log_callback, status, msg, marker[0],
                             file->getFileName().c_str());
                 }
