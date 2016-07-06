@@ -1572,8 +1572,14 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
 
         // create
         fs = _fdb_kvs_create(root_handle, kvs_name, kvs_config);
-        if (fs != FDB_RESULT_SUCCESS) { // create fail
-            return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
+
+        // If fs == INVALID_KV_INSTANCE_NAME, it means that the same KVS name already
+        // exists. Since 'handle->kvs' was NULL at above if condition, the KVS might
+        // be created by other concurrent thread. So we can tolerate this case and
+        // try the creation of 'handle->kvs' again.
+        if ( fs != FDB_RESULT_SUCCESS &&
+             fs != FDB_RESULT_INVALID_KV_INSTANCE_NAME ) { // create fail
+            return fs;
         }
         // create kvs_info again
         fdb_kvs_info_create(root_handle, handle, file, kvs_name);
