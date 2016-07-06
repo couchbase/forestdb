@@ -37,8 +37,8 @@ fdb_config get_default_config(void) {
     // 128MB by default.
     fconfig.buffercache_size = 134217728;
 #ifdef _MVCC_WAL_ENABLE
-    // 80K WAL entries by default.
-    fconfig.wal_threshold = 81920;
+    // 40K WAL entries by default.
+    fconfig.wal_threshold = 40960;
 #else
     // 4K WAL entries by default.
     fconfig.wal_threshold = 4096;
