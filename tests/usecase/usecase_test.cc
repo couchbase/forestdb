@@ -634,7 +634,7 @@ void test_readers_writers_with_handle_pool(int nhandles,
 
     int r;
 
-    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
     (void)r;
 
     if (nfiles < 1) {
@@ -645,7 +645,7 @@ void test_readers_writers_with_handle_pool(int nhandles,
     // Set filename(s)
     std::vector<std::string> files;
     for (int i = 1; i <= nfiles; ++i) {
-        std::string filename("./usecase_test" + std::to_string(i));
+        std::string filename("./uc_test" + std::to_string(i));
         files.push_back(filename);
     }
 
@@ -707,7 +707,7 @@ void test_readers_writers_with_handle_pool(int nhandles,
     fdb_shutdown();
 
 #ifndef __DEBUG_USECASE
-    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
     (void)r;
 #endif
 
@@ -740,7 +740,7 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
 
     int r;
 
-    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
     (void)r;
 
     if (numKvStores < 1) {
@@ -750,7 +750,7 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
     }
 
     std::vector<std::string> filenames;
-    filenames.push_back("usecase_test");
+    filenames.push_back("uc_test");
 
     /* Prepare file handle pool */
     FileHandlePool *fhp = new FileHandlePool(filenames, numKvStores,
@@ -823,7 +823,7 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
                total_doc_count, numKvStores * itemCountPerStore);
 
 #ifndef __DEBUG_USECASE
-    r = system(SHELL_DEL" usecase_test* > errorlog.txt");
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
     (void)r;
 #endif
 
