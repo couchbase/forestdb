@@ -1563,6 +1563,41 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
     return status;
 }
 
+static void _fdb_cleanup_open_err(fdb_kvs_handle *handle)
+{
+    hbtrie_free(handle->trie);
+    free(handle->trie);
+
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            // multi KV instance mode
+            hbtrie_free(handle->seqtrie);
+            free(handle->seqtrie);
+        } else {
+            free(handle->seqtree->kv_ops);
+            free(handle->seqtree);
+        }
+    }
+
+    if (handle->staletree) {
+        free(handle->staletree->kv_ops);
+        free(handle->staletree);
+    }
+
+    docio_free(handle->dhandle);
+    free(handle->dhandle);
+
+    btreeblk_free(handle->bhandle);
+    free(handle->bhandle);
+
+    free(handle->filename);
+    handle->filename = NULL;
+
+    filemgr_close(handle->file, false, handle->filename,
+                  &handle->log_callback);
+
+}
+
 fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
                      fdb_filename_mode_t filename_mode,
@@ -1590,6 +1625,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     char *prev_filename = NULL;
     size_t header_len = 0;
     bool multi_kv_instances = config->multi_kv_instances;
+    bool locked = false;
 
     uint64_t nlivenodes = 0;
     bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
@@ -1713,52 +1749,79 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     }
 
-
-    if (header_len > 0) {
-        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
-                         &stale_root_bid, &ndocs, &ndeletes, &nlivenodes,
-                         &datasize, &last_wal_flush_hdr_bid, &kv_info_offset,
-                         &header_flags, &compacted_filename, &prev_filename);
-        // use existing setting for seqtree_opt
-        if (header_flags & FDB_FLAG_SEQTREE_USE) {
-            seqtree_opt = FDB_SEQTREE_USE;
-        } else {
-            seqtree_opt = FDB_SEQTREE_NOT_USE;
-        }
-        // Retrieve seqnum for multi-kv mode
-        if (handle->kvs && handle->kvs->id > 0) {
-            if (kv_info_offset != BLK_NOT_FOUND) {
-                if (!filemgr_get_kv_header(handle->file)) {
-                    struct kvs_header *kv_header;
-                    _fdb_kvs_header_create(&kv_header);
-                    // KV header already exists but not loaded .. read & import
-                    fdb_kvs_header_read(kv_header, handle->dhandle,
-                                        kv_info_offset, version, false);
-                    if (!filemgr_set_kv_header(handle->file, kv_header,
-                                               fdb_kvs_header_free)) {
-                        _fdb_kvs_header_free(kv_header);
+    do {
+        if (header_len > 0) {
+            fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
+                             &stale_root_bid, &ndocs, &ndeletes, &nlivenodes,
+                             &datasize, &last_wal_flush_hdr_bid, &kv_info_offset,
+                             &header_flags, &compacted_filename, &prev_filename);
+            // use existing setting for seqtree_opt
+            if (header_flags & FDB_FLAG_SEQTREE_USE) {
+                seqtree_opt = FDB_SEQTREE_USE;
+            } else {
+                seqtree_opt = FDB_SEQTREE_NOT_USE;
+            }
+            // Retrieve seqnum for multi-kv mode
+            if (handle->kvs && handle->kvs->id > 0) {
+                if (kv_info_offset != BLK_NOT_FOUND) {
+                    if (!filemgr_get_kv_header(handle->file)) {
+                        struct kvs_header *kv_header;
+                        _fdb_kvs_header_create(&kv_header);
+                        // KV header already exists but not loaded .. read & import
+                        fdb_kvs_header_read(kv_header, handle->dhandle,
+                                            kv_info_offset, version, false);
+                        if (!filemgr_set_kv_header(handle->file, kv_header,
+                                                   fdb_kvs_header_free)) {
+                            _fdb_kvs_header_free(kv_header);
+                        }
                     }
+                    seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                                 handle->kvs->id);
+                } else { // no kv_info offset, ok to set seqnum to zero
+                    seqnum = 0;
                 }
-                seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
-                                             handle->kvs->id);
-            } else { // no kv_info offset, ok to set seqnum to zero
-                seqnum = 0;
+            }
+            // other flags
+            if (header_flags & FDB_FLAG_ROOT_INITIALIZED) {
+                handle->fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
+            }
+            if (header_flags & FDB_FLAG_ROOT_CUSTOM_CMP) {
+                handle->fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
+            }
+            // use existing setting for multi KV instance mode
+            if (kv_info_offset == BLK_NOT_FOUND) {
+                multi_kv_instances = false;
+            } else {
+                multi_kv_instances = true;
             }
         }
-        // other flags
-        if (header_flags & FDB_FLAG_ROOT_INITIALIZED) {
-            handle->fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
+
+        if (!header_len && stale_root_bid == BLK_NOT_FOUND) {
+            // This only happens on the first open (creation) call of a new DB file.
+            // (snapshot_open cannot get into this cluase.)
+            //
+            // When root BID of stale-tree (or seq-tree if enabled) is not set, then
+            // a new root node is created in this function call. However, if other
+            // thread calls commit() at the same time, then the root node cannot be
+            // written back into the file as its BID is not writable anymore.
+            //
+            // To avoid this issue, we grab file lock just once at here.
+            filemgr_mutex_lock(handle->file);
+            locked = true;
+
+            // Reload DB header as other thread may append the first header at the
+            // same time.
+            filemgr_get_header(handle->file, header_buf, &header_len,
+                               &handle->last_hdr_bid, &seqnum, &latest_header_revnum);
+            if (header_len) {
+                // header creation racing .. unlock and re-fetch it
+                locked = false;
+                filemgr_mutex_unlock(handle->file);
+                continue;
+            }
         }
-        if (header_flags & FDB_FLAG_ROOT_CUSTOM_CMP) {
-            handle->fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
-        }
-        // use existing setting for multi KV instance mode
-        if (kv_info_offset == BLK_NOT_FOUND) {
-            multi_kv_instances = false;
-        } else {
-            multi_kv_instances = true;
-        }
-    }
+        break;
+    } while (true);
 
     handle->config = *config;
     handle->config.seqtree_opt = seqtree_opt;
@@ -1919,6 +1982,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     _kvs_stat_get(handle->file, 0, &stat_ori);
                 }
 
+                if (locked) {
+                    filemgr_mutex_unlock(handle->file);
+                }
                 docio_free(handle->dhandle);
                 free(handle->dhandle);
                 free(handle->filename);
@@ -1945,6 +2011,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 if (seqnum) {
                     // Database currently has a non-zero seq number,
                     // but the snapshot was requested with a seq number zero.
+                    if (locked) {
+                        filemgr_mutex_unlock(handle->file);
+                    }
                     docio_free(handle->dhandle);
                     free(handle->dhandle);
                     free(handle->filename);
@@ -1997,7 +2066,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->kv_info_offset = kv_info_offset;
     if (handle->config.multi_kv_instances && !handle->shandle) {
         // multi KV instance mode
-        filemgr_mutex_lock(handle->file);
+        if (!locked) {
+            filemgr_mutex_lock(handle->file);
+        }
         if (kv_info_offset == BLK_NOT_FOUND) {
             // there is no KV header .. create & initialize
             fdb_kvs_header_create(handle->file);
@@ -2010,12 +2081,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             fdb_kvs_header_read(handle->file->kv_header, handle->dhandle,
                                 kv_info_offset, version, false);
         }
-        filemgr_mutex_unlock(handle->file);
+        if (!locked) {
+            filemgr_mutex_unlock(handle->file);
+        }
 
         // validation check for key order of all KV stores
         if (handle == handle->fhandle->root) {
             fdb_status fs = fdb_kvs_cmp_check(handle);
             if (fs != FDB_RESULT_SUCCESS) { // cmp function mismatch
+                if (locked) {
+                    filemgr_mutex_unlock(handle->file);
+                }
                 docio_free(handle->dhandle);
                 free(handle->dhandle);
                 btreeblk_free(handle->bhandle);
@@ -2060,6 +2136,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     // initialize pointer to the global operational stats of this KV store
     handle->op_stats = filemgr_get_ops_stats(handle->file, handle->kvs);
     if (!handle->op_stats) {
+        if (locked) {
+            filemgr_mutex_unlock(handle->file);
+        }
         const char *msg = "Database open fails due to the error in retrieving "
             "the global operational stats of KV store in a database file '%s'\n";
         fdb_log(&handle->log_callback, FDB_RESULT_OPEN_FAIL, msg,
@@ -2133,10 +2212,38 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                 handle->btreeblkops, stale_kv_ops,
                                 handle->config.blocksize, stale_root_bid);
             // prefetch stale info into memory
+            // (as stale_root_bid != BLK_NOT_FOUND,
+            //  we don't need to worry about file's mutex.)
             fdb_load_inmem_stale_info(handle);
          }
     } else {
         handle->staletree = NULL;
+    }
+
+    status = btreeblk_end(handle->bhandle);
+    if (status != FDB_RESULT_SUCCESS) {
+        if (locked) {
+            filemgr_mutex_unlock(handle->file);
+        }
+        _fdb_cleanup_open_err(handle);
+        return status;
+    }
+
+    if (locked) {
+        // As this is a first open (creation) call of the file,
+        // append the first commit header
+        uint64_t cur_bmp_revnum = sb_get_bmp_revnum(handle->file);
+        handle->last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
+        handle->cur_header_revnum = fdb_set_file_header(handle, true);
+        filemgr_commit_bid(handle->file,
+                           handle->last_hdr_bid,
+                           cur_bmp_revnum,
+                           !(handle->config.durability_opt & FDB_DRB_ASYNC),
+                           &handle->log_callback);
+        btreeblk_reset_subblock_info(handle->bhandle);
+
+        locked = false;
+        filemgr_mutex_unlock(handle->file);
     }
 
     if (handle->config.multi_kv_instances && handle->max_seqnum) {
@@ -2188,24 +2295,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     }
 
-    status = btreeblk_end(handle->bhandle);
-    if (status != FDB_RESULT_SUCCESS) {
-        // When fdb_kvs_open() is being issued in parallel with fdb_open()
-        // it is possible that this call (fdb_open()) hits a write failure
-        // because the btreeblock to be written was already made immutable
-        // by the commit from the fdb_kvs_open(). Simpy ignore this error case.
-        if (status == FDB_RESULT_WRITE_FAIL) {
-            if (filemgr_get_header_revnum(handle->file)
-                                             == latest_header_revnum) {
-                return status;
-            } else {
-                status = FDB_RESULT_SUCCESS;
-            }
-        } else {
-            return status;
-        }
-    }
-
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
         if (config->compaction_mode == FDB_COMPACTION_AUTO) {
@@ -2218,6 +2307,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                              (fdb_config *)config,
                                              &handle->log_callback);
         }
+    }
+    if (status != FDB_RESULT_SUCCESS) {
+        _fdb_cleanup_open_err(handle);
     }
 
     return status;
@@ -6968,9 +7060,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     handle->last_hdr_bid = filemgr_get_pos(handle->file) /
                                              handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
+
+    // we should flush 'new_bhandle' too, since it now contains a dirty block
+    // for the new root node.
     btreeblk_end(handle->bhandle);
+    btreeblk_end(new_bhandle);
 
     // Commit the current file handle to record the compaction filename
     fdb_status fs = filemgr_commit(handle->file,

@@ -414,9 +414,9 @@ void config_test()
 
         bcache_space_used = fdb_get_buffer_cache_used();
 
-        // Since V3 magic number, 7 blocks are used:
-        // 4 superblocks + KV name header + Stale-tree root node + DB header
-        TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
+        // Since V3 magic number, 9 blocks are used:
+        // 4 superblocks + KV name header*2 + Stale-tree root node + DB header*2
+        TEST_CHK(bcache_space_used == fconfig.blocksize * 9);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -431,9 +431,9 @@ void config_test()
 
     bcache_space_used = fdb_get_buffer_cache_used();
 
-    // Since V3 magic number, 8 blocks are used:
-    // 7 blocks created eariler + document block for KV pair
-    TEST_CHK(bcache_space_used == fconfig.blocksize * 8);
+    // Since V3 magic number, 10 blocks are used:
+    // 9 blocks created eariler + document block for KV pair
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 10);
 
     fdb_close(dbfile);
 
@@ -4377,7 +4377,7 @@ void invalid_get_byoffset_test()
         // attempt to get key by previous offset,
         // should fail as doc wasn't commited
         status = fdb_get_byoffset(db, rdoc);
-        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status != FDB_RESULT_SUCCESS);
 
         fdb_doc_free(rdoc);
     }
