@@ -2670,6 +2670,11 @@ void filemgr_remove_pending(struct filemgr *old_file,
 #endif
 
         spin_unlock(&old_file->lock);
+
+        // Update new_file's prev_file link
+        spin_lock(&new_file->lock);
+        new_file->prev_file = old_file;
+        spin_unlock(&new_file->lock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
