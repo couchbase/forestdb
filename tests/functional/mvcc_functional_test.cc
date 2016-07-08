@@ -2243,14 +2243,14 @@ void snapshot_markers_in_file_test(bool multi_kv)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     if (!multi_kv) {
-        TEST_CHK(num_markers == 4);
+        TEST_CHK(num_markers == 5);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == 1);
             TEST_CHK(markers[r].kvs_markers[0].seqnum
                      == (fdb_seqnum_t)(n - r*5));
         }
     } else {
-        TEST_CHK(num_markers == 8);
+        TEST_CHK(num_markers == 9);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == num_kvs);
             for (i = 0; i < num_kvs; ++i) {
@@ -2351,14 +2351,14 @@ void snapshot_without_seqtree(bool multi_kv)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     if (!multi_kv) {
-        TEST_CHK(num_markers == 3);
+        TEST_CHK(num_markers == 4);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == 1);
             TEST_CHK(markers[r].kvs_markers[0].seqnum
                      == (fdb_seqnum_t) (n * (num_commits - r)));
         }
     } else {
-        TEST_CHK(num_markers == 6);
+        TEST_CHK(num_markers == 7);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == num_kvs);
             for (i = 0; i < num_kvs; ++i) {
@@ -4301,9 +4301,9 @@ void rollback_all_test(bool multi_kv)
     status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     if (multi_kv) {
-        TEST_CHK(num_markers == 8);
+        TEST_CHK(num_markers == 9);
     } else {
-        TEST_CHK(num_markers == 4);
+        TEST_CHK(num_markers == 5);
     }
 
     // rollback to 15

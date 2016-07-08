@@ -966,13 +966,13 @@ void estimate_space_upto_test(bool multi_kv)
 
     if (!multi_kv) {
         size_t space_used2;
-        TEST_CHK(num_markers == 4);
+        TEST_CHK(num_markers == 5);
         space_used = fdb_estimate_space_used_from(dbfile, markers[1].marker);
         space_used2 = fdb_estimate_space_used_from(dbfile, markers[2].marker);
         TEST_CHK(space_used2 > space_used); // greater than space used by just 1
     } else {
         size_t space_used2;
-        TEST_CHK(num_markers == 8);
+        TEST_CHK(num_markers == 9);
         space_used = fdb_estimate_space_used_from(dbfile, markers[1].marker);
         space_used2 = fdb_estimate_space_used_from(dbfile, markers[2].marker);
         TEST_CHK(space_used2 > space_used); // greater than space used by just 1
@@ -1117,7 +1117,7 @@ void compact_upto_test(bool multi_kv)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     if (!multi_kv) {
-        TEST_CHK(num_markers == 4);
+        TEST_CHK(num_markers == 5);
         for (r = 0; (uint64_t)r < num_markers; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == 1);
             TEST_CHK(markers[r].kvs_markers[0].seqnum ==
@@ -1135,7 +1135,7 @@ void compact_upto_test(bool multi_kv)
         // close snapshot
         fdb_kvs_close(snapshot);
     } else {
-        TEST_CHK(num_markers == 8);
+        TEST_CHK(num_markers == 9);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == num_kvs);
             for (i = 0; i < num_kvs; ++i) {
@@ -2994,7 +2994,7 @@ void compact_upto_overwrite_test(int opt)
     s = fdb_get_all_snap_markers(db_file, &markers, &n_markers);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    int upto = n_markers/2;
+    int upto = n_markers/2 - 1;
     s = fdb_compact_upto(db_file, "./compact_test2", markers[upto].marker);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
