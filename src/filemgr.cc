@@ -2757,10 +2757,15 @@ void FileMgr::removePending(FileMgr *old_file,
 
 #if !(defined(WIN32) || defined(_WIN32))
         // Only for Posix
-        int ret;
-        ret = unlink(old_file->fileName.c_str());
-        _log_errno_str(old_file->fopsHandle, old_file->fMgrOps, log_callback,
-                       (fdb_status)ret, "UNLINK", old_file->fileName.c_str());
+        int ret = unlink(old_file->fileName.c_str());
+        if (errno == ENOENT) {
+            // Ignore 'No such file or directory' error as the file
+            // must've been removed already
+        } else {
+            _log_errno_str(old_file->fopsHandle, old_file->fMgrOps,
+                           log_callback, (fdb_status)ret, "UNLINK",
+                           old_file->fileName.c_str());
+        }
 #endif
 
         spin_unlock(&old_file->fMgrLock);

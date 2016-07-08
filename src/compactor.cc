@@ -19,10 +19,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
-#if !defined(WIN32) && !defined(_WIN32)
+
+#if defined(WIN32) || defined(_WIN32)
+#include <windows.h>
+#define _last_errno_ GetLastError()
+#else
 #include <sys/time.h>
 #include <dirent.h>
 #include <unistd.h>
+#define _last_errno_ errno
 #endif
 
 #include "libforestdb/forestdb.h"
@@ -442,12 +447,17 @@ void * compactor_thread(void *voidargs)
                     char errno_msg[512];
                     elem->file->getOps()->get_errno_str(elem->file->getFopsHandle(),
                                                         errno_msg, 512);
-                    // As a workaround for MB-17009, call fprintf instead of fdb_log
-                    // until c->cgo->go callback trace issue is resolved.
-                    fprintf(stderr,
-                            "Error status code: %d, Error in REMOVE on a "
-                            "database file '%s', %s",
-                            ret, elem->file->getFileName().c_str(), errno_msg);
+                    if (_last_errno_ == ENOENT) {
+                        // Ignore 'No such file or directory' error as the file
+                        // must've been removed already
+                    } else {
+                        // As a workaround for MB-17009, call fprintf instead of fdb_log
+                        // until c->cgo->go callback trace issue is resolved.
+                        fprintf(stderr,
+                                "Error status code: %d, Error in REMOVE on a "
+                                "database file '%s', %s",
+                                ret, elem->file->getFileName().c_str(), errno_msg);
+                    }
                 }
 
                 // free filemgr structure
