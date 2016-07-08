@@ -877,8 +877,7 @@ int main() {
 
     /* Tests compaction of a file while a writer adds data to multiple
        kv stores belonging to the file */
-    // TODO: Re-enable after addressing MB-20092
-    //test_writes_on_kv_stores_with_compaction(256   /*number of kv stores*/,
-    //                                         1500  /*number of items per kvstore*/);
+    test_writes_on_kv_stores_with_compaction(256   /*number of kv stores*/,
+                                             1500  /*number of items per kvstore*/);
     return 0;
 }

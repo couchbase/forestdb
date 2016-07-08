@@ -2764,6 +2764,11 @@ void FileMgr::removePending(FileMgr *old_file,
 #endif
 
         spin_unlock(&old_file->fMgrLock);
+
+        // Update new_file's prevFile link
+        spin_lock(&new_file->fMgrLock);
+        new_file->prevFile = old_file;
+        spin_unlock(&new_file->fMgrLock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
