@@ -28,6 +28,9 @@
 #include "wal.h"
 #include "memleak.h"
 
+// Global static variables
+static atomic_uint64_t transaction_id(0); // unique & monotonically increasing
+
 LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
@@ -81,6 +84,8 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                            malloc(sizeof(struct wal_txn_wrapper));
     handle->txn->wrapper->txn = handle->txn;
     handle->txn->handle = handle;
+    handle->txn->txn_id = ++transaction_id;
+
     if (filemgr_get_file_status(handle->file) != FILE_COMPACT_OLD) {
         // keep previous header's BID
         handle->txn->prev_hdr_bid = handle->last_hdr_bid;
