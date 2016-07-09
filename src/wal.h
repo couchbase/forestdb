@@ -130,6 +130,7 @@ struct wal_item{
     struct avl_node avl_seq; // used for indexing by sequence number
     struct wal_item_header *header;
     fdb_txn *txn;
+    uint64_t txn_id; // used to track closed transactions
     struct snap_handle *shandle; // Pointer into wal_snapshot_tree for KV Store
     wal_item_action action;
     std::atomic<uint8_t> flag;
@@ -611,8 +612,11 @@ private:
 };
 
 struct wal_txn_wrapper {
-    fdb_txn *txn;
     struct list_elem le;
+    union {
+        fdb_txn *txn; // when used in wal's transaction list
+        uint64_t txn_id; // when used in snapshot's active_txn_list
+    };
 };
 
 union wal_flush_items {

@@ -349,7 +349,7 @@ inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
         if (active_txn != file->getGlobalTxn()) {
             txn_wrapper = (struct wal_txn_wrapper *)
                 calloc(1, sizeof(struct wal_txn_wrapper));
-            txn_wrapper->txn = active_txn;
+            txn_wrapper->txn_id = active_txn->txn_id;
             list_push_front(&shandle->active_txn_list, &txn_wrapper->le);
         }
         ee = list_next(ee);
@@ -529,7 +529,8 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         while (le) {
             item = _get_entry(le, struct wal_item, list_elem);
 
-            if (item->txn == txn && !(item->flag & WAL_ITEM_COMMITTED ||
+            if (item->txn_id == txn->txn_id
+                && !(item->flag & WAL_ITEM_COMMITTED ||
                 caller == WAL_INS_COMPACT_PHASE1) &&
                 item->shandle->snap_tag_idx == snap_tag) {
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
@@ -572,7 +573,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
 
                 if (doc->deleted) {
-                    if (item->txn == file->getGlobalTxn() &&
+                    if (item->txn_id == file->getGlobalTxn()->txn_id &&
                         item->action == WAL_ACT_INSERT) {
                         _wal_update_stat(kv_id, _WAL_SET_TO_DEL);
                     }
@@ -591,7 +592,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                         doc_size_ondisk = 0;
                     }
                 } else {
-                    if (item->txn == file->getGlobalTxn() &&
+                    if (item->txn_id == file->getGlobalTxn()->txn_id &&
                         item->action != WAL_ACT_INSERT) {
                         _wal_update_stat(kv_id, _WAL_DEL_TO_SET);
                     }
@@ -621,14 +622,15 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
             }
             item->txn = txn;
-            if (txn == file->getGlobalTxn()) {
+            item->txn_id = txn->txn_id;
+            if (txn->txn_id == file->getGlobalTxn()->txn_id) {
                 num_flushable++;
             }
             item->header = header;
             item->seqnum = doc->seqnum;
 
             if (doc->deleted) {
-                if (item->txn == file->getGlobalTxn()) {
+                if (item->txn_id == file->getGlobalTxn()->txn_id) {
                     _wal_update_stat(kv_id, _WAL_NEW_DEL);
                 }
                 if (offset != BLK_NOT_FOUND && !immediate_remove) {
@@ -645,7 +647,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                     }
                 }
             } else {
-                if (item->txn == file->getGlobalTxn()) {
+                if (item->txn_id == file->getGlobalTxn()->txn_id) {
                     _wal_update_stat(kv_id, _WAL_NEW_SET);
                 }
                 item->action = WAL_ACT_INSERT;
@@ -702,7 +704,8 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
         }
         item->txn = txn;
-        if (txn == file->getGlobalTxn()) {
+        item->txn_id = txn->txn_id;
+        if (txn->txn_id == file->getGlobalTxn()->txn_id) {
             num_flushable++;
         }
         item->header = header;
@@ -710,7 +713,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         item->seqnum = doc->seqnum;
 
         if (doc->deleted) {
-            if (item->txn == file->getGlobalTxn()) {
+            if (item->txn_id == file->getGlobalTxn()->txn_id) {
                 _wal_update_stat(kv_id, _WAL_NEW_DEL);
             }
             if (offset != BLK_NOT_FOUND && !immediate_remove) {// purge interval not met yet
@@ -726,7 +729,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
             }
         } else {
-            if (item->txn == file->getGlobalTxn()) {
+            if (item->txn_id == file->getGlobalTxn()->txn_id) {
                 _wal_update_stat(kv_id, _WAL_NEW_SET);
             }
             item->action = WAL_ACT_INSERT;
@@ -803,7 +806,7 @@ inline bool Wal::_wal_item_partially_committed(fdb_txn *global_txn,
         struct list_elem *txn_elem = list_begin(active_txn_list);
         while(txn_elem) {
             txn_wrapper = _get_entry(txn_elem, struct wal_txn_wrapper, le);
-            if (txn_wrapper->txn == item->txn) {
+            if (txn_wrapper->txn_id == item->txn_id) {
                 partial_commit = true;
                 break;
             }
@@ -840,7 +843,7 @@ inline struct wal_item *Wal::_wal_get_snap_item(struct wal_item_header *header,
 
     for (; le; le = list_next(le)) {
         item = _get_entry(le, struct wal_item, list_elem);
-        if (item->txn != txn && !(item->flag & WAL_ITEM_COMMITTED)) {
+        if (item->txn_id != txn->txn_id && !(item->flag & WAL_ITEM_COMMITTED)) {
             continue;
         }
         if (item->shandle->snap_tag_idx > tag) {
@@ -938,7 +941,7 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
                     // items belonging to the same txn can be found, OR
                     // a transaction's isolation level is read uncommitted.
                     if ((item->flag & WAL_ITEM_COMMITTED) ||
-                        (item->txn == txn) ||
+                        (item->txn_id == txn->txn_id) ||
                         (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
                         break;
                     } else {
@@ -991,7 +994,7 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
         if (node) {
             item = _get_entry(node, struct wal_item, avl_seq);
             if ((item->flag & WAL_ITEM_COMMITTED) ||
-                (item->txn == txn) ||
+                (item->txn_id == txn->txn_id) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
                 *offset = item->offset;
                 if (item->action == WAL_ACT_INSERT) {
@@ -1140,7 +1143,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     // remove from transaction's list
                     list_remove(item->txn->items, &item->list_elem_txn);
                     // decrease num_flushable of old_file if non-transactional update
-                    if (item->txn == old_file->getGlobalTxn()) {
+                    if (item->txn_id == old_file->getGlobalTxn()->txn_id) {
                         old_file->getWal()->num_flushable--;
                     }
                     if (item->action != WAL_ACT_REMOVE) {
@@ -1218,7 +1221,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
     e1 = list_begin(txn->items);
     while(e1) {
         item = _get_entry(e1, struct wal_item, list_elem_txn);
-        fdb_assert(item->txn == txn, item->txn, txn);
+        fdb_assert(item->txn_id == txn->txn_id, item->txn_id, txn->txn_id);
         // Grab the WAL key shard lock.
         shard_num = get_checksum((uint8_t*)item->header->key,
                                  item->header->keylen) %
@@ -1902,6 +1905,11 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle,
                 if (_wal_item_partially_committed(shandle->global_txn,
                                                   &shandle->active_txn_list,
                                                   shandle->snap_txn, item)) {
+                    ee = list_next(ee);
+                    continue;
+                }
+
+                if (item->seqnum > shandle->seqnum) {
                     ee = list_next(ee);
                     continue;
                 }
@@ -2736,7 +2744,7 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
         }
         // remove from txn's list
         e = list_remove(txn->items, e);
-        if (item->txn == file->getGlobalTxn() ||
+        if (item->txn_id == file->getGlobalTxn()->txn_id ||
             item->flag & WAL_ITEM_COMMITTED) {
             num_flushable--;
         }
@@ -2883,7 +2891,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                         datasize.fetch_sub(item->doc_size,
                                            std::memory_order_relaxed);
                     }
-                    if (item->txn == file->getGlobalTxn() || committed) {
+                    if (item->txn_id == file->getGlobalTxn()->txn_id || committed) {
                         if (item->action != WAL_ACT_INSERT) {
                             _wal_update_stat(kv_id, _WAL_DROP_DELETE);
                         } else {

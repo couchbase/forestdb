@@ -320,6 +320,11 @@ struct _fdb_transaction {
      */
     FdbKvsHandle *handle;
     /**
+     * Unique monotonically increasing transaction id to distinguish
+     * items that once belonged to a transaction which has ended.
+     */
+    uint64_t txn_id;
+    /**
      * Block ID of the last header before the transaction begins.
      */
     uint64_t prev_hdr_bid;
