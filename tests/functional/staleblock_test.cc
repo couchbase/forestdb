@@ -20,10 +20,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
-#if !defined(WIN32) && !defined(_WIN32)
-#include <signal.h>
-#include <unistd.h>
-#endif
 
 #include "test.h"
 #include "filemgr.h"
@@ -1404,39 +1400,50 @@ void enter_reuse_via_separate_kvs_test() {
     TEST_RESULT("enter reuse via separate kvs test");
 }
 
-void child_function() {
-    int i;
-    char keybuf[256];
-    char bodybuf[512];
-    fdb_file_handle *dbfile;
-    fdb_kvs_handle *db;
-    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fdb_config fconfig = fdb_get_default_config();
-    fconfig.block_reusing_threshold = 65;
-    fconfig.num_keeping_headers = 5;
-
-    fdb_open(&dbfile, "./staleblktest1", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
-
-    // load docs into db and db2
-    i = 0;
-    while (true) {
-        sprintf(keybuf, "key%d",i);
-        sprintf(bodybuf, "seqno%d",i);
-        fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
-        // create seqno every 100 updates
-        if ((i % 100) == 0) {
-            if ((i % 500) == 0) { // wal flush every 500 updates
-                fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
-            } else {
-                fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+// This function identifies the latest superblock
+// add adds garbage to it.
+void corrupt_latest_superblock(const char* filename) {
+    /*
+     * Note that each block is 4096 bytes.
+     * - There are 4 superblocks which constitute the
+     *   first 4 blocks of the file.
+     * - The 8 bytes following the first 8 bytes of a
+     *   superblock contains the block revision num.
+     */
+    struct filemgr_ops *ops = get_filemgr_ops();
+    int64_t offset = 8;
+    int latest_sb = 0;
+    fdb_fileops_handle fops_handle;
+    FileMgr::fileOpen(filename, ops, &fops_handle, O_RDWR, 0644);
+    uint64_t buf, highest_rev = 0;
+    for (int i = 0; i < 4; ++i) {    // num of superblocks: 4
+        if (ops->pread(fops_handle, &buf, sizeof(uint64_t),
+                       offset) == sizeof(uint64_t)) {
+            buf = _endian_decode(buf);
+            assert(buf != highest_rev);
+            if (buf > highest_rev) {
+                highest_rev = buf;
+                latest_sb = i;
             }
+            offset += 4096;
+        } else {
+            fprintf(stderr, "Warning: Could not find the latest superblock!\n");
+            FileMgr::fileClose(ops, fops_handle);
+            return;
         }
-        i++;
     }
+    // Write garbage at a random offset that would fall within
+    // the latest super block
+    uint64_t garbage = rand();
+    offset = latest_sb * 4096 + (rand() % (4095 - sizeof(garbage)));
+    if (ops->pwrite(fops_handle, &garbage, sizeof(garbage),
+                    offset) != sizeof(garbage)) {
+        fprintf(stderr,
+                "\nWarning: Could not write garbage into the superblock!");
+    }
+    FileMgr::fileClose(ops, fops_handle);
 }
 
-#if !defined(WIN32) && !defined(_WIN32)
 void superblock_recovery_test() {
     TEST_INIT();
     memleak_start();
@@ -1447,7 +1454,6 @@ void superblock_recovery_test() {
     size_t rvalue_len;
     char keybuf[256];
     char bodybuf[256];
-    pid_t child_id;
 
     fdb_seqnum_t seqno;
     fdb_file_handle *dbfile;
@@ -1491,26 +1497,34 @@ void superblock_recovery_test() {
 
     TEST_CHK(db->file->getSb()->checkBlockReuse(db) == SBD_RECLAIM);
 
+    // load more docs into db
+    for (int i = 0; i < 1500; ++i) {
+        sprintf(keybuf, "key%d",i);
+        sprintf(bodybuf, "seqno%d",i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf),
+                            bodybuf, strlen(bodybuf));
+        TEST_STATUS(status);
+        // create seqno every 100 updates
+        if ((i % 100) == 0) {
+            if ((i % 500) == 0) { // wal flush every 500 updates
+                status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+                TEST_STATUS(status);
+            } else {
+                status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+                TEST_STATUS(status);
+            }
+        }
+    }
+
     // close previous handle
     status = fdb_kvs_close(db);
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
 
-    // fork child
-    child_id = fork();
+    corrupt_latest_superblock("./staleblktest1");
 
-    if (child_id == 0) {
-        child_function();
-    }
-
-    // wait 3s
-    sleep(3);
-
-    // kill child
-    kill(child_id, SIGUSR1);
     // reopen and recover
-
     status = fdb_open(&dbfile, "./staleblktest1", &fconfig);
     TEST_STATUS(status);
     status = fdb_kvs_open(dbfile, &db, "db", &kvs_config);
@@ -1559,7 +1573,6 @@ void superblock_recovery_test() {
     memleak_end();
     TEST_RESULT("superblock recovery test");
 }
-#endif
 
 void reclaim_rollback_point_test() {
     memleak_start();
@@ -1718,10 +1731,8 @@ int main() {
     /* Test to verify reuse mode with one kvstore does not affect others */
     enter_reuse_via_separate_kvs_test();
 
-#if !defined(WIN32) && !defined(_WIN32)
     /* Test recovery from superblock corruption */
     superblock_recovery_test();
-#endif
 
     /* Test rollback, verify snapshot, manual compaction upon recovery
        after crash */

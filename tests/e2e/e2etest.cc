@@ -1213,7 +1213,7 @@ void corrupt_latest_superblock(const char* filename) {
     // Write garbage at a random offset that would fall within
     // the latest super block
     uint64_t garbage = rand();
-    offset = latest_sb * 4096 + (rand() % (4095 - sizeof("garbage")));
+    offset = latest_sb * 4096 + (rand() % (4095 - sizeof(garbage)));
     if (ops->pwrite(fops_handle, &garbage, sizeof(garbage),
                     offset) != sizeof(garbage)) {
         fprintf(stderr,
