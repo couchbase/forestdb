@@ -257,7 +257,7 @@ void basic_test()
                                   (void *) "basic_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_set(db_rdonly, doc[i]);
+    status = fdb_set(db_rdonly, doc[0]);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
     TEST_CHK(!strcmp(fdb_error_msg(status), "database is read-only"));
 

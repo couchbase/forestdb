@@ -805,7 +805,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
 
     int n = 30;
     int i, r, c;
-    int *doc_status = alca(int, n); // 0:HB+trie, 1:WAL, 2:deleted
+    int *doc_status = alca(int, n+1); // 0:HB+trie, 1:WAL, 2:deleted
     char cmd[256];
     char key[256], value[256];
     char keystr[] = "key%06d";
