@@ -1505,8 +1505,8 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
         memcpy(&_revnum, _buf + hdr_len,
                sizeof(filemgr_header_revnum_t));
         prev_revnum = _endian_decode(_revnum);
-        if ( prev_revnum >= cur_revnum ||
-             prev_revnum < fMgrSb->getMinLiveHdrRevnum() ) {
+        if (  prev_revnum >= cur_revnum ||
+            ( fMgrSb && prev_revnum < fMgrSb->getMinLiveHdrRevnum() ) ) {
             // no more prev header, or broken linked list
             break;
         }

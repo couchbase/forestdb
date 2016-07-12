@@ -6851,7 +6851,9 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    sb->returnReusableBlocks(handle);
+    if (sb) {
+        sb->returnReusableBlocks(handle);
+    }
 
     // last header should be appended at the end of the file
     handle->last_hdr_bid = handle->file->getPos() /
