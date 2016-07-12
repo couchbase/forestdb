@@ -27,13 +27,6 @@
 
 #include "memleak.h"
 
-#undef THREAD_SANITIZER
-#if __clang__
-#   if defined(__has_feature) && __has_feature(thread_sanitizer)
-#define THREAD_SANITIZER
-#   endif
-#endif
-
 void basic_test()
 {
     TEST_INIT();

@@ -35,13 +35,6 @@
 #include "file_handle.h"
 #include "kvs_handle.h"
 
-#undef THREAD_SANITIZER
-#if __clang__
-#   if defined(__has_feature) && __has_feature(thread_sanitizer)
-#define THREAD_SANITIZER
-#   endif
-#endif
-
 struct cb_args {
     int n_moved_docs;
     int n_batch_move;

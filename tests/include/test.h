@@ -27,6 +27,13 @@
 
 #include "common.h"
 
+#undef THREAD_SANITIZER
+#if __clang__
+#   if defined(__has_feature) && __has_feature(thread_sanitizer)
+#      define THREAD_SANITIZER
+#   endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

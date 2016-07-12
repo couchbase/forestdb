@@ -210,9 +210,13 @@ void do_bench() {
 
     TEST_INIT();
     int i, j, r;
+#if defined(THREAD_SANITIZER)
+    int n_loops = 1;
+#else
     int n_loops = 5;
-    int n_kvs = 16;
+#endif // #if defined(THREAD_SANITIZER)
 
+    int n_kvs = 16;
     char cmd[64], fname[64], dbname[64];
     int n2_kvs = n_kvs * n_kvs;
 
