@@ -25,6 +25,8 @@
 #include <sys/time.h>
 #endif
 
+#include <sstream>
+
 #include "filemgr.h"
 #include "filemgr_ops.h"
 #include "hash_functions.h"
@@ -3704,7 +3706,7 @@ KvsOpsStat* KvsStatOperations::migrateOpStats(FileMgr *old_file,
 #ifdef _LATENCY_STATS
 void LatencyStats::init(struct latency_stat *val) {
     val->lat_max = 0;
-    val->lat_min = static_cast<uint32_t>(-1);
+    val->lat_min = static_cast<uint64_t>(-1);
     val->lat_sum = 0;
     val->lat_num = 0;
 }
@@ -3727,10 +3729,10 @@ void LatencyStats::migrate(FileMgr *src, FileMgr *dst) {
 }
 
 void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
-                          uint32_t val) {
+                          uint64_t val) {
     int retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_max = file->latStats[type].lat_max.load(
+        uint64_t lat_max = file->latStats[type].lat_max.load(
                                                     std::memory_order_relaxed);
         if (lat_max < val) {
             if (!file->latStats[type].lat_max.compare_exchange_strong(lat_max,
@@ -3742,7 +3744,7 @@ void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
     } while (--retry);
     retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_min = file->latStats[type].lat_min.load(
+        uint64_t lat_min = file->latStats[type].lat_min.load(
                                                     std::memory_order_relaxed);
         if (val < lat_min) {
             if (!file->latStats[type].lat_min.compare_exchange_strong(lat_min,
@@ -3754,6 +3756,9 @@ void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
     } while (--retry);
     file->latStats[type].lat_sum.fetch_add(val, std::memory_order_relaxed);
     file->latStats[type].lat_num++;
+#ifdef _PLATFORM_LIB_AVAILABLE
+    file->histStats[type].add(val / 1000);
+#endif
 }
 
 void LatencyStats::get(FileMgr *file, fdb_latency_stat_type type,
@@ -3768,6 +3773,36 @@ void LatencyStats::get(FileMgr *file, fdb_latency_stat_type type,
     stat->lat_count = num;
     stat->lat_avg = file->latStats[type].lat_sum.load(std::memory_order_relaxed) / num;
 }
+
+#ifdef _PLATFORM_LIB_AVAILABLE
+void LatencyStats::getHistogram(FileMgr *file,
+                                fdb_latency_stat_type type,
+                                char **stat,
+                                size_t *stat_length) {
+
+    uint64_t num = file->latStats[type].lat_num.load(std::memory_order_relaxed);
+    if (!num) {
+        stat = nullptr;
+        *stat_length = 0;
+        return;
+    }
+    std::stringstream ss;
+    ss << "{";
+    for (auto it : file->histStats[type]) {
+        if (it->count()) {
+            ss << "(" << it->start() << "µs - " << it->end() << "µs) : ";
+            ss << it->count() << "; ";
+        } else {
+            break;
+        }
+    }
+    ss << "}";
+    char *buffer = (char*) malloc(ss.str().length());
+    memcpy(buffer, ss.str().c_str(), ss.str().length());
+    *stat = buffer;
+    *stat_length = ss.str().length();
+}
+#endif
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
 static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
@@ -3784,22 +3819,48 @@ void LatencyStats::dump(FileMgr *file, ErrLogCallback *log_callback) {
         fdb_log(log_callback, status, msg, latency_file_path);
         return;
     }
-    fprintf(lat_file, "latency(us)\t\tmin\t\tavg\t\tmax\t\tnum_samples\n");
+    fprintf(lat_file, "%15.15s  %15.4s %15.3s %15.3s %15.11s\n",
+            "latency(µs)    ", "tmin", "avg", "max", "num_samples");
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
-        uint32_t avg;
-        uint64_t num;
-        num = file->latStats[i].lat_num.load(std::memory_order_relaxed);
+        uint64_t num = file->latStats[i].lat_num.load(std::memory_order_relaxed);
         if (!num) {
             continue;
         }
-        avg = file->latStats[i].lat_sum.load(std::memory_order_relaxed) / num;
-        fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
+        uint64_t avg = file->latStats[i].lat_sum.load(std::memory_order_relaxed) / num;
+        uint64_t min = file->latStats[i].lat_min.load(std::memory_order_relaxed);
+        uint64_t max = file->latStats[i].lat_max.load(std::memory_order_relaxed);
+        fprintf(lat_file, "%15.15s:%15.10s %15.10s %15.10s %15.10s\n",
                 FileMgr::getLatencyStatName(i),
-                file->latStats[i].lat_min.load(std::memory_order_relaxed),
-                avg,
-                file->latStats[i].lat_max.load(std::memory_order_relaxed),
-                num);
+                std::to_string(min).c_str(),
+                std::to_string(avg).c_str(),
+                std::to_string(max).c_str(),
+                std::to_string(num).c_str());
+
     }
+
+#ifdef _PLATFORM_LIB_AVAILABLE
+    fprintf(lat_file, "\n\nHistograms:\n\n");
+    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
+        uint64_t count = file->latStats[i].lat_num.load(std::memory_order_relaxed);
+        if (count) {
+            fprintf(lat_file, "%s (Total: %" _F64 ")\n"
+                              "----------------------------------------\n",
+                    FileMgr::getLatencyStatName(i), count);
+            for (auto it : file->histStats[i]) {
+                if (it->count()) {
+                    std::stringstream ss;
+                    ss << it->start() << "µs - " << it->end() << "µs";
+                    fprintf(lat_file, "%20.20s:% " _F64 " (%.2f%%)\n",
+                            ss.str().c_str(),
+                            static_cast<uint64_t>(it->count()),
+                            (100.0 * it->count() / count));
+                }
+            }
+            fprintf(lat_file, "\n");
+        }
+    }
+#endif
+
     fflush(lat_file);
     fclose(lat_file);
 }

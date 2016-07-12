@@ -125,6 +125,13 @@ IF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     ADD_DEFINITIONS(-D_LATENCY_STATS_DUMP_TO_FILE)
 ENDIF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 
+IF (COUCHBASE_SERVER_BUILD)
+    # Include platform directory for Couchbase Server Builds
+    INCLUDE_DIRECTORIES(BEFORE ${Platform_SOURCE_DIR}/include)
+    SET(PLATFORM_LIBRARY platform)
+    ADD_DEFINITIONS(-D_PLATFORM_LIB_AVAILABLE)
+ENDIF()
+
 # Comment the line below to disable compiling Copy-On-Write (COW) optimizations
 ADD_DEFINITIONS (-D_COW_COMPACTION=1)
 
@@ -234,8 +241,8 @@ add_library(forestdb SHARED
             ${FORESTDB_CORE_SRC}
             ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
-                      ${CRYPTO_LIB}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
+                      ${LIBRT} ${CRYPTO_LIB}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 
 # Create objects libraries for the different "tools" parts forestdb, which can be reused

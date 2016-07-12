@@ -7540,6 +7540,35 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
 }
 
 LIBFDB_API
+fdb_status fdb_get_latency_histogram(fdb_file_handle *fhandle,
+                                     char **stats,
+                                     size_t *stats_length,
+                                     fdb_latency_stat_type type)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!stats || type >= FDB_LATENCY_NUM_STATS) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!fhandle->getRootHandle()->file){
+        return FDB_RESULT_FILE_NOT_OPEN;
+    }
+
+#if defined(_LATENCY_STATS) && defined(_PLATFORM_LIB_AVAILABLE)
+    LatencyStats::getHistogram(fhandle->getRootHandle()->file, type,
+                               stats, stats_length);
+#else
+    *stats = nullptr;
+    stats_length = 0;
+#endif
+
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
 const char *fdb_latency_stat_name(fdb_latency_stat_type type)
 {
     return FileMgr::getLatencyStatName(type);

@@ -21,6 +21,11 @@
 #include <fcntl.h>
 
 #if defined(WIN32) || defined(_WIN32)
+#ifdef _MSC_VER
+#define NOMINMAX 1
+#include <winsock2.h>
+#undef NOMINMAX
+#endif // _MSC_VER
 #include <windows.h>
 #define _last_errno_ GetLastError()
 #else

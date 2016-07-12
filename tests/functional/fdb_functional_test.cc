@@ -5170,6 +5170,65 @@ void kvs_deletion_without_commit()
     TEST_RESULT("KVS deletion without commit test");
 }
 
+void latency_stats_histogram_test() {
+    TEST_INIT();
+
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_status status;
+
+    char keybuf[128], bodybuf[128];
+
+    memleak_start();
+
+    // open db
+    status = fdb_open(&dbfile, "./func_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    int count = 100;
+    for (int i = 0; i < count; ++i) {
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "val%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    fdb_latency_stat stat;
+    memset(&stat, 0, sizeof(fdb_latency_stat));
+    status = fdb_get_latency_stats(dbfile, &stat, FDB_LATENCY_SETS);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_assert(count == static_cast<int>(stat.lat_count),
+               count, static_cast<int>(stat.lat_count));
+
+    char *histogram;
+    size_t length;
+    status = fdb_get_latency_histogram(dbfile, &histogram, &length, FDB_LATENCY_SETS);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+#ifdef _PLATFORM_LIB_AVAILABLE
+    // Sample output: {(0µs - 1µs) : 90; (1µs - 2µs) : 10; }
+    TEST_CHK(length != 0);
+    TEST_CHK(histogram != nullptr);
+    free(histogram);
+#else
+    TEST_CHK(length == 0);
+    TEST_CHK(histogram == nullptr);
+#endif
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("latency stats with histogram test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -5231,6 +5290,8 @@ int main(){
     available_rollback_seqno_test("kvs");
     changes_since_test(NULL);
     changes_since_test("kvs");
+
+    latency_stats_histogram_test();
 
     return 0;
 }

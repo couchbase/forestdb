@@ -1,12 +1,10 @@
-#ifndef _JSAHN_GETTIMEOFDAY_VS
-#define _JSAHN_GETTIMEOFDAY_VS
+#pragma once
 
+#define NOMINMAX 1
+#include <winsock2.h>
+#undef NOMINMAX
 #include <time.h>
 #include <Windows.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct timezone
 {
@@ -14,10 +12,5 @@ struct timezone
     int  tz_dsttime;     /* type of dst correction */
 };
 
-int gettimeofday_vs(struct timeval *tv, struct timezone *tz);
+int gettimeofday_vs(struct timeval *tv, void *tz);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif

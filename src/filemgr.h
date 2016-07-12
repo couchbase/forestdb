@@ -48,6 +48,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#ifdef _PLATFORM_LIB_AVAILABLE
+#include <platform/histogram.h>
+#endif
+
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
 #define FILEMGR_ROLLBACK_IN_PROG 0x04
@@ -257,8 +261,8 @@ class LatencyStats;
     LatencyStats::update(file, type, ts_diff(begin, end));
 
 struct latency_stat {
-    std::atomic<uint32_t> lat_min;
-    std::atomic<uint32_t> lat_max;
+    std::atomic<uint64_t> lat_min;
+    std::atomic<uint64_t> lat_max;
     std::atomic<uint64_t> lat_sum;
     std::atomic<uint64_t> lat_num;
 };
@@ -1115,6 +1119,9 @@ public:
 
 #ifdef _LATENCY_STATS
     struct latency_stat latStats[FDB_LATENCY_NUM_STATS];
+#ifdef _PLATFORM_LIB_AVAILABLE
+    Histogram<hrtime_t> histStats[FDB_LATENCY_NUM_STATS];
+#endif // _PLATFORM_LIB_AVAILABLE
 #endif //_LATENCY_STATS
 
 private:
@@ -1348,7 +1355,7 @@ public:
      * @param val New value of a latency stat
      */
     static void update(FileMgr *file, fdb_latency_stat_type type,
-                       uint32_t val);
+                       uint64_t val);
 
     /**
      * Get the latency stats from a given file manager
@@ -1359,6 +1366,20 @@ public:
      */
     static void get(FileMgr *file, fdb_latency_stat_type type,
                     fdb_latency_stat *stat);
+
+#ifdef _PLATFORM_LIB_AVAILABLE
+    /**
+     * Get the histogram of latencies from a given file manager
+     *
+     * @param file Pointer to the file manager
+     * @param type Type of a latency stat to be retrieved
+     * @param stat Pointer to the histogram of latencies
+     * @param stat_length Pointer to the length of the buffer pointer to by
+     *                    the stat pointer
+     */
+    static void getHistogram(FileMgr *file, fdb_latency_stat_type type,
+                             char **stat, size_t *stat_length);
+#endif // _PLATFORM_LIB_AVAILABLE
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
     /**

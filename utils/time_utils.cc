@@ -15,6 +15,8 @@
  *   limitations under the License.
  */
 
+#include "time_utils.h"
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,32 +24,10 @@
 #if defined(__APPLE__)
 #include <mach/mach_time.h>
 #endif
-#if defined(WIN32)
-#include <Windows.h>
-#else
-#include <sys/time.h>
-#endif
-#if !defined(WIN32) && !defined(_WIN32)
-#include <unistd.h>
-#endif
-
-#include "time_utils.h"
-
-struct timeval _utime_gap(struct timeval a, struct timeval b)
-{
-    struct timeval ret;
-    if (b.tv_usec >= a.tv_usec) {
-        ret.tv_usec = b.tv_usec - a.tv_usec;
-        ret.tv_sec = b.tv_sec - a.tv_sec;
-    }else{
-        ret.tv_usec = 1000000 + b.tv_usec - a.tv_usec;
-        ret.tv_sec = b.tv_sec - a.tv_sec - 1;
-    }
-    return ret;
-}
 
 #if defined(WIN32) || defined(_WIN32)
 
+#ifndef _PLATFORM_LIB_AVAILABLE
 void usleep(unsigned int usec)
 {
     HANDLE timer;
@@ -61,8 +41,10 @@ void usleep(unsigned int usec)
     WaitForSingleObject(timer, INFINITE);
     CloseHandle(timer);
 }
+#endif // _PLATFORM_LIB_AVAILABLE
 
 #else
+#include <unistd.h>
 
 struct timespec convert_reltime_to_abstime(unsigned int ms) {
     struct timespec ts;
@@ -88,6 +70,19 @@ struct timespec convert_reltime_to_abstime(unsigned int ms) {
     return ts;
 }
 #endif //!defined(WIN32) && !defined(_WIN32)
+
+struct timeval _utime_gap(struct timeval a, struct timeval b)
+{
+    struct timeval ret;
+    if (b.tv_usec >= a.tv_usec) {
+        ret.tv_usec = b.tv_usec - a.tv_usec;
+        ret.tv_sec = b.tv_sec - a.tv_sec;
+    }else{
+        ret.tv_usec = 1000000 + b.tv_usec - a.tv_usec;
+        ret.tv_sec = b.tv_sec - a.tv_sec - 1;
+    }
+    return ret;
+}
 
 void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
     usleep(*sleep_time);

@@ -836,7 +836,7 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info);
 /**
  * Return the latency information about various forestdb api calls
  *
- * @param fhandle Pointer to ForestDB KV file handle
+ * @param fhandle Pointer to ForestDB file handle
  * @param stats Pointer to a latency_stats instance
  * @param type Type of latency stat to be retrieved
  * @return FDB_RESULT_SUCCESS on success.
@@ -845,6 +845,24 @@ LIBFDB_API
 fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
                                  fdb_latency_stat *stats,
                                  fdb_latency_stat_type type);
+
+/**
+ * Returns a histogram of latencies for various forestdb api calls
+ * (Works with Couchbase Server Build only)
+ *
+ * @param fhandle Pointer to ForestDB file handle
+ * @param stats Char pointer to stats (need to be freed from heap
+ *              by client on SUCCESS)
+ * @param stats_length Pointer to the length of the buffer pointed to by the
+ *                     stats pointer
+ * @param type Type of latency stat to be retrieved
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_latency_histogram(fdb_file_handle *fhandle,
+                                     char **stats,
+                                     size_t *stats_length,
+                                     fdb_latency_stat_type type);
 
 /**
  * Return the name of the latency stat

@@ -6,11 +6,16 @@
 #define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
 #endif
 
-int gettimeofday_vs(struct timeval *tv, struct timezone *tz)
+#ifndef _PLATFORM_LIB_AVAILABLE
+// In case of Couchbase Server Builds, platform library
+// is included, which already contains the following
+// definition.
+int gettimeofday_vs(struct timeval *tv, void *_tz)
 {
     FILETIME ft;
     unsigned __int64 tmpres = 0;
     static int tzflag;
+    struct timezone *tz = (struct timezone *)_tz;
 
     if (NULL != tv) {
         GetSystemTimeAsFileTime(&ft);
@@ -37,4 +42,4 @@ int gettimeofday_vs(struct timeval *tv, struct timezone *tz)
 
     return 0;
 }
-
+#endif // _PLATFORM_LIB_AVAILABLE

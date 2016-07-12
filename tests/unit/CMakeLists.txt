@@ -5,8 +5,10 @@ add_executable(hash_test
                ${ROOT_SRC}/list.cc
                ${GETTIMEOFDAY_VS}
                hash_test.cc
-               ${ROOT_UTILS}/memleak.cc)
-target_link_libraries(hash_test ${PTHREAD_LIB} ${LIBM} ${MALLOC_LIBRARIES})
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/time_utils.cc)
+target_link_libraries(hash_test ${PTHREAD_LIB} ${LIBM} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT})
 
 add_executable(bcache_test
                bcache_test.cc
@@ -173,8 +175,10 @@ add_executable(btree_kv_test
                ${ROOT_SRC}/btree_kv.cc
                ${ROOT_SRC}/avltree.cc
                ${GETTIMEOFDAY_VS}
-               ${ROOT_UTILS}/memleak.cc)
-target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES})
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/time_utils.cc)
+target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT})
 
 # add test target
 add_test(hash_test hash_test)

@@ -26,6 +26,11 @@
 #include <fcntl.h>
 
 #include "forestdb_endian.h"
+
+#ifdef _PLATFORM_LIB_AVAILABLE
+#include <platform/platform.h>
+#endif // _PLATFORM_LIB_AVAILABLE
+
 /* Large File Support */
 #define _LARGE_FILE 1
 #ifndef _FILE_OFFSET_BITS
@@ -369,6 +374,9 @@
     #define _ARCH_O_DIRECT (0x0)
 
 #ifdef _MSC_VER
+    #define NOMINMAX 1
+    #include <winsock2.h>
+    #undef NOMINMAX
     // visual studio CL compiler
     #include <Windows.h>
     #include "gettimeofday_vs.h"
@@ -379,11 +387,16 @@
 #ifndef _CRT_SECURE_NO_WARNINGS
     #define _CRT_SECURE_NO_WARNINGS
 #endif
+#ifndef _PLATFORM_LIB_AVAILABLE
+    // In case of Couchbase Server Builds, platform library
+    // is included, which already contains the following
+    // definitions.
     #define gettimeofday gettimeofday_vs
+    typedef SSIZE_T ssize_t;
+#endif // _PLATFORM_LIB_AVAILABLE
     #define sleep(sec) Sleep((sec)*1000)
     typedef unsigned long mode_t;
     #include <BaseTsd.h>
-    typedef SSIZE_T ssize_t;
 #else
     #include <inttypes.h>
     #include <windows.h>

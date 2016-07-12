@@ -326,7 +326,11 @@ typedef struct fdb_fileops_handle_opaque* fdb_fileops_handle;
 #ifdef _MSC_VER
     typedef unsigned long mode_t;
     #include <BaseTsd.h>
+#ifdef _PLATFORM_LIB_AVAILABLE
+    typedef long fdb_ssize_t;
+#else
     typedef SSIZE_T fdb_ssize_t;
+#endif // _PLATFORM_LIB_AVAILABLE
 #else
     typedef ssize_t fdb_ssize_t;
 #endif

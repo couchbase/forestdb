@@ -1,8 +1,8 @@
-#ifndef _JSAHN_DEBUG_H
-#define _JSAHN_DEBUG_H
+#pragma once
 
-#include <libforestdb/fdb_errors.h>
 #include <stdint.h>
+#include "time_utils.h"
+#include <libforestdb/fdb_errors.h>
 
 #ifdef __DEBUG
     #include <stdio.h>
@@ -31,5 +31,3 @@ fdb_status _dbg_destroy_altstack(void);
 fdb_status _dbg_handle_crashes(const char *pathname);
 
 void dbg_print_buf(void *buf, uint64_t buflen, bool hex, int align);
-
-#endif

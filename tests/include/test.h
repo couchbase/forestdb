@@ -15,8 +15,7 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_TEST_H
-#define _JSAHN_TEST_H
+#pragma once
 
 #include <stdio.h>
 #include <time.h>
@@ -32,10 +31,6 @@
 #   if defined(__has_feature) && __has_feature(thread_sanitizer)
 #      define THREAD_SANITIZER
 #   endif
-#endif
-
-#ifdef __cplusplus
-extern "C" {
 #endif
 
 #define _TEST_GLOBAL
@@ -73,10 +68,6 @@ extern "C" {
 
 #endif
 
-#ifdef __cplusplus
-}
-#endif
-
 #if defined(WIN32) || defined(_WIN32)
 #define SHELL_DEL "del /f "
 #define SHELL_COPY "copy "
@@ -96,7 +87,4 @@ extern "C" {
 #endif
 
 #include "memleak.h"
-
-#endif
-
 

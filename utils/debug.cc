@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "time_utils.h"
 
 #include "breakpad.h"
 #include "fdb_internal.h"
