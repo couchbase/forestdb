@@ -51,18 +51,11 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 
-// global static variables
-#ifdef SPIN_INITIALIZER
-static spin_t initial_lock = SPIN_INITIALIZER;
-#else
-static volatile unsigned int initial_lock_status = 0;
-static spin_t initial_lock;
-#endif
-
 extern volatile uint8_t bgflusher_initialized;
 static FileMgrConfig global_config;
 
 std::atomic<bool> FileMgr::fileMgrInitialized(false);
+std::mutex FileMgr::initMutex;
 spin_t FileMgr::fileMgrOpenlock;
 
 std::mutex FileMgrMap::initGuard;
@@ -388,21 +381,7 @@ void FileMgr::init(FileMgrConfig *config)
     // global initialization
     // initialized only once at first time
     if (!fileMgrInitialized) {
-#ifndef SPIN_INITIALIZER
-        // Note that only Windows passes through this routine
-        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
-            // atomically initialize spin lock only once
-            spin_init(&initial_lock);
-            initial_lock_status = 2;
-        } else {
-            // the others ... wait until initializing 'initial_lock' is done
-            while (initial_lock_status != 2) {
-                Sleep(1);
-            }
-        }
-#endif
-
-        spin_lock(&initial_lock);
+        std::lock_guard<std::mutex> lock(FileMgr::initMutex);
         if (!fileMgrInitialized) {
             global_config = *config;
 
@@ -420,7 +399,6 @@ void FileMgr::init(FileMgrConfig *config)
             // set the initialize flag
             fileMgrInitialized.store(true);
         }
-        spin_unlock(&initial_lock);
     }
 }
 
@@ -1836,24 +1814,10 @@ fdb_status FileMgr::shutdown()
     fdb_status ret = FDB_RESULT_SUCCESS;
     void *open_file;
     if (fileMgrInitialized) {
-
-#ifndef SPIN_INITIALIZER
-        // Windows: check if spin lock is already destroyed.
-        if (InterlockedCompareExchange(&initial_lock_status, 1, 2) == 2) {
-            spin_lock(&initial_lock);
-        } else {
-            // filemgr is already shut down
-            return ret;
-        }
-#else
-        spin_lock(&initial_lock);
-#endif
+        std::unique_lock<std::mutex> lh(FileMgr::initMutex);
 
         if (!fileMgrInitialized) {
             // filemgr is already shut down
-#ifdef SPIN_INITIALIZER
-            spin_unlock(&initial_lock);
-#endif
             return ret;
         }
 
@@ -1867,18 +1831,8 @@ fdb_status FileMgr::shutdown()
                 BlockCacheManager::getInstance()->destroyInstance();
             }
             fileMgrInitialized.store(false);
-#ifndef SPIN_INITIALIZER
-            initial_lock_status = 0;
-#else
-            initial_lock = SPIN_INITIALIZER;
-#endif
             _filemgr_shutdown_temp_buf();
-            spin_unlock(&initial_lock);
-#ifndef SPIN_INITIALIZER
-            spin_destroy(&initial_lock);
-#endif
         } else {
-            spin_unlock(&initial_lock);
             ret = FDB_RESULT_FILE_IS_BUSY;
         }
     }

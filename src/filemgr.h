@@ -58,6 +58,7 @@
 #define FILEMGR_EXCL_CREATE 0x80 // fail open if file already exists
 
 class SuperblockBase;
+
 class FileMgrConfig {
 public:
     FileMgrConfig()
@@ -339,7 +340,7 @@ public:
     static void shutdown(void);
 
 private:
-    // Lock to protech the unordered map
+    // Lock to protect the unordered map
     spin_t fileMapLock;
     // Unordered map that maps filenames to FileMgr instances
     std::unordered_map<std::string, FileMgr *> fileMap;
@@ -1190,6 +1191,8 @@ private:
 
     // Global Atomic variable to track if filemgr's config has been initialized
     static std::atomic<bool> fileMgrInitialized;
+    // Global mutex to synchronize the initialization of filemgr's configs
+    static std::mutex initMutex;
     // Global static spin lock used by open() and close() methods
     static spin_t fileMgrOpenlock;
 };
