@@ -2202,6 +2202,8 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
             handle->file->mutexUnlock();
         }
         _fdb_cleanup_open_err(handle);
+
+        free(prev_filename);
         return status;
     }
 
