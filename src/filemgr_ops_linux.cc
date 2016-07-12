@@ -342,7 +342,10 @@ struct btrfs_ioctl_clone_range_args {
         ((size) << _IOC_SIZESHIFT))
 #endif // _IOC
 
-#define _IOC_TYPECHECK(t) (sizeof(t))
+#ifndef _IOC_TYPECHECK
+# define _IOC_TYPECHECK(t) (sizeof(t))
+#endif
+
 #ifndef _IOW
 #define _IOW(type,nr,size) _IOC(_IOC_WRITE,(type),(nr),\
                           (_IOC_TYPECHECK(size)))

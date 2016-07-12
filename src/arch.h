@@ -136,10 +136,17 @@
 
     #define INLINE static __inline
 
-    #define _X64 "llx"
-    #define _F64 "lld"
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
+    #if defined(__arm__) || defined(__i386__) || defined(__mips32__)
+        #define _X64 "llx"
+        #define _F64 "llu"
+        #define _FSEC "lld"
+        #define _FUSEC "lld"
+    #else
+        #define _X64 "lx"
+        #define _F64 "lu"
+        #define _FSEC "ld"
+        #define _FUSEC "ld"
+    #endif // 32-bit vs 64-bit platform check
 
     #define _ARCH_O_DIRECT (O_DIRECT)
     #define malloc_align(addr, align, size) \
