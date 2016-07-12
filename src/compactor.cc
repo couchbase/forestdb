@@ -680,8 +680,11 @@ fdb_status CompactionManager::registerFile(FileMgr *file,
         return fs;
     }
 
-    // first search the existing file
-    std::string filename = file->getFileName();
+    // Firstly, search the existing file.
+    // Here we are explictly forcing a copy of the string object to
+    // work around std::string copy-on-write data-race issues
+    // seen on some versions of libstdc++.
+    std::string filename(file->getFileName().c_str());
     cptLock.lock();
     auto entry = openFiles.find(filename);
     if (entry == openFiles.end()) {
@@ -754,7 +757,7 @@ fdb_status CompactionManager::registerFileRemoval(FileMgr *file,
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     // first search the existing file
-    std::string filename = file->getFileName();
+    std::string filename(file->getFileName().c_str());
     cptLock.lock();
     auto entry = openFiles.find(filename);
     if (entry == openFiles.end()) {
