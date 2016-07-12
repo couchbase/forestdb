@@ -88,7 +88,7 @@ ssize_t _filemgr_win_pwrite(fdb_fileops_handle fileops_handle, void *buf,
         _get_errno(&err);
         return (ssize_t) convert_errno_to_fdb_status(err, FDB_RESULT_WRITE_FAIL);
 #else
-        return (sszie_t) convert_errno_to_fdb_status(errno, FDB_RESULT_WRITE_FAIL);
+        return (ssize_t) convert_errno_to_fdb_status(errno, FDB_RESULT_WRITE_FAIL);
 #endif
     }
     return (ssize_t) byteswritten;
