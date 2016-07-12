@@ -51,7 +51,6 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 
-extern volatile uint8_t bgflusher_initialized;
 static FileMgrConfig global_config;
 
 std::atomic<bool> FileMgr::fileMgrInitialized(false);
