@@ -487,8 +487,12 @@ public:
 
     /* Public member functions */
 
-    const std::string& getFileName() {
+    const char* getFileName() const {
         return fileName;
+    }
+
+    uint16_t getFileNameLen() const {
+        return fileNameLen;
     }
 
     void incrRefCount() {
@@ -1113,7 +1117,8 @@ public:
 #endif //_LATENCY_STATS
 
 private:
-    std::string fileName;             // Current file name
+    char fileName[FDB_MAX_FILENAME_LEN]; // Current file name
+    uint16_t fileNameLen;
     std::atomic<uint32_t> refCount;
     uint8_t fMgrFlags;
     uint32_t blockSize;

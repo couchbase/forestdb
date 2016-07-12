@@ -110,12 +110,12 @@ void * BgFlusher::bgflusherThread()
                 l_lock.unlock();
                 if (fs == FDB_RESULT_SUCCESS) {
                     num_blocks += file->flushImmutable(log_callback);
-                    FileMgr::close(file, false, file->getFileName().c_str(), log_callback);
+                    FileMgr::close(file, false, file->getFileName(), log_callback);
 
                 } else {
                     fdb_log(log_callback, fs,
                             "Failed to open the file '%s' for background flushing\n.",
-                            file->getFileName().c_str());
+                            file->getFileName());
                 }
                 l_lock.lock();
                 elem->background_flush_in_progress = false;
@@ -256,7 +256,7 @@ fdb_status BgFlusher::registerFile_BgFlusher(FileMgr *file,
         return fs;
     }
 
-    strcpy(query.filename, file->getFileName().c_str());
+    strcpy(query.filename, file->getFileName());
     // first search the existing file
     std::lock_guard<std::mutex> l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
@@ -265,7 +265,7 @@ fdb_status BgFlusher::registerFile_BgFlusher(FileMgr *file,
         // create elem and insert into tree
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
         elem->file = file;
-        strcpy(elem->filename, file->getFileName().c_str());
+        strcpy(elem->filename, file->getFileName());
         elem->config = *config;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -290,13 +290,13 @@ void BgFlusher::switchFile_BgFlusher(FileMgr *old_file,
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, old_file->getFileName().c_str());
+    strcpy(query.filename, old_file->getFileName());
     std::lock_guard<std::mutex> l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openFiles, a);
-        strcpy(elem->filename, new_file->getFileName().c_str());
+        strcpy(elem->filename, new_file->getFileName());
         elem->file = new_file;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -309,7 +309,7 @@ void BgFlusher::deregisterFile_BgFlusher(FileMgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->getFileName().c_str());
+    strcpy(query.filename, file->getFileName());
     std::lock_guard<std::mutex> l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
     if (a) {

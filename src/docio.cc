@@ -158,7 +158,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
             fdb_log(log_callback, fs,
                     "Error in appending a doc block marker for a block id %" _F64
                     " into a database file '%s'", curblock,
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
             return BLK_NOT_FOUND;
         }
         fs = file_Docio->writeOffset(curblock, offset, size,
@@ -167,7 +167,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
             fdb_log(log_callback, fs,
                     "Error in writing a doc block with id %" _F64 ", offset %d, size %"
                     _F64 " to a database file '%s'", curblock, offset, size,
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
             return BLK_NOT_FOUND;
         }
         curpos += size;
@@ -206,7 +206,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 fdb_log(log_callback, fs,
                         "Error in allocating blocks starting from block id %" _F64
                         " in a database file '%s'", curblock + 1,
-                        file_Docio->getFileName().c_str());
+                        file_Docio->getFileName());
                 return BLK_NOT_FOUND;
             }
 
@@ -216,7 +216,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 fdb_log(log_callback, fs,
                         "Error in appending a doc block marker for a block id %" _F64
                         " into a database file '%s'", curblock,
-                        file_Docio->getFileName().c_str());
+                        file_Docio->getFileName());
                 return BLK_NOT_FOUND;
             }
             if (offset > 0) {
@@ -228,7 +228,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", offset %d, "
                             "size %" _F64 " to a database file '%s'", curblock,
-                            offset, size, file_Docio->getFileName().c_str());
+                            offset, size, file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
             }
@@ -296,7 +296,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in appending a doc block metadata for a block id %" _F64
                             " into a database file '%s'", curblock,
-                            file_Docio->getFileName().c_str());
+                            file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
 
@@ -310,7 +310,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                         fdb_log(log_callback, fs,
                                 "Error in writing a doc block with id %" _F64 ", offset %d, "
                                 "size %" _F64 " to a database file '%s'", curblock,
-                                offset, size, file_Docio->getFileName().c_str());
+                                offset, size, file_Docio->getFileName());
                         return BLK_NOT_FOUND;
                     }
                 }
@@ -340,7 +340,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in allocating blocks starting from block id %" _F64
                             " in a database file '%s'", curblock + 1,
-                            file_Docio->getFileName().c_str());
+                            file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
 
@@ -350,7 +350,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in appending a doc block marker for a block id %" _F64
                             " into a database file '%s'", curblock,
-                            file_Docio->getFileName().c_str());
+                            file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
                 if (offset > 0) {
@@ -362,7 +362,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                         fdb_log(log_callback, fs,
                                 "Error in writing a doc block with id %" _F64 ", offset %d, "
                                 "size %" _F64 " to a database file '%s'", curblock,
-                                offset, size, file_Docio->getFileName().c_str());
+                                offset, size, file_Docio->getFileName());
                         return BLK_NOT_FOUND;
                     }
                 }
@@ -421,7 +421,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 fdb_log(log_callback, fs,
                         "Error in appending a doc block marker for a block "
                         "id %" _F64 " into a database file '%s'", block_list[i],
-                        file_Docio->getFileName().c_str());
+                        file_Docio->getFileName());
                 return BLK_NOT_FOUND;
             }
 
@@ -436,7 +436,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in writing an entire doc block with id %" _F64
                             ", size %" _F64 " to a database file '%s'", block_list[i], blocksize,
-                            file_Docio->getFileName().c_str());
+                            file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
                 offset += blocksize;
@@ -455,7 +455,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", "
                             "size %" _F64 " to a database file '%s'", block_list[i], remainsize,
-                            file_Docio->getFileName().c_str());
+                            file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
                 offset += remainsize;
@@ -541,7 +541,7 @@ inline bid_t DocioHandle::_appendDoc_Docio(struct docio_object *doc)
             fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                     "Error in compressing the doc body of key '%s' from "
                     "a database file '%s'",
-                    (char *) doc->key, file_Docio->getFileName().c_str());
+                    (char *) doc->key, file_Docio->getFileName());
             free(compbuf);
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
@@ -698,7 +698,7 @@ fdb_status DocioHandle::_readThroughBuffer_Docio(bid_t bid,
             if (read_on_cache_miss) {
                 fdb_log(log_callback, status,
                         "Error in reading a doc block with id %" _F64 " from "
-                        "a database file '%s'", bid, file_Docio->getFileName().c_str());
+                        "a database file '%s'", bid, file_Docio->getFileName());
             }
             // we must reset 'lastbid' here because now 'readbuffer'
             // may contain other data unrelated to 'lastbid'.
@@ -785,7 +785,7 @@ int64_t DocioHandle::_readLength_Docio(uint64_t offset,
                     "Error in reading a doc length from offset %" _F64
                     " in block id %" _F64
                     " from a database file '%s'", offset, bid,
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
         }
         return (int64_t) fs;
     }
@@ -821,7 +821,7 @@ int64_t DocioHandle::_readLength_Docio(uint64_t offset,
                     "Error in reading a doc length from an additional block "
                     "offset %" _F64 " in block id %" _F64
                     " from a database file '%s'", offset,
-                    bid, file_Docio->getFileName().c_str());
+                    bid, file_Docio->getFileName());
             return (int64_t) fs;
         }
         if (!_checkBuffer_Docio((uint64_t)-1)) {
@@ -868,7 +868,7 @@ int64_t DocioHandle::_readDocComponent_Docio(uint64_t offset,
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Error in reading a doc block with block id %" _F64 " from "
-                    "a database file '%s'", bid, file_Docio->getFileName().c_str());
+                    "a database file '%s'", bid, file_Docio->getFileName());
             return (int64_t)fs;
         }
         restsize = blocksize - pos;
@@ -895,7 +895,7 @@ int64_t DocioHandle::_readDocComponent_Docio(uint64_t offset,
                 // no more data in the file .. the file is corrupted
                 fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                         "Fatal error!!! Database file '%s' is corrupted.",
-                        file_Docio->getFileName().c_str());
+                        file_Docio->getFileName());
                 return (int64_t)FDB_RESULT_FILE_CORRUPTION;
             }
         }
@@ -921,7 +921,7 @@ int64_t DocioHandle::_readCompressedDocComponent_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading the file with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, len,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         return _offset;
     }
 
@@ -932,7 +932,7 @@ int64_t DocioHandle::_readCompressedDocComponent_Docio(uint64_t offset,
         fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                 "Error in decompressing the data that was read with the file "
                 "offset %" _F64 ", length %d from a database file '%s'",
-                offset, len, file_Docio->getFileName().c_str());
+                offset, len, file_Docio->getFileName());
         return (int64_t) FDB_RESULT_COMPRESSION_FAIL;
     }
     if (uncomp_size != len) {
@@ -940,7 +940,7 @@ int64_t DocioHandle::_readCompressedDocComponent_Docio(uint64_t offset,
                 "Error in decompressing the data with the file offset "
                 "%" _F64 " in a database file '%s', because the uncompressed length %d "
                 "is not same as the expected length %d",
-                offset, file_Docio->getFileName().c_str(), uncomp_size, len);
+                offset, file_Docio->getFileName(), uncomp_size, len);
         return (int64_t) FDB_RESULT_COMPRESSION_FAIL;
     }
     return _offset;
@@ -966,7 +966,7 @@ bool DocioHandle::validateChecksum_Docio(bool read_on_cache_miss,
             fdb_log(log_callback, (fdb_status) _offset,
                     "Error in reading the doc length metadata with "
                     "offset %" _F64 " from a database file '%s'",
-                    *offset, file_Docio->getFileName().c_str());
+                    *offset, file_Docio->getFileName());
         }
         *status = (fdb_status) _offset;
         return false;;
@@ -987,7 +987,7 @@ bool DocioHandle::validateChecksum_Docio(bool read_on_cache_miss,
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'"
                 " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName().c_str(),
+                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName(),
                 checksum, length->checksum, length->keylen, length->metalen,
                 length->bodylen, length->bodylen_ondisk, offset);
         *status = FDB_RESULT_CHECKSUM_ERROR;
@@ -1016,7 +1016,7 @@ fdb_status DocioHandle::readDocLength_Docio(struct docio_length *length,
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "Error in decoding the doc length metadata in file %s"
                 " crc %x keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName().c_str(),
+                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName(),
                 _length.checksum, _length.keylen, _length.metalen,
                 _length.bodylen, _length.bodylen_ondisk, offset);
         return FDB_RESULT_FILE_CORRUPTION;
@@ -1044,7 +1044,7 @@ fdb_status DocioHandle::readDocKey_Docio(uint64_t offset,
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "Error in decoding the doc key length metadata in file %s"
                 " crc %x keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName().c_str(),
+                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName(),
                 _length.checksum, _length.keylen, _length.metalen,
                 _length.bodylen, _length.bodylen_ondisk, offset);
         return FDB_RESULT_FILE_CORRUPTION;
@@ -1056,7 +1056,7 @@ fdb_status DocioHandle::readDocKey_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a key with offset %" _F64 ", length %d "
                 "from a database file '%s'", _offset, length.keylen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         return (fdb_status) _offset;
     }
 
@@ -1108,7 +1108,7 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
     if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "Error in decoding the doc length metadata (key length: %d) from "
-                "a database file '%s'", doc->length.keylen, file_Docio->getFileName().c_str());
+                "a database file '%s'", doc->length.keylen, file_Docio->getFileName());
         return (int64_t) FDB_RESULT_FILE_CORRUPTION;
     }
 
@@ -1127,7 +1127,7 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a key with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.keylen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
@@ -1140,7 +1140,7 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a timestamp with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(timestamp_t),
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
@@ -1153,7 +1153,7 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a sequence number with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
@@ -1165,7 +1165,7 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading the doc metadata with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.metalen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
@@ -1209,7 +1209,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                     "File corruption: Doc length fields in a transaction commit marker "
                     "was not zero in a database file '%s' offset %" _F64,
-                    file_Docio->getFileName().c_str(), offset);
+                    file_Docio->getFileName(), offset);
             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return (int64_t) FDB_RESULT_FILE_CORRUPTION;
         }
@@ -1220,7 +1220,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         if (_offset < 0) {
             fdb_log(log_callback, (fdb_status) _offset,
                     "Error in reading an offset of a committed doc from an offset %" _F64
-                    " in a database file '%s'", offset, file_Docio->getFileName().c_str());
+                    " in a database file '%s'", offset, file_Docio->getFileName());
             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return _offset;
         }
@@ -1232,7 +1232,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
                     "File corruption: Offset %" _F64 " of the actual doc pointed by the "
                     "commit marker is greater than the size %" _F64 " of a database file '%s'",
                     doc->doc_offset, file_Docio->getPos(),
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return (int64_t) FDB_RESULT_FILE_CORRUPTION;
         }
@@ -1243,7 +1243,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "Error in decoding the doc length metadata (key length: %d) from "
                 "a database file '%s' offset %" _F64, doc->length.keylen,
-                file_Docio->getFileName().c_str(), offset);
+                file_Docio->getFileName(), offset);
         return (int64_t) FDB_RESULT_FILE_CORRUPTION;
     }
 
@@ -1267,7 +1267,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a key with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.keylen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
     }
@@ -1280,7 +1280,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a timestamp with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(timestamp_t),
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
     }
@@ -1294,7 +1294,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a sequence number with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
     }
@@ -1306,7 +1306,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading the doc metadata with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.metalen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
     }
@@ -1321,7 +1321,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
             fdb_log(log_callback, (fdb_status) _offset,
                     "Error in reading a compressed doc with offset %" _F64 ", length %d "
                     "from a database file '%s'", offset, doc->length.bodylen,
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
             if (comp_body) {
                 free(comp_body);
             }
@@ -1335,7 +1335,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
             fdb_log(log_callback, (fdb_status) _offset,
                     "Error in reading a doc with offset %" _F64 ", length %d "
                     "from a database file '%s'", offset, doc->length.bodylen,
-                    file_Docio->getFileName().c_str());
+                    file_Docio->getFileName());
             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return _offset;
         }
@@ -1347,7 +1347,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a doc with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.bodylen,
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
     }
@@ -1361,7 +1361,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, (fdb_status) _offset,
                 "Error in reading a doc's CRC value with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(crc_file),
-                file_Docio->getFileName().c_str());
+                file_Docio->getFileName());
         if (comp_body) {
             free(comp_body);
         }
@@ -1407,7 +1407,7 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_body checksum mismatch error in a database file '%s'"
                 " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName().c_str(),
+                "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName(),
                 crc, crc_file, _length.keylen, _length.metalen,
                 _length.bodylen, _length.bodylen_ondisk, offset);
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
@@ -1445,7 +1445,7 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
                                             errno_msg, 512);
         fdb_log(log_callback, (fdb_status) num_sub,
                 "Error in submitting async I/O requests to a file '%s', errno msg: %s",
-                file_Docio->getFileName().c_str(), errno_msg);
+                file_Docio->getFileName(), errno_msg);
         return num_sub;
     } else if (num_sub != size) {
         // Error loggings
@@ -1455,7 +1455,7 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
         fdb_log(log_callback, (fdb_status) num_sub,
                 "Error in submitting async I/O requests to a file '%s', errno msg: %s, "
                 "%d requests were submitted, but only %d requests were processed",
-                file_Docio->getFileName().c_str(), errno_msg, size, num_sub);
+                file_Docio->getFileName(), errno_msg, size, num_sub);
         return num_sub;
     }
 
@@ -1470,7 +1470,7 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
                                                 errno_msg, 512);
             fdb_log(log_callback, (fdb_status) num_events,
                     "Error in getting async I/O events from the completion queue "
-                    "for a file '%s', errno msg: %s", file_Docio->getFileName().c_str(), errno_msg);
+                    "for a file '%s', errno msg: %s", file_Docio->getFileName(), errno_msg);
             return num_events;
         }
         num_sub -= num_events;

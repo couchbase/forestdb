@@ -1256,7 +1256,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             "Error in appending a commit mark at offset %"
                             _F64 " in "
                             "a database file '%s'", item->offset,
-                            file->getFileName().c_str());
+                            file->getFileName());
                     spin_unlock(&key_shards[shard_num].lock);
                     mem_overhead.fetch_sub(_mem_overhead,
                                            std::memory_order_relaxed);
@@ -1324,7 +1324,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
                             _item->flag.load(), _item->action,
-                            file->getFileName().c_str());
+                            file->getFileName());
                 }
             }
         }
@@ -1544,7 +1544,7 @@ inline fdb_status Wal::_wal_do_flush(struct wal_item *item,
             fdb_log(&handle->log_callback, fs,
                     "Failed to flush WAL item (key '%s') into a database file '%s'",
                     (const char *) item->header->key,
-                    handle->file->getFileName().c_str());
+                    handle->file->getFileName());
             return fs;
         }
     }
@@ -2801,7 +2801,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " in file %s", shandle->id,
-                        file->getFileName().c_str());
+                        file->getFileName());
             }
             if (shandle->id != kv_id_req) {
                 break;
@@ -2827,7 +2827,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " with %" _F64 " docs in file %s", shandle->id,
-                        shandle->wal_ndocs.load(), file->getFileName().c_str());
+                        shandle->wal_ndocs.load(), file->getFileName());
             }
             next_a = avl_next(a);
             avl_remove(&wal_snapshot_tree, a);

@@ -859,7 +859,7 @@ int BlockCacheManager::read(FileMgr *file,
                 spin_unlock(&fcache->shards[shard_num]->lock);
                 DBG("Warning: failed to read the buffer cache entry for a file '%s' "
                     "because the entry belongs to the free list!\n",
-                    file->getFileName().c_str());
+                    file->getFileName());
                 return 0;
             }
 
@@ -919,7 +919,7 @@ bool BlockCacheManager::invalidateBlock(FileMgr *file,
                 spin_unlock(&fcache->shards[shard_num]->lock);
                 DBG("Warning: failed to invalidate the buffer cache entry for a file '%s' "
                     "because the entry belongs to the free list!\n",
-                    file->getFileName().c_str());
+                    file->getFileName());
                 return false;
             }
 
@@ -1101,7 +1101,7 @@ int BlockCacheManager::writePartial(FileMgr *file,
     if (item->getFlag() & BCACHE_FREE) {
         DBG("Warning: failed to write on the buffer cache entry for a file '%s' "
             "because the entry belongs to the free list!\n",
-            file->getFileName().c_str());
+            file->getFileName());
         return 0;
     }
 
@@ -1226,12 +1226,12 @@ bool BlockCacheManager::removeFile(FileMgr *file) {
             spin_unlock(&bcacheLock);
             DBG("Warning: failed to remove a file cache instance for a file '%s' "
                 "because the file cache instance is not empty!\n",
-                file->getFileName().c_str());
+                file->getFileName());
             return rv;
         }
 
         // remove from the file block cache map
-        fileMap.erase(file->getFileName());
+        fileMap.erase(std::string(file->getFileName()));
         spin_unlock(&bcacheLock);
 
         // We don't need to grab the file buffer cache's partition locks

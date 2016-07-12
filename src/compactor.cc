@@ -367,7 +367,7 @@ void CompactorThread::run() {
                                          file->getFopsHandle());
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
-                ret = remove(file->getFileName().c_str());
+                ret = remove(file->getFileName());
 #endif
                 file->removeAllBufferBlocks();
                 manager->cptLock.lock();
@@ -385,7 +385,7 @@ void CompactorThread::run() {
                         fprintf(stderr,
                                 "Error status code: %d, Error in REMOVE on a "
                                 "database file '%s', %s",
-                                ret, file->getFileName().c_str(), errno_msg);
+                                ret, file->getFileName(), errno_msg);
                     }
                 }
 
@@ -577,7 +577,7 @@ std::string CompactionManager::getNextFileName(const std::string &filename) {
 
 bool CompactionManager::switchCompactionFlag(FileMgr *file, bool flag) {
     std::lock_guard<std::mutex> lock(cptLock);
-    auto iter = openFiles.find(file->getFileName());
+    auto iter = openFiles.find(std::string(file->getFileName()));
     if (iter != openFiles.end()) {
         // found
         FileCompactionEntry *entry = iter->second;
@@ -681,10 +681,7 @@ fdb_status CompactionManager::registerFile(FileMgr *file,
     }
 
     // Firstly, search the existing file.
-    // Here we are explictly forcing a copy of the string object to
-    // work around std::string copy-on-write data-race issues
-    // seen on some versions of libstdc++.
-    std::string filename(file->getFileName().c_str());
+    std::string filename(file->getFileName());
     cptLock.lock();
     auto entry = openFiles.find(filename);
     if (entry == openFiles.end()) {
@@ -725,7 +722,7 @@ fdb_status CompactionManager::registerFile(FileMgr *file,
 
 void CompactionManager::deregisterFile(FileMgr *file) {
     std::lock_guard<std::mutex> lock(cptLock);
-    auto entry = openFiles.find(file->getFileName());
+    auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;
         if (file_entry->decrRegisterCount() == 0) {
@@ -757,7 +754,7 @@ fdb_status CompactionManager::registerFileRemoval(FileMgr *file,
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     // first search the existing file
-    std::string filename(file->getFileName().c_str());
+    std::string filename(file->getFileName());
     cptLock.lock();
     auto entry = openFiles.find(filename);
     if (entry == openFiles.end()) {
@@ -801,7 +798,7 @@ fdb_status CompactionManager::registerFileRemoval(FileMgr *file,
 void CompactionManager::setCompactionThreshold(FileMgr *file,
                                                size_t new_threshold) {
     std::lock_guard<std::mutex> lock(cptLock);
-    auto entry = openFiles.find(file->getFileName());
+    auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;
         file_entry->setCompactionThreshold(new_threshold);
@@ -813,7 +810,7 @@ fdb_status CompactionManager::setCompactionInterval(FileMgr *file,
     fdb_status result = FDB_RESULT_SUCCESS;
 
     std::lock_guard<std::mutex> lock(cptLock);
-    auto entry = openFiles.find(file->getFileName());
+    auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;
         file_entry->setCompactionInterval(interval);
@@ -944,13 +941,13 @@ void CompactionManager::switchFile(FileMgr *old_file,
                                    FileMgr *new_file,
                                    ErrLogCallback *log_callback) {
 
-    std::string old_filename = old_file->getFileName();
+    std::string old_filename(old_file->getFileName());
 
     cptLock.lock();
     auto entry = openFiles.find(old_filename);
     if (entry != openFiles.end()) {
         fdb_compaction_mode_t comp_mode;
-        std::string new_filename = new_file->getFileName();
+        std::string new_filename(new_file->getFileName());
         FileCompactionEntry *file_entry = entry->second;
 
         openFiles.erase(entry);

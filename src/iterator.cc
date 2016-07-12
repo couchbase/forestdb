@@ -322,7 +322,7 @@ FdbIterator::~FdbIterator()
             fdb_log(&iterHandle->log_callback, fs,
                     "Failed to close the KV Store from a database file '%s' as "
                     "part of closing the iterator",
-                    iterHandle->file->getFileName().c_str());
+                    iterHandle->file->getFileName());
         }
     }
 }
@@ -373,7 +373,7 @@ fdb_status FdbIterator::initIterator(FdbKvsHandle *handle,
                     "Failed to create an iterator instance due to the failure of "
                     "open operation on the KV Store '%s' in a database file '%s'",
                     _fdb_kvs_get_name(handle, handle->file),
-                    handle->file->getFileName().c_str());
+                    handle->file->getFileName());
             return fs;
         }
 
@@ -436,7 +436,7 @@ fdb_status FdbIterator::initSeqIterator(FdbKvsHandle *handle,
                     "failure of "
                     "open operation on the KV Store '%s' in a database file '%s'",
                     _fdb_kvs_get_name(handle, handle->file),
-                    handle->file->getFileName().c_str());
+                    handle->file->getFileName());
             return fs;
         }
         iterator = new FdbIterator(new_handle, false, start_seq, end_seq, opt);
@@ -2023,7 +2023,7 @@ fdb_status fdb_changes_since(FdbKvsHandle *handle,
         fdb_log(&handle->log_callback, status,
                 "Failed to initialize iterator to traverse by sequence number "
                 "range: (%llu - MAX_SEQ) over KV store '%s' database file '%s'",
-                since, kvs_name, handle->file->getFileName().c_str());
+                since, kvs_name, handle->file->getFileName());
         return status;
     }
 
@@ -2047,7 +2047,7 @@ fdb_status fdb_changes_since(FdbKvsHandle *handle,
             fdb_log(&handle->log_callback, status,
                     "Changes callback returned a negative value: %d, while "
                     "iterating over KV store '%s' in database file '%s'",
-                    result, kvs_name, handle->file->getFileName().c_str());
+                    result, kvs_name, handle->file->getFileName());
             break;
         }
     } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
