@@ -1815,6 +1815,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 // header creation racing .. unlock and re-fetch it
                 locked = false;
                 handle->file->mutexUnlock();
+                free(prev_filename);
                 continue;
             }
         }
@@ -2085,9 +2086,9 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 }
                 delete handle->dhandle;
                 delete handle->bhandle;
+                free(prev_filename);
                 FileMgr::close(handle->file, false, NULL,
                                &handle->log_callback);
-
                 return fs;
             }
         }
@@ -2113,7 +2114,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
             memset(&handle->shandle->stat, 0x0,
                     sizeof(handle->shandle->stat));
             handle->file->getKvsStatOps()->statGet(handle->kvs->getKvsId(),
-                                             &handle->shandle->stat);
+                                                   &handle->shandle->stat);
             // Since wal is restored below, we have to reset
             // wal stats to zero.
             handle->shandle->stat.wal_ndeletes = 0;
@@ -2128,6 +2129,8 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
             "the global operational stats of KV store in a database file '%s'\n";
         fdb_log(&handle->log_callback, FDB_RESULT_OPEN_FAIL, msg,
                 handle->file->getFileName());
+        free(prev_filename);
+        _fdb_cleanup_open_err(handle);
         return FDB_RESULT_OPEN_FAIL;
     }
 
@@ -2168,7 +2171,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                                              handle->config.blocksize, seq_root_bid);
             }
         }
-    }else{
+    } else {
         handle->seqtree = NULL;
     }
 
@@ -2201,9 +2204,8 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         if (locked) {
             handle->file->mutexUnlock();
         }
-        _fdb_cleanup_open_err(handle);
-
         free(prev_filename);
+        _fdb_cleanup_open_err(handle);
         return status;
     }
 
@@ -2265,12 +2267,9 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                     FileMgr::close(result.file, false, handle->filename.c_str(),
                                    &handle->log_callback);
                 }
-            } else {
-                free(prev_filename);
             }
-        } else {
-            free(prev_filename);
         }
+        free(prev_filename);
     }
 
     // do not register read-only handles
