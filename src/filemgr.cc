@@ -339,9 +339,6 @@ FileMgr::FileMgr()
     spin_init(&handleIdxLock);
 }
 
-// Forward declaration
-void _free_fhandle_idx(struct avl_tree *idx);
-
 FileMgr::~FileMgr()
 {
 #ifdef _LATENCY_STATS
@@ -370,7 +367,7 @@ FileMgr::~FileMgr()
 
     dirtyUpdateFree();
 
-    _free_fhandle_idx(&handleIdx);
+    freeFileHandleIdx();
     spin_destroy(&handleIdxLock);
  }
 
@@ -829,35 +826,32 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 }
 
 // prefetch the given DB file
-void filemgr_prefetch(FileMgr *file,
-                      FileMgrConfig *config,
-                      ErrLogCallback *log_callback)
+void FileMgr::prefetch(ErrLogCallback *log_callback)
 {
     uint64_t bcache_free_space;
 
     bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-    bcache_free_space *= file->getBlockSize();
+    bcache_free_space *= getBlockSize();
 
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
-    file->acquireSpinLock();
+    acquireSpinLock();
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_IDLE;
-    if (file->getLastCommit() > 0 &&
+    if (getLastCommit() > 0 &&
         bcache_free_space >= FILEMGR_PREFETCH_UNIT &&
-        file->prefetchStatus.compare_exchange_strong(cond,
-                                                      FILEMGR_PREFETCH_RUNNING)) {
+        prefetchStatus.compare_exchange_strong(cond, FILEMGR_PREFETCH_RUNNING)) {
         // invoke prefetch thread
         struct filemgr_prefetch_args *args;
         args = (struct filemgr_prefetch_args *)
                             calloc(1, sizeof(struct filemgr_prefetch_args));
-        args->file = file;
-        args->duration = config->getPrefetchDuration();
+        args->file = this;
+        args->duration = fileConfig->getPrefetchDuration();
         args->log_callback = log_callback;
-        thread_create(&file->prefetchTid, _filemgr_prefetch_thread, args);
+        thread_create(&prefetchTid, _filemgr_prefetch_thread, args);
     }
-    file->releaseSpinLock();
+    releaseSpinLock();
 }
 
-fdb_status filemgr_does_file_exist(const char *filename) {
+fdb_status FileMgr::doesFileExist(const char *filename) {
     struct filemgr_ops *ops = get_filemgr_ops();
     fdb_fileops_handle fops_handle;
     fdb_status status = FileMgr::fileOpen(filename, ops, &fops_handle, O_RDONLY,
@@ -1158,7 +1152,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     FileMgrMap::get()->addEntry(filename, file);
 
     if (config->getPrefetchDuration() > 0) {
-        filemgr_prefetch(file, config, log_callback);
+        file->prefetch(log_callback);
     }
 
     spin_unlock(&fileMgrOpenlock);
@@ -1906,24 +1900,22 @@ bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
     return bid;
 }
 
-#ifdef __CRC32
-INLINE fdb_status _filemgr_crc32_check(FileMgr *file, void *buf)
+fdb_status FileMgr::checkCRC32(void *buf)
 {
-    if ( *((uint8_t*)buf + file->getBlockSize()-1) == BLK_MARKER_BNODE ) {
+    if ( *((uint8_t*)buf + getBlockSize()-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file = 0;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
         if (!perform_integrity_check(reinterpret_cast<const uint8_t*>(buf),
-                                     file->getBlockSize(),
+                                     getBlockSize(),
                                      crc_file,
-                                     file->getCrcMode())) {
+                                     getCrcMode())) {
             return FDB_RESULT_CHECKSUM_ERROR;
         }
     }
     return FDB_RESULT_SUCCESS;
 }
-#endif
 
 bool FileMgr::invalidateBlock(bid_t bid) {
     bool ret;
@@ -2062,7 +2054,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                 return status;
             }
 #ifdef __CRC32
-            status = _filemgr_crc32_check(this, buf);
+            status = checkCRC32(buf);
             if (status != FDB_RESULT_SUCCESS) {
                 _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
                                fileName);
@@ -2145,7 +2137,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
         }
 
 #ifdef __CRC32
-        status = _filemgr_crc32_check(this, buf);
+        status = checkCRC32(buf);
         if (status != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
                            fileName);
@@ -2785,7 +2777,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
 
         // Cleanup file from in-memory as well as on-disk
         FileMgr::freeFunc(file);
-        if (filemgr_does_file_exist(filename.c_str()) == FDB_RESULT_SUCCESS) {
+        if (doesFileExist(filename.c_str()) == FDB_RESULT_SUCCESS) {
             if (remove(filename.c_str())) {
                 status = FDB_RESULT_FILE_REMOVE_FAIL;
             }
@@ -2873,8 +2865,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                 FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
                 delete disk_file.fMgrSb;
                 if (status == FDB_RESULT_SUCCESS) {
-                    if (filemgr_does_file_exist(filename.c_str())
-                                               == FDB_RESULT_SUCCESS) {
+                    if (doesFileExist(filename.c_str()) == FDB_RESULT_SUCCESS) {
                         if (remove(filename.c_str())) {
                             status = FDB_RESULT_FILE_REMOVE_FAIL;
                         }
@@ -3040,15 +3031,15 @@ INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux) {
 #endif
 }
 
-void _free_fhandle_idx(struct avl_tree *idx) {
+void FileMgr::freeFileHandleIdx() {
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *item;
 
-    a = avl_first(idx);
+    a = avl_first(&handleIdx);
     while (a) {
         item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
-        avl_remove(idx, &item->avl);
+        avl_remove(&handleIdx, &item->avl);
         free(item);
     }
 }
@@ -3177,9 +3168,8 @@ void FileMgr::dirtyUpdateIncRefCount(struct filemgr_dirty_update_node *node) {
     node->ref_count++;
 }
 
-INLINE void filemgr_dirty_update_flush(FileMgr *file,
-                                       struct filemgr_dirty_update_node *node,
-                                       ErrLogCallback *log_callback) {
+void FileMgr::flushDirtyNode(struct filemgr_dirty_update_node *node,
+                             ErrLogCallback *log_callback) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block;
 
@@ -3192,8 +3182,8 @@ INLINE void filemgr_dirty_update_flush(FileMgr *file,
     while (a) {
         block = _get_entry(a, struct filemgr_dirty_update_block, avl);
         a = avl_next(a);
-        if (file->isWritable(block->bid) && !block->immutable) {
-            file->write_FileMgr(block->bid, block->addr, log_callback);
+        if (isWritable(block->bid) && !block->immutable) {
+            write_FileMgr(block->bid, block->addr, log_callback);
         }
     }
     node->expired = true;
@@ -3210,7 +3200,7 @@ void FileMgr::dirtyUpdateCommit(struct filemgr_dirty_update_node *commit_node,
     // 2. remove all other immutable dirty update entries
     list_init(&remove_queue);
     if (commit_node) {
-        filemgr_dirty_update_flush(this, commit_node, log_callback);
+        flushDirtyNode(commit_node, log_callback);
     }
 
     spin_lock(&dirtyUpdateLock);
@@ -3450,6 +3440,36 @@ fdb_status FileMgr::readDirty(bid_t bid, void *buf,
     return read_FileMgr(bid, buf, log_callback, read_on_cache_miss);
 }
 
+const char* FileMgr::getLatencyStatName(fdb_latency_stat_type stat) {
+    switch(stat) {
+        case FDB_LATENCY_SETS:          return "sets            ";
+        case FDB_LATENCY_GETS:          return "gets            ";
+        case FDB_LATENCY_SNAP_INMEM:    return "in-mem_snapshot ";
+        case FDB_LATENCY_SNAP_DUR:      return "durable_snapshot";
+        case FDB_LATENCY_COMMITS:       return "commits         ";
+        case FDB_LATENCY_COMPACTS:      return "compact         ";
+        case FDB_LATENCY_ITR_INIT:      return "itr-init        ";
+        case FDB_LATENCY_ITR_SEQ_INIT:  return "itr-seq-ini     ";
+        case FDB_LATENCY_ITR_NEXT:      return "itr-next        ";
+        case FDB_LATENCY_ITR_PREV:      return "itr-prev        ";
+        case FDB_LATENCY_ITR_GET:       return "itr-get         ";
+        case FDB_LATENCY_ITR_GET_META:  return "itr-get-meta    ";
+        case FDB_LATENCY_ITR_SEEK:      return "itr-seek        ";
+        case FDB_LATENCY_ITR_SEEK_MAX:  return "itr-seek-max    ";
+        case FDB_LATENCY_ITR_SEEK_MIN:  return "itr-seek-min    ";
+        case FDB_LATENCY_ITR_CLOSE:     return "itr-close       ";
+        case FDB_LATENCY_OPEN:          return "fdb_open        ";
+        case FDB_LATENCY_KVS_OPEN:      return "fdb_kvs_open    ";
+        case FDB_LATENCY_SNAP_CLONE:    return "clone-snapshot  ";
+        case FDB_LATENCY_WAL_INS:       return "wal_insert      ";
+        case FDB_LATENCY_WAL_FIND:      return "wal_find        ";
+        case FDB_LATENCY_WAL_COMMIT:    return "wal_commit      ";
+        case FDB_LATENCY_WAL_FLUSH:     return "wal_flush       ";
+        case FDB_LATENCY_WAL_RELEASE:   return "wal_releas_items";
+    }
+    return NULL;
+}
+
 void KvsStatOperations::statSet(fdb_kvs_id_t kv_id, KvsStat stat) {
     if (kv_id == 0) {
         file->acquireSpinLock();
@@ -3681,70 +3701,6 @@ KvsOpsStat* KvsStatOperations::migrateOpStats(FileMgr *old_file,
     return ret;
 }
 
-
-const char* FileMgr::getLatencyStatName(fdb_latency_stat_type stat) {
-    switch(stat) {
-        case FDB_LATENCY_SETS:          return "sets            ";
-        case FDB_LATENCY_GETS:          return "gets            ";
-        case FDB_LATENCY_SNAP_INMEM:    return "in-mem_snapshot ";
-        case FDB_LATENCY_SNAP_DUR:      return "durable_snapshot";
-        case FDB_LATENCY_COMMITS:       return "commits         ";
-        case FDB_LATENCY_COMPACTS:      return "compact         ";
-        case FDB_LATENCY_ITR_INIT:      return "itr-init        ";
-        case FDB_LATENCY_ITR_SEQ_INIT:  return "itr-seq-ini     ";
-        case FDB_LATENCY_ITR_NEXT:      return "itr-next        ";
-        case FDB_LATENCY_ITR_PREV:      return "itr-prev        ";
-        case FDB_LATENCY_ITR_GET:       return "itr-get         ";
-        case FDB_LATENCY_ITR_GET_META:  return "itr-get-meta    ";
-        case FDB_LATENCY_ITR_SEEK:      return "itr-seek        ";
-        case FDB_LATENCY_ITR_SEEK_MAX:  return "itr-seek-max    ";
-        case FDB_LATENCY_ITR_SEEK_MIN:  return "itr-seek-min    ";
-        case FDB_LATENCY_ITR_CLOSE:     return "itr-close       ";
-        case FDB_LATENCY_OPEN:          return "fdb_open        ";
-        case FDB_LATENCY_KVS_OPEN:      return "fdb_kvs_open    ";
-        case FDB_LATENCY_SNAP_CLONE:    return "clone-snapshot  ";
-        case FDB_LATENCY_WAL_INS:       return "wal_insert      ";
-        case FDB_LATENCY_WAL_FIND:      return "wal_find        ";
-        case FDB_LATENCY_WAL_COMMIT:    return "wal_commit      ";
-        case FDB_LATENCY_WAL_FLUSH:     return "wal_flush       ";
-        case FDB_LATENCY_WAL_RELEASE:   return "wal_releas_items";
-    }
-    return NULL;
-}
-
-fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
-                                 fdb_kvs_id_t id) {
-    fdb_seqnum_t seqnum;
-    struct kvs_node query, *node;
-    struct avl_node *a;
-
-    spin_lock(&kv_header->lock);
-    query.id = id;
-    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
-    if (a) {
-        node = _get_entry(a, struct kvs_node, avl_id);
-        seqnum = node->seqnum;
-    } else {
-        // not existing KV ID.
-        // this is necessary for _fdb_restore_wal()
-        // not to restore documents in deleted KV store.
-        seqnum = 0;
-    }
-    spin_unlock(&kv_header->lock);
-
-    return seqnum;
-}
-
-fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
-                                fdb_kvs_id_t id) {
-    if (id == 0) {
-        // default KV instance
-        return file->getSeqnum();
-    }
-
-    return _fdb_kvs_get_seqnum(file->getKVHeader_UNLOCKED(), id);
-}
-
 #ifdef _LATENCY_STATS
 void LatencyStats::init(struct latency_stat *val) {
     val->lat_max = 0;
@@ -3849,6 +3805,42 @@ void LatencyStats::dump(FileMgr *file, ErrLogCallback *log_callback) {
 }
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 #endif // _LATENCY_STATS
+
+// TODO: All the functions below should be also moved to FileMgr or
+// other classes
+
+fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
+                                 fdb_kvs_id_t id) {
+    fdb_seqnum_t seqnum;
+    struct kvs_node query, *node;
+    struct avl_node *a;
+
+    spin_lock(&kv_header->lock);
+    query.id = id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        seqnum = node->seqnum;
+    } else {
+        // not existing KV ID.
+        // this is necessary for _fdb_restore_wal()
+        // not to restore documents in deleted KV store.
+        seqnum = 0;
+    }
+    spin_unlock(&kv_header->lock);
+
+    return seqnum;
+}
+
+fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
+                                fdb_kvs_id_t id) {
+    if (id == 0) {
+        // default KV instance
+        return file->getSeqnum();
+    }
+
+    return _fdb_kvs_get_seqnum(file->getKVHeader_UNLOCKED(), id);
+}
 
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id) {
     size_t size_id = sizeof(fdb_kvs_id_t);

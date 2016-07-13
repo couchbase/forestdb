@@ -1130,6 +1130,16 @@ private:
     void removeDirtyNode(struct filemgr_dirty_update_node *node);
 
     /**
+     * Flush all the dirty blocks that belong to a given node in the dirty
+     * index tree
+     *
+     * @param node Pointer to a given node in the dirty index tree
+     * @param log_callback Pointer to the log callback function
+     */
+    void flushDirtyNode(struct filemgr_dirty_update_node *node,
+                        ErrLogCallback *log_callback);
+
+    /**
      * Read the latest header block
      *
      * @param log_callback Pointer to the error log callback
@@ -1144,6 +1154,24 @@ private:
      * @return FDB_RESULT_SUCCESS upon successful read
      */
     fdb_status loadSuperBlock(ErrLogCallback *log_callback);
+
+    /**
+     * Free the file handle index
+     */
+    void freeFileHandleIdx();
+
+    /**
+     * Spawn a thread to prefetch index blocks from the file
+     */
+    void prefetch(ErrLogCallback *log_callback);
+
+    /**
+     * CRC32 check for a given buffer
+     *
+     * @param buf Pointer to the buffer on which CRC32 check is performed
+     * @return FDB_RESULT_SUCCESS on successful CRC32 verification
+     */
+    fdb_status checkCRC32(void *buf);
 
     /**
      * Get the I/O buffer available from the buffer pool
@@ -1161,6 +1189,14 @@ private:
      * Destroy the I/O buffer pool
      */
     static void shutdownTempBuf();
+
+    /**
+     * Check if a given file exists or not
+     *
+     * @param filename File name whose existence is checked
+     * @return FDB_RESULT_SUCCESS if a given file exists
+     */
+    static fdb_status doesFileExist(const char *filename);
 
     char fileName[FDB_MAX_FILENAME_LEN]; // Current file name
     uint16_t fileNameLen;
