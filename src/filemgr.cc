@@ -57,23 +57,22 @@ std::atomic<bool> FileMgr::fileMgrInitialized(false);
 std::mutex FileMgr::initMutex;
 spin_t FileMgr::fileMgrOpenlock;
 
+struct list FileMgr::tempBuf;
+spin_t FileMgr::tempBufLock;
+bool FileMgr::lazyFileDeletionEnabled(false);
+register_file_removal_func FileMgr::registerFileRemoval(nullptr);
+check_file_removal_func FileMgr::isFileRemoved(nullptr);
+superblock_init_cb FileMgr::sbInitializer(nullptr);
+
 std::mutex FileMgrMap::initGuard;
 std::atomic<FileMgrMap *> FileMgrMap::instance(nullptr);
 
 static const int MAX_STAT_UPDATE_RETRIES = 5;
 
-struct temp_buf_item{
+struct temp_buf_item {
     void *addr;
     struct list_elem le;
 };
-static struct list temp_buf;
-static spin_t temp_buf_lock;
-
-static bool lazy_file_deletion_enabled = false;
-static register_file_removal_func register_file_removal = NULL;
-static check_file_removal_func is_file_removed = NULL;
-
-static superblock_init_cb sb_initializer = NULL;
 
 static void spin_init_wrap(void *lock) {
     spin_init((spin_t*)lock);
@@ -389,8 +388,8 @@ void FileMgr::init(FileMgrConfig *config)
                                         global_config.getBlockSize());
 
             // initialize temp buffer
-            list_init(&temp_buf);
-            spin_init(&temp_buf_lock);
+            list_init(&tempBuf);
+            spin_init(&tempBufLock);
 
             // initialize global lock
             spin_init(&fileMgrOpenlock);
@@ -405,23 +404,23 @@ void FileMgr::setLazyFileDeletion(bool enable,
                                   register_file_removal_func regis_func,
                                   check_file_removal_func check_func)
 {
-    lazy_file_deletion_enabled = enable;
-    register_file_removal = regis_func;
-    is_file_removed = check_func;
+    lazyFileDeletionEnabled = enable;
+    registerFileRemoval = regis_func;
+    isFileRemoved = check_func;
 }
 
 void FileMgr::setSbInitializer(superblock_init_cb func)
 {
-    sb_initializer = func;
+    sbInitializer = func;
 }
 
-static void * _filemgr_get_temp_buf()
+void * FileMgr::getTempBuf()
 {
     struct list_elem *e;
     struct temp_buf_item *item;
 
-    spin_lock(&temp_buf_lock);
-    e = list_pop_front(&temp_buf);
+    spin_lock(&tempBufLock);
+    e = list_pop_front(&tempBuf);
     if (e) {
         item = _get_entry(e, struct temp_buf_item, le);
     } else {
@@ -434,37 +433,37 @@ static void * _filemgr_get_temp_buf()
                                         global_config.getBlockSize());
         item->addr = addr;
     }
-    spin_unlock(&temp_buf_lock);
+    spin_unlock(&tempBufLock);
 
     return item->addr;
 }
 
-static void _filemgr_release_temp_buf(void *buf)
+void FileMgr::releaseTempBuf(void *buf)
 {
     struct temp_buf_item *item;
 
-    spin_lock(&temp_buf_lock);
+    spin_lock(&tempBufLock);
     item = (struct temp_buf_item*)((uint8_t *)buf +
                                    global_config.getBlockSize());
-    list_push_front(&temp_buf, &item->le);
-    spin_unlock(&temp_buf_lock);
+    list_push_front(&tempBuf, &item->le);
+    spin_unlock(&tempBufLock);
 }
 
-static void _filemgr_shutdown_temp_buf()
+void FileMgr::shutdownTempBuf()
 {
     struct list_elem *e;
     struct temp_buf_item *item;
     size_t count=0;
 
-    spin_lock(&temp_buf_lock);
-    e = list_begin(&temp_buf);
+    spin_lock(&tempBufLock);
+    e = list_begin(&tempBuf);
     while(e){
         item = _get_entry(e, struct temp_buf_item, le);
-        e = list_remove(&temp_buf, e);
+        e = list_remove(&tempBuf, e);
         free_align(item->addr);
         count++;
     }
-    spin_unlock(&temp_buf_lock);
+    spin_unlock(&tempBufLock);
 }
 
 // Read a block from the file, decrypting if necessary.
@@ -544,8 +543,7 @@ uint64_t FileMgr::getSbBmpRevnum() {
     }
 }
 
-static fdb_status _filemgr_read_header(FileMgr *file,
-                                       ErrLogCallback *log_callback)
+fdb_status FileMgr::readHeader(ErrLogCallback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic = ver_get_latest_magic();
@@ -558,20 +556,20 @@ static fdb_status _filemgr_read_header(FileMgr *file,
     size_t min_filesize = 0;
 
     // get temp buffer
-    buf = (uint8_t *) _filemgr_get_temp_buf();
+    buf = (uint8_t *) FileMgr::getTempBuf();
 
     // If a header is found crc_mode can change to reflect the file
-    if (file->getCrcMode() == CRC32) {
+    if (getCrcMode() == CRC32) {
         check_crc32_open_rule = true;
     }
 
-    hdr_bid = (file->getPos() / file->getBlockSize()) - 1;
+    hdr_bid = (getPos() / getBlockSize()) - 1;
     hdr_bid_local = hdr_bid;
 
-    if (file->getSb()) {
+    if (getSb()) {
         // superblock exists .. file size does not start from zero.
-        min_filesize = file->getSb()->getConfig().num_sb * file->getBlockSize();
-        bid_t sb_last_hdr_bid = file->getSb()->getLastHdrBid();
+        min_filesize = getSb()->getConfig().num_sb * getBlockSize();
+        bid_t sb_last_hdr_bid = getSb()->getLastHdrBid();
         if (sb_last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
@@ -579,54 +577,54 @@ static fdb_status _filemgr_read_header(FileMgr *file,
         // get DB header at the end of the file.
     }
 
-    if (file->getPos() > min_filesize) {
+    if (getPos() > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
-        uint64_t remain = file->getPos() % file->getBlockSize();
+        uint64_t remain = getPos() % getBlockSize();
         if (remain) {
-            file->decrPos(remain);
-            file->setLastCommit(file->getPos());
+            decrPos(remain);
+            setLastCommit(getPos());
             const char *msg = "Crash Detected: %" _F64 " non-block aligned "
                 "bytes discarded from a database file '%s'\n";
-            DBG(msg, remain, file->getFileName());
+            DBG(msg, remain, getFileName());
             // TODO: Need to add a better error code
             fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                    msg, remain, file->getFileName());
+                    msg, remain, getFileName());
         }
 
         size_t block_counter = 0;
         do {
-            if (hdr_bid_local * file->getBlockSize() >= file->getPos()) {
+            if (hdr_bid_local * getBlockSize() >= getPos()) {
                 // Handling EOF scenario
                 status = FDB_RESULT_NO_DB_HEADERS;
                 const char *msg = "Unable to read block from file '%s' as EOF "
                     "reached\n";
-                fdb_log(log_callback, status, msg, file->getFileName());
+                fdb_log(log_callback, status, msg, getFileName());
                 break;
             }
-            ssize_t rv = file->readBlock(buf, hdr_bid_local);
-            if (rv != (ssize_t)file->getBlockSize()) {
+            ssize_t rv = readBlock(buf, hdr_bid_local);
+            if (rv != (ssize_t) getBlockSize()) {
                 status = (fdb_status)rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %u\n";
-                DBG(msg, file->getFileName(), file->getBlockSize());
-                fdb_log(log_callback, status, msg, file->getFileName(),
-                        file->getBlockSize());
+                DBG(msg, getFileName(), getBlockSize());
+                fdb_log(log_callback, status, msg, getFileName(),
+                        getBlockSize());
                 break;
             }
             ++block_counter;
-            memcpy(marker, buf + file->getBlockSize() - BLK_MARKER_SIZE,
+            memcpy(marker, buf + getBlockSize() - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
             if (marker[0] == BLK_MARKER_DBHEADER) {
                 // possible need for byte conversions here
                 memcpy(&magic,
-                       buf + file->getBlockSize() - BLK_MARKER_SIZE - sizeof(magic),
+                       buf + getBlockSize() - BLK_MARKER_SIZE - sizeof(magic),
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
                 if (ver_is_valid_magic(magic)) {
                     memcpy(&len,
-                           buf + file->getBlockSize() - BLK_MARKER_SIZE -
+                           buf + getBlockSize() - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
                            sizeof(len));
                     len = _endian_decode(len);
@@ -635,16 +633,16 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                     crc_file = _endian_decode(crc_file);
 
                     // crc check and detect the crc_mode
-                    crc_mode_e crc_mode = file->getCrcMode();
+                    crc_mode_e crc_mode = getCrcMode();
                     bool ret = detect_and_check_crc(reinterpret_cast<const uint8_t*>(buf),
                                                     len - sizeof(crc),
                                                     crc_file,
                                                     &crc_mode);
-                    file->setCrcMode(crc_mode);
+                    setCrcMode(crc_mode);
                     if (ret) {
                         // crc mode is detected and known.
                         // check the rules of opening legacy CRC
-                        if (check_crc32_open_rule && file->getCrcMode() != CRC32) {
+                        if (check_crc32_open_rule && getCrcMode() != CRC32) {
                             const char *msg = "Open of CRC32C file"
                                 " with forced CRC32\n";
                             status = FDB_RESULT_INVALID_ARGS;
@@ -654,14 +652,13 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                         } else {
                             status = FDB_RESULT_SUCCESS;
 
-                            file->accessHeader()->data =
-                                          (void*) malloc (file->getBlockSize());
-                            memcpy(file->accessHeader()->data, buf, len);
+                            accessHeader()->data = (void*) malloc (getBlockSize());
+                            memcpy(accessHeader()->data, buf, len);
 
-                            memcpy(&file->accessHeader()->revnum, buf + len,
+                            memcpy(&accessHeader()->revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
 
-                            memcpy(&file->accessHeader()->seqnum,
+                            memcpy(&accessHeader()->seqnum,
                                    buf + len + sizeof(filemgr_header_revnum_t),
                                    sizeof(fdb_seqnum_t));
 
@@ -669,23 +666,22 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                                 // last_writable_bmp_revnum should be same with
                                 // the current bmp_revnum (since it indicates the
                                 // 'bmp_revnum' of 'sb->cur_alloc_bid').
-                                file->setLastWritableBmpRevnum(
-                                                        file->getSbBmpRevnum());
+                                setLastWritableBmpRevnum(getSbBmpRevnum());
                             }
 
-                            file->accessHeader()->revnum =
-                                _endian_decode(file->accessHeader()->revnum);
-                            file->accessHeader()->seqnum =
-                                _endian_decode(file->accessHeader()->seqnum.load());
+                            accessHeader()->revnum =
+                                _endian_decode(accessHeader()->revnum);
+                            accessHeader()->seqnum =
+                                _endian_decode(accessHeader()->seqnum.load());
 
-                            file->accessHeader()->size = len;
-                            file->accessHeader()->bid = hdr_bid_local;
+                            accessHeader()->size = len;
+                            accessHeader()->bid = hdr_bid_local;
 
                             // release temp buffer
-                            _filemgr_release_temp_buf(buf);
+                            releaseTempBuf(buf);
                         }
 
-                        file->setVersion(magic);
+                        setVersion(magic);
                         return status;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
@@ -700,43 +696,41 @@ static fdb_status _filemgr_read_header(FileMgr *file,
 #endif
                         const char *msg = "Crash Detected: CRC on disk %u != (%u | %u) "
                             "in a database file '%s'\n";
-                        DBG(msg, crc_file, crc32, crc32c, file->getFileName());
+                        DBG(msg, crc_file, crc32, crc32c, getFileName());
                         fdb_log(log_callback, status, msg, crc_file, crc32, crc32c,
-                                file->getFileName());
+                                getFileName());
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
                     const char *msg = "Crash Detected: Wrong Magic %" _F64
                         " in a database file '%s'\n";
-                    fdb_log(log_callback, status, msg, magic,
-                            file->getFileName());
+                    fdb_log(log_callback, status, msg, magic, getFileName());
                 }
             } else {
                 status = FDB_RESULT_NO_DB_HEADERS;
                 if (block_counter == 1) {
                     const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
                         "in a database file '%s'\n";
-                    DBG(msg, marker[0], file->getFileName());
-                    fdb_log(log_callback, status, msg, marker[0],
-                            file->getFileName());
+                    DBG(msg, marker[0], getFileName());
+                    fdb_log(log_callback, status, msg, marker[0], getFileName());
                 }
             }
 
-            file->setLastCommit(hdr_bid_local * file->getBlockSize());
+            setLastCommit(hdr_bid_local * getBlockSize());
             // traverse headers in a circular manner
             if (hdr_bid_local) {
                 hdr_bid_local--;
             } else {
-                hdr_bid_local = (file->getPos() / file->getBlockSize()) - 1;
+                hdr_bid_local = (getPos() / getBlockSize()) - 1;
             }
         } while (hdr_bid_local != hdr_bid);
     }
 
     // release temp buffer
-    _filemgr_release_temp_buf(buf);
+    releaseTempBuf(buf);
 
-    file->accessHeader()->reset();
-    file->setVersion(magic);
+    accessHeader()->reset();
+    setVersion(magic);
     return status;
 }
 
@@ -876,25 +870,24 @@ fdb_status filemgr_does_file_exist(const char *filename) {
     return FDB_RESULT_SUCCESS;
 }
 
-static fdb_status _filemgr_load_sb(FileMgr *file,
-                                   ErrLogCallback *log_callback)
+fdb_status FileMgr::loadSuperBlock(ErrLogCallback *log_callback)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
 
-    if (sb_initializer) {
-        if (!file->getSb()) {
-            sb_initializer(file);
+    if (sbInitializer) {
+        if (!getSb()) {
+            sbInitializer(this);
         }
-        if (file->getPos()) {
+        if (getPos()) {
             // existing file
-            status = file->getSb()->readLatest(log_callback);
+            status = getSb()->readLatest(log_callback);
         } else {
             // new file
-            status = file->getSb()->init(log_callback);
+            status = getSb()->init(log_callback);
         }
         if (status != FDB_RESULT_SUCCESS) {
-            delete file->getSb();
-            file->setSb(nullptr);
+            delete getSb();
+            setSb(nullptr);
         }
     }
 
@@ -1091,7 +1084,7 @@ filemgr_open_result FileMgr::open(std::string filename,
 
     do { // repeat until both superblock and DB header are correctly read
         // init or load superblock
-        status = _filemgr_load_sb(file, log_callback);
+        status = file->loadSuperBlock(log_callback);
         // we can tolerate SB_READ_FAIL for old version file
         if (status != FDB_RESULT_SB_READ_FAIL &&
             status != FDB_RESULT_SUCCESS) {
@@ -1107,7 +1100,7 @@ filemgr_open_result FileMgr::open(std::string filename,
         }
 
         // read header
-        status = _filemgr_read_header(file, log_callback);
+        status = file->readHeader(log_callback);
         if (file->getSb() && status == FDB_RESULT_NO_DB_HEADERS) {
             // this happens when user created & closed a file without any mutations,
             // thus there is no other data but superblocks.
@@ -1271,7 +1264,7 @@ fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
         return FDB_RESULT_SUCCESS;
     }
 
-    _buf = (uint8_t *)_filemgr_get_temp_buf();
+    _buf = (uint8_t *) getTempBuf();
 
     status = read_FileMgr((bid_t)bid, _buf, log_callback, true);
 
@@ -1279,7 +1272,7 @@ fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
         fdb_log(log_callback, status,
                 "Failed to read a database header with block id %" _F64 " in "
                 "a database file '%s'", bid, fileName);
-        _filemgr_release_temp_buf(_buf);
+        releaseTempBuf(_buf);
         return status;
     }
     memcpy(marker, _buf + blockSize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
@@ -1294,7 +1287,7 @@ fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
                 "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
                 bid, fileName.c_str());
         */
-        _filemgr_release_temp_buf(_buf);
+        releaseTempBuf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
     memcpy(&magic,
@@ -1307,7 +1300,7 @@ fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
                 "id %" _F64 " in a database file '%s'"
                 "does NOT match FILEMGR_MAGIC %" _F64 "!",
                 magic, bid, fileName, ver_get_latest_magic());
-        _filemgr_release_temp_buf(_buf);
+        releaseTempBuf(_buf);
         return FDB_RESULT_FILE_CORRUPTION;
     }
     memcpy(&hdr_len,
@@ -1349,7 +1342,7 @@ fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
         *sb_bmp_revnum = _endian_decode(_bmp_revnum);
     }
 
-    _filemgr_release_temp_buf(_buf);
+    releaseTempBuf(_buf);
 
     return status;
 }
@@ -1376,7 +1369,7 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
         // No other header available
         return bid;
     }
-    _buf = (uint8_t *)_filemgr_get_temp_buf();
+    _buf = (uint8_t *) getTempBuf();
 
     // Reverse scan the file for a previous DB header
     do {
@@ -1526,27 +1519,27 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
         bid = BLK_NOT_FOUND;
     }
 
-    _filemgr_release_temp_buf(_buf);
+    releaseTempBuf(_buf);
 
     return bid;
 }
 
-static void update_file_pointers(FileMgr *file) {
+void FileMgr::updateFilePointers() {
     // Update new_file pointers of all previously redirected downstream files
-    FileMgr *temp = file->getPrevFile();
+    FileMgr *temp = getPrevFile();
     while (temp != NULL) {
         temp->acquireSpinLock();
-        if (temp->getNewFile() == file) {
-            temp->setNewFile(file->getNewFile());
+        if (temp->getNewFile() == this) {
+            temp->setNewFile(getNewFile());
         }
         temp->releaseSpinLock();
         temp = temp->getPrevFile();
     }
     // Update prev_file pointer of the upstream file if any
-    FileMgr *new_file = file->getNewFile();
+    FileMgr *new_file = getNewFile();
     if (new_file != NULL) {
         new_file->acquireSpinLock();
-        new_file->setPrevFile(file->getPrevFile());
+        new_file->setPrevFile(getPrevFile());
         new_file->releaseSpinLock();
     }
 }
@@ -1608,7 +1601,7 @@ fdb_status FileMgr::close(FileMgr *file,
             bool foreground_deletion = false;
 
             // immediately remove file if background remove function is not set
-            if (!lazy_file_deletion_enabled ||
+            if (!lazyFileDeletionEnabled ||
                 (file->newFile && file->newFile->inPlaceCompaction)) {
                 // TODO: to avoid the scenario below, we prevent background
                 //       deletion of in-place compacted files at this time.
@@ -1635,13 +1628,13 @@ fdb_status FileMgr::close(FileMgr *file,
             file->releaseSpinLock();
             FileMgrMap::get()->removeEntry(file->getFileName());
 
-            update_file_pointers(file);
+            file->updateFilePointers();
             spin_unlock(&fileMgrOpenlock);
 
             if (foreground_deletion) {
                 FileMgr::freeFunc(file);
             } else {
-                register_file_removal(file, log_callback);
+                registerFileRemoval(file, log_callback);
             }
             return (fdb_status) rv;
         } else {
@@ -1666,7 +1659,7 @@ fdb_status FileMgr::close(FileMgr *file,
                     // postponed. It will be renamed later by the handle referring
                     // to the old file.
                     if (!orig_file && old_file_refcount == 0 &&
-                        is_file_removed(orig_file_name)) {
+                        isFileRemoved(orig_file_name)) {
                         // If background file removal is not done yet, we postpone
                         // file renaming at this time.
                         if (rename(file->fileName, orig_file_name) < 0) {
@@ -1685,7 +1678,7 @@ fdb_status FileMgr::close(FileMgr *file,
                 // Clean up FileMgrFactory's unordered map, WAL index, and buffer cache.
                 FileMgrMap::get()->removeEntry(file->getFileName());
 
-                update_file_pointers(file);
+                file->updateFilePointers();
                 spin_unlock(&fileMgrOpenlock);
 
                 FileMgr::freeFunc(file);
@@ -1787,11 +1780,11 @@ void FileMgr::removeFile(FileMgr *file,
     FileMgrMap::get()->removeEntry(file->fileName);
     spin_unlock(&fileMgrOpenlock);
 
-    if (!lazy_file_deletion_enabled ||
+    if (!lazyFileDeletionEnabled ||
         (file->newFile && file->newFile->inPlaceCompaction)) {
         FileMgr::freeFunc(file);
     } else {
-        register_file_removal(file, log_callback);
+        registerFileRemoval(file, log_callback);
     }
 }
 // LCOV_EXCL_STOP
@@ -1830,7 +1823,7 @@ fdb_status FileMgr::shutdown()
                 BlockCacheManager::getInstance()->destroyInstance();
             }
             fileMgrInitialized.store(false);
-            _filemgr_shutdown_temp_buf();
+            shutdownTempBuf();
         } else {
             ret = FDB_RESULT_FILE_IS_BUSY;
         }
@@ -2263,7 +2256,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                     return (fdb_status) cur_file_pos;
                 }
                 bid_t cur_file_last_bid = cur_file_pos / blockSize;
-                void *_buf = _filemgr_get_temp_buf();
+                void *_buf = getTempBuf();
 
                 if (bid >= cur_file_last_bid) {
                     // this is the first time to write this block
@@ -2280,7 +2273,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                             spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                         }
-                        _filemgr_release_temp_buf(_buf);
+                        releaseTempBuf(_buf);
                         _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                        (fdb_status)r, "READ", fileName);
                         return r < 0 ? (fdb_status) r : FDB_RESULT_READ_FAIL;
@@ -2301,13 +2294,13 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                         spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                     }
-                    _filemgr_release_temp_buf(_buf);
+                    releaseTempBuf(_buf);
                     _log_errno_str(fopsHandle, fMgrOps, log_callback,
                                    (fdb_status) r, "WRITE", fileName);
                     return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
                 }
 
-                _filemgr_release_temp_buf(_buf);
+                releaseTempBuf(_buf);
             } // cache miss
         } // full block or partial block
 
@@ -2393,7 +2386,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
     filemgr_magic_t magic = fMgrVersion;
 
     if (header_len > 0 && fMgrHeader.data) {
-        void *buf = _filemgr_get_temp_buf();
+        void *buf = getTempBuf();
         uint8_t marker[BLK_MARKER_SIZE];
 
         // [header data]:        'header_len' bytes   <---+
@@ -2488,7 +2481,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
         _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status) rv,
                        "WRITE", fileName);
         if (rv != (ssize_t)blockSize) {
-            _filemgr_release_temp_buf(buf);
+            releaseTempBuf(buf);
             releaseSpinLock();
             clearIoInprog();
             return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
@@ -2504,7 +2497,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
             lastPos.fetch_add(blockSize);
         }
 
-        _filemgr_release_temp_buf(buf);
+        releaseTempBuf(buf);
     }
 
     if (fMgrSb && fMgrSb->bmpExists() &&
@@ -2732,7 +2725,7 @@ void FileMgr::removePending(FileMgr *old_file,
         // LCOV_EXCL_START
         spin_unlock(&old_file->fMgrLock);
 
-        if (!lazy_file_deletion_enabled ||
+        if (!lazyFileDeletionEnabled ||
             (old_file->newFile && old_file->newFile->inPlaceCompaction)) {
             remove(old_file->fileName);
         }
@@ -2836,7 +2829,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     disk_file.crcMode = CRC_DEFAULT;
                 }
 
-                status = _filemgr_load_sb(&disk_file, NULL);
+                status = disk_file.loadSuperBlock(NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         destroy_set->clear();
@@ -2845,7 +2838,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     return status;
                 }
 
-                status = _filemgr_read_header(&disk_file, NULL);
+                status = disk_file.readHeader(NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         destroy_set->clear();
@@ -3107,8 +3100,6 @@ bool FileMgr::fhandleRemove(void *fhandle) {
     return ret;
 }
 
-static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node);
-
 void FileMgr::dirtyUpdateInit() {
     avl_init(&dirtyUpdateIdx, NULL);
     spin_init(&dirtyUpdateLock);
@@ -3124,7 +3115,7 @@ void FileMgr::dirtyUpdateFree() {
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
         avl_remove(&dirtyUpdateIdx, &node->avl);
-        _filemgr_dirty_update_remove_node(node);
+        removeDirtyNode(node);
     }
     spin_destroy(&dirtyUpdateLock);
 }
@@ -3243,7 +3234,7 @@ void FileMgr::dirtyUpdateCommit(struct filemgr_dirty_update_node *commit_node,
     while (le) {
         node = _get_entry(le, struct filemgr_dirty_update_node, le);
         le = list_remove(&remove_queue, &node->le);
-        _filemgr_dirty_update_remove_node(node);
+        removeDirtyNode(node);
     }
 }
 
@@ -3353,12 +3344,11 @@ void FileMgr::dirtyUpdateSetImmutable(struct filemgr_dirty_update_node *prev_nod
     while (le) {
         cur_node = _get_entry(le, struct filemgr_dirty_update_node, le);
         le = list_remove(&remove_queue, &cur_node->le);
-        _filemgr_dirty_update_remove_node(cur_node);
+        removeDirtyNode(cur_node);
     }
 }
 
-static void _filemgr_dirty_update_remove_node(
-                                        struct filemgr_dirty_update_node *node) {
+void FileMgr::removeDirtyNode(struct filemgr_dirty_update_node *node) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block;
 
@@ -3384,7 +3374,7 @@ void FileMgr::dirtyUpdateRemoveNode(struct filemgr_dirty_update_node *node) {
     avl_remove(&dirtyUpdateIdx, &node->avl);
     spin_unlock(&dirtyUpdateLock);
 
-    _filemgr_dirty_update_remove_node(node);
+    removeDirtyNode(node);
 }
 
 void FileMgr::dirtyUpdateCloseNode(struct filemgr_dirty_update_node *node) {

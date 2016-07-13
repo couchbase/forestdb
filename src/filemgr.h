@@ -1118,6 +1118,50 @@ public:
 #endif //_LATENCY_STATS
 
 private:
+
+    /**
+     * Update the previous / next file pointers for a given file
+     */
+    void updateFilePointers();
+
+    /**
+     * Remove a given dirty node from the dirty block tree
+     */
+    void removeDirtyNode(struct filemgr_dirty_update_node *node);
+
+    /**
+     * Read the latest header block
+     *
+     * @param log_callback Pointer to the error log callback
+     * @return FDB_RESULT_SUCCESS upon successful read
+     */
+    fdb_status readHeader(ErrLogCallback *log_callback);
+
+    /**
+     * Load the superblock
+     *
+     * @param log_callback Pointer to the error log callback
+     * @return FDB_RESULT_SUCCESS upon successful read
+     */
+    fdb_status loadSuperBlock(ErrLogCallback *log_callback);
+
+    /**
+     * Get the I/O buffer available from the buffer pool
+     */
+    static void* getTempBuf();
+
+    /**
+     * Release a given I/O buffer to the buffer pool
+     *
+     * @param buf Pointer to the I/O buffer to be released to the pool.
+     */
+    static void releaseTempBuf(void *buf);
+
+    /**
+     * Destroy the I/O buffer pool
+     */
+    static void shutdownTempBuf();
+
     char fileName[FDB_MAX_FILENAME_LEN]; // Current file name
     uint16_t fileNameLen;
     std::atomic<uint32_t> refCount;
@@ -1195,6 +1239,18 @@ private:
     static std::mutex initMutex;
     // Global static spin lock used by open() and close() methods
     static spin_t fileMgrOpenlock;
+    // Temporal I/O buffer pool
+    static struct list tempBuf;
+    // Lock to synchronize I/O buffer pool accesses
+    static spin_t tempBufLock;
+    // Flag indicating if the lazy file deletion is enabled or not
+    static bool lazyFileDeletionEnabled;
+    // Pointer to the file removal registration function
+    static register_file_removal_func registerFileRemoval;
+    // Pointer to the file removal check function
+    static check_file_removal_func isFileRemoved;
+    // Pointer to the superblock init function
+    static superblock_init_cb sbInitializer;
 };
 
 /**
