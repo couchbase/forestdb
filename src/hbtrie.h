@@ -296,8 +296,7 @@ private:
      * @return void.
      */
     void btreeCascadedUpdate(struct list *btreelist,
-                             void *key,
-                             int free_opt);
+                             void *key);
 
     hbtrie_result _find(void *key, int keylen, void *valuebuf,
                         struct list *btreelist, uint8_t flag);
