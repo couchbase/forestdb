@@ -2838,6 +2838,8 @@ fdb_status FileMgr::destroyFile(std::string filename,
                         destroy_set->clear();
                     }
                     FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
+                    // Delete staleData allocated within FileMgr::loadSuperBlock()
+                    delete disk_file.staleData;
                     delete disk_file.fMgrSb;
                     return status;
                 }
@@ -2865,6 +2867,8 @@ fdb_status FileMgr::destroyFile(std::string filename,
                     disk_file.fMgrHeader.data = nullptr;
                 }
                 FileMgr::fileClose(disk_file.fMgrOps, disk_file.fopsHandle);
+                // Delete staleData allocated within FileMgr::loadSuperBlock()
+                delete disk_file.staleData;
                 delete disk_file.fMgrSb;
                 if (status == FDB_RESULT_SUCCESS) {
                     if (doesFileExist(filename.c_str()) == FDB_RESULT_SUCCESS) {
