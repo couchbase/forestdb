@@ -57,9 +57,7 @@
     #define INLINE extern inline
 
     #define _X64 "llx"
-    #define _F64 "lld"
-    #define _FSEC "ld"
-    #define _FUSEC "d"
+    #define _F64 "llu"
 
     #define _ARCH_O_DIRECT (0x0)
 
@@ -139,13 +137,9 @@
     #if defined(__arm__) || defined(__i386__) || defined(__mips32__)
         #define _X64 "llx"
         #define _F64 "llu"
-        #define _FSEC "lld"
-        #define _FUSEC "lld"
     #else
         #define _X64 "lx"
         #define _F64 "lu"
-        #define _FSEC "ld"
-        #define _FUSEC "ld"
     #endif // 32-bit vs 64-bit platform check
 
     #define _ARCH_O_DIRECT (O_DIRECT)
@@ -211,9 +205,7 @@
     #define INLINE static __inline
 
     #define _X64 "llx"
-    #define _F64 "lld"
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
+    #define _F64 "llu"
 
     #define _ARCH_O_DIRECT (O_DIRECT)
     #define malloc_align(addr, align, size) \
@@ -288,8 +280,6 @@
 
     #define _X64 PRIx64
     #define _F64 PRIu64
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (O_DIRECT)
 
@@ -360,8 +350,6 @@
 #elif defined(WIN32) || defined(_WIN32)
     // mingw compatiable
 
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (0x0)
 
@@ -443,8 +431,6 @@
 
     #define _X64 PRIx64
     #define _F64 PRIu64
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (0x0)
 
@@ -506,8 +492,6 @@
 
     #define _X64 PRIx64
     #define _F64 PRIu64
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
 
     /* Solaris don't have flag to open to set direct io, but
        rather use directio() afterwards to enable it. lets look
@@ -576,8 +560,6 @@
 
     #define _X64 PRIx64
     #define _F64 PRIu64
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (O_DIRECT)
 

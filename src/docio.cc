@@ -437,7 +437,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing an entire doc block with id %" _F64
-                            ", size %" _F64 " to a database file '%s'", block_list[i], blocksize,
+                            ", size %" _F64 " to a database file '%s'",
+                            block_list[i], static_cast<uint64_t>(blocksize),
                             handle->file->filename);
                     return BLK_NOT_FOUND;
                 }
@@ -945,9 +946,9 @@ static int64_t _docio_read_doc_component_comp(struct docio_handle *handle,
     if (uncomp_size != len) {
         fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                 "Error in decompressing the data with the file offset "
-                "%" _F64 " in a database file '%s', because the uncompressed length %d "
-                "is not same as the expected length %d",
-                offset, handle->file->filename, uncomp_size, len);
+                "%" _F64 " in a database file '%s', because the uncompressed length %" _F64
+                " is not same as the expected length %d",
+                offset, handle->file->filename, static_cast<uint64_t>(uncomp_size), len);
         return (int64_t) FDB_RESULT_COMPRESSION_FAIL;
     }
     return _offset;
@@ -1164,8 +1165,9 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                                         &_timestamp, log_callback);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a timestamp with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(timestamp_t),
+                "Error in reading a timestamp with offset %" _F64
+                ", length %" _F64 " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(timestamp_t)),
                 handle->file->filename);
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return _offset;
@@ -1177,8 +1179,9 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                                         (void *)&_seqnum, log_callback);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a sequence number with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
+                "Error in reading a sequence number with offset %" _F64
+                ", length %" _F64 " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(fdb_seqnum_t)),
                 handle->file->filename);
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return _offset;
@@ -1333,8 +1336,9 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                                         log_callback);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a timestamp with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(timestamp_t),
+                "Error in reading a timestamp with offset %" _F64
+                ", length %" _F64 " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(timestamp_t)),
                 handle->file->filename);
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
@@ -1348,8 +1352,10 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                                         log_callback);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a sequence number with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
+                "Error in reading a sequence number with offset %" _F64
+                ", length %" _F64
+                " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(fdb_seqnum_t)),
                 handle->file->filename);
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
@@ -1415,8 +1421,9 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                                         (void *)&crc_file, log_callback);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a doc's CRC value with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(crc_file),
+                "Error in reading a doc's CRC value with offset %" _F64
+                ", length %" _F64 "from a database file '%s'",
+                offset, static_cast<uint64_t>(sizeof(crc_file)),
                 handle->file->filename);
         if (comp_body) {
             free(comp_body);

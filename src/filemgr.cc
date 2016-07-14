@@ -480,10 +480,10 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                         // check the rules of opening legacy CRC
                         if (check_crc32_open_rule && file->crc_mode != CRC32) {
                             const char *msg = "Open of CRC32C file"
-                                              " with forced CRC32\n";
+                                              " with forced CRC32 mode=x\n";
                             status = FDB_RESULT_INVALID_ARGS;
                             DBG(msg);
-                            fdb_log(log_callback, status, msg);
+                            fdb_log(log_callback, status, msg, file->crc_mode);
                             break;
                         } else {
                             status = FDB_RESULT_SUCCESS;

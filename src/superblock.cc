@@ -1342,7 +1342,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
         fs = FDB_RESULT_SB_RACE_CONDITION;
         fdb_log(log_callback, fs,
                 "Failed to write the superblock (number: %" _F64 "), %s",
-                sb_no, errno_msg);
+                static_cast<uint64_t>(sb_no), errno_msg);
         return fs;
     }
 
@@ -1385,7 +1385,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: file read failure (SB No.: %" _F64 "), %s",
-                sb_no, errno_msg);
+                static_cast<uint64_t>(sb_no), errno_msg);
         return fs;
     }
 
@@ -1396,7 +1396,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
                 "Failed to read the superblock: "
                 "incorrect block marker (marker: %x, SB No.: %" _F64 "). "
                 "Note: this message might be a false alarm if upgrade is running.",
-                buf[blocksize], sb_no);
+                buf[blocksize], static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -1411,7 +1411,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "not supported version (magic: %" _F64 ", SB No.: %" _F64 ")",
-                version, sb_no);
+                version, static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -1530,7 +1530,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "not supported version (magic: %" _F64 ", SB No.: %" _F64 ")",
-                version, sb_no);
+                version, static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -1761,7 +1761,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
             fs = FDB_RESULT_SB_RACE_CONDITION;
             fdb_log(log_callback, fs,
                     "Other writer interfered during sb_write (number: %" _F64 ")",
-                    i);
+                    static_cast<uint64_t>(i));
             free(file->sb->config);
             free(file->sb);
             return fs;
