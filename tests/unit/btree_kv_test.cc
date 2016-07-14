@@ -402,10 +402,11 @@ void kv_set_str_key_test(BTreeKVOps *kv_ops)
     TEST_INIT();
     memleak_start();
 
-    char src[] = "srckey";
-    char *dst = alca(char, strlen(src));
+    char src[] = "_srckey_";
+    size_t ksize = kv_ops->getKVSize(src, NULL);
+    char *dst = alca(char, ksize + 1);
     kv_ops->setKey(dst, src);
-    TEST_CHK(!memcmp(dst, src, strlen(src)));
+    TEST_CHK(!memcmp(dst, src, ksize));
 
     memleak_end();
     TEST_RESULT("kv_set_str_key_test");
