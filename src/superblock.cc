@@ -180,7 +180,7 @@ fdb_status Superblock::init(ErrLogCallback * log_callback)
             fs = FDB_RESULT_SB_RACE_CONDITION;
             fdb_log(log_callback, fs,
                     "Other writer interfered during sb_write (number: %" _F64 ")",
-                    i);
+                    static_cast<uint64_t>(i));
             return fs;
         }
 
@@ -333,7 +333,7 @@ fdb_status Superblock::readGivenNum(size_t sb_no,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "file read failure (SB No.: %" _F64 "), %s",
-                sb_no, errno_msg);
+                static_cast<uint64_t>(sb_no), errno_msg);
         return fs;
     }
 
@@ -344,7 +344,7 @@ fdb_status Superblock::readGivenNum(size_t sb_no,
                 "Failed to read the superblock: "
                 "incorrect block marker (marker: %x, SB No.: %" _F64 "). "
                 "Note: this message might be a false alarm if upgrade is running.",
-                buf[blocksize], sb_no);
+                buf[blocksize], static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -359,7 +359,7 @@ fdb_status Superblock::readGivenNum(size_t sb_no,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "not supported version (magic: %" _F64 ", SB No.: %" _F64 ")",
-                version, sb_no);
+                version, static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -478,7 +478,7 @@ fdb_status Superblock::readGivenNum(size_t sb_no,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "not supported version (magic: %" _F64 ", SB No.: %" _F64 ")",
-                version, sb_no);
+                version, static_cast<uint64_t>(sb_no));
         return fs;
     }
 
@@ -950,7 +950,7 @@ fdb_status Superblock::writeSb(size_t sb_no,
         fs = FDB_RESULT_SB_RACE_CONDITION;
         fdb_log(log_callback, fs,
                 "Failed to write the superblock (number: %" _F64 "), %s",
-                sb_no, errno_msg);
+                static_cast<uint64_t>(sb_no), errno_msg);
         return fs;
     }
 
@@ -986,7 +986,8 @@ void Superblock::appendBmpDoc(FdbKvsHandle *handle)
     numBmpDocs = num_docs = bmpSizeToNumDocs(sb_bmp_size);
     if (num_docs) {
         bmpDocOffset = (bid_t*)calloc(num_docs, sizeof(bid_t));
-        bmpDocs = (struct docio_object*)calloc(num_docs, sizeof(struct docio_object));
+        bmpDocs = (struct docio_object*)calloc(num_docs,
+                   sizeof(struct docio_object));
     }
 
     // bitmap doc offsets

@@ -144,7 +144,7 @@ bool validate_fdb_config(fdb_config *fconfig) {
         // Block size should be set between 1KB and 128KB
         fdb_log(NULL, FDB_RESULT_INVALID_ARGS,
                 "Config Error: Block size (%" _F64 ") not between 1KB and 128KB!\n",
-                fconfig->blocksize);
+                static_cast<uint64_t>(fconfig->blocksize));
         return false;
     }
 

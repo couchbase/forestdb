@@ -434,8 +434,10 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                                           log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
-                            "Error in writing an entire doc block with id %" _F64
-                            ", size %" _F64 " to a database file '%s'", block_list[i], blocksize,
+                            "Error in writing an entire doc block with id %"
+                            _F64 ", size %" _F64 " to a database file '%s'",
+                            block_list[i],
+                            static_cast<uint64_t>(blocksize),
                             file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
@@ -454,7 +456,8 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", "
-                            "size %" _F64 " to a database file '%s'", block_list[i], remainsize,
+                            "size %" _F64 " to a database file '%s'",
+                            block_list[i], remainsize,
                             file_Docio->getFileName());
                     return BLK_NOT_FOUND;
                 }
@@ -938,9 +941,10 @@ int64_t DocioHandle::_readCompressedDocComponent_Docio(uint64_t offset,
     if (uncomp_size != len) {
         fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                 "Error in decompressing the data with the file offset "
-                "%" _F64 " in a database file '%s', because the uncompressed length %d "
-                "is not same as the expected length %d",
-                offset, file_Docio->getFileName(), uncomp_size, len);
+                "%" _F64 " in a database file '%s', because the uncompressed length %" _F64
+                " is not same as the expected length %d",
+                offset, file_Docio->getFileName(),
+                static_cast<uint64_t>(uncomp_size), len);
         return (int64_t) FDB_RESULT_COMPRESSION_FAIL;
     }
     return _offset;
@@ -989,7 +993,8 @@ bool DocioHandle::validateChecksum_Docio(bool read_on_cache_miss,
                 " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
                 "bodylen_ondisk %d offset %" _F64, file_Docio->getFileName(),
                 checksum, length->checksum, length->keylen, length->metalen,
-                length->bodylen, length->bodylen_ondisk, offset);
+                length->bodylen, length->bodylen_ondisk,
+                static_cast<uint64_t>(_offset));
         *status = FDB_RESULT_CHECKSUM_ERROR;
         return false;
     }
@@ -1138,8 +1143,10 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
                                         &_timestamp);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a timestamp with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(timestamp_t),
+                "Error in reading a timestamp with offset %" _F64
+                ", length %" _F64
+                " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(timestamp_t)),
                 file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
@@ -1151,8 +1158,10 @@ int64_t DocioHandle::readDocKeyMeta_Docio(uint64_t offset,
                                         (void *)&_seqnum);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a sequence number with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
+                "Error in reading a sequence number with offset %" _F64
+                ", length %" _F64
+                " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(fdb_seqnum_t)),
                 file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
@@ -1278,8 +1287,9 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
                                         &_timestamp);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a timestamp with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(timestamp_t),
+                "Error in reading a timestamp with offset %" _F64 ", length %"
+                _F64 " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(timestamp_t)),
                 file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
@@ -1292,8 +1302,9 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
                                         (void *)&_seqnum);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a sequence number with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
+                "Error in reading a sequence number with offset %" _F64
+                ", length %" _F64 " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(fdb_seqnum_t)),
                 file_Docio->getFileName());
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return _offset;
@@ -1359,8 +1370,10 @@ int64_t DocioHandle::readDoc_Docio(uint64_t offset,
                                         (void *)&crc_file);
     if (_offset < 0) {
         fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading a doc's CRC value with offset %" _F64 ", length %d "
-                "from a database file '%s'", offset, sizeof(crc_file),
+                "Error in reading a doc's CRC value with offset %" _F64
+                ", length %" _F64
+                " from a database file '%s'", offset,
+                static_cast<uint64_t>(sizeof(crc_file)),
                 file_Docio->getFileName());
         if (comp_body) {
             free(comp_body);

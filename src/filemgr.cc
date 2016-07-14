@@ -643,10 +643,10 @@ fdb_status FileMgr::readHeader(ErrLogCallback *log_callback)
                         // check the rules of opening legacy CRC
                         if (check_crc32_open_rule && getCrcMode() != CRC32) {
                             const char *msg = "Open of CRC32C file"
-                                " with forced CRC32\n";
+                                              " with forced CRC32 mode=x\n";
                             status = FDB_RESULT_INVALID_ARGS;
                             DBG(msg);
-                            fdb_log(log_callback, status, msg);
+                            fdb_log(log_callback, status, msg, getCrcMode());
                             break;
                         } else {
                             status = FDB_RESULT_SUCCESS;

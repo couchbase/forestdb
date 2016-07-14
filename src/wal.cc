@@ -2919,7 +2919,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                             "Unclosed Snapshot in KVS id %" _F64
                             " with %" _F64 " docs in file %s."
                             "Snap id=%" _F64 " SnapSTOP=%" _F64 " "
-                            "refcnt=%d", shandle->kvs_snapshots->id,
+                            "refcnt=%" _F64, shandle->kvs_snapshots->id,
                             shandle->wal_ndocs.load(),
                             file->getFileName(),
                             shandle->snap_tag_idx, shandle->snap_stop_idx,
