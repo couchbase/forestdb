@@ -524,9 +524,10 @@ void print_n_markers(storage_t *st, uint64_t n){
     fdb_snapshot_info_t *markers;
     uint64_t num_markers, i;
     fdb_get_all_snap_markers(st->main, &markers, &num_markers);
-    for (i=0;i<n;i++){
+    for (i = 0; i < n; i++){
         printf("marker:  %" _F64"\n", markers[i].kvs_markers[0].seqnum);
     }
+    fdb_free_snap_markers(markers, num_markers);
 }
 
 /*
