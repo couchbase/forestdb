@@ -1092,8 +1092,7 @@ static void _hbtrie_free_btreelist(struct list *btreelist)
 
 static void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
                                           struct list *btreelist,
-                                          void *key,
-                                          int free_opt)
+                                          void *key)
 {
     bid_t bid_new, _bid;
     struct btreelist_item *btreeitem, *btreeitem_child;
@@ -1134,9 +1133,7 @@ static void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
         fdb_assert(0, trie, e_child);
     }
 
-    if (free_opt) {
-        _hbtrie_free_btreelist(btreelist);
-    }
+    _hbtrie_free_btreelist(btreelist);
 }
 
 static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
@@ -1444,7 +1441,7 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
                 r = HBTRIE_RESULT_FAIL;
             }
         }
-        _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
+        _hbtrie_btree_cascaded_update(trie, &btreelist, key);
     } else {
         // key (to be removed) not found
         // no update occurred .. we don't need to update b-trees on the path
@@ -1595,7 +1592,7 @@ static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
     btreeitem->chunkno = _get_chunkno(hbmeta.chunkno) + minchunkno;
     btreeitem->leaf = 0;
 
-    _hbtrie_btree_cascaded_update(trie, btreelist, pre_str, 1);
+    _hbtrie_btree_cascaded_update(trie, btreelist, pre_str);
 
     // insert all keys
     memcpy(key_str, pre_str, pre_str_len);
@@ -1702,6 +1699,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                        trie->btree_nodesize, trie->chunksize,
                        trie->valuelen, 0x0, &meta);
         if (r != BTREE_RESULT_SUCCESS) {
+            _hbtrie_free_btreelist(&btreelist);
             return HBTRIE_RESULT_FAIL;
         }
     } else {
@@ -1710,15 +1708,18 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                 trie->btree_blk_ops, trie->btree_kv_ops,
                                 trie->btree_nodesize, trie->root_bid);
         if (r != BTREE_RESULT_SUCCESS) {
+            _hbtrie_free_btreelist(&btreelist);
             return HBTRIE_RESULT_FAIL;
         }
         if (btreeitem->btree.ksize != trie->chunksize ||
             btreeitem->btree.vsize != trie->valuelen) {
             if (((trie->chunksize << 4) | trie->valuelen) == btreeitem->btree.ksize) {
                 // this is an old meta format
+                _hbtrie_free_btreelist(&btreelist);
                 return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
             }
             // B+tree root node is corrupted.
+            _hbtrie_free_btreelist(&btreelist);
             return HBTRIE_RESULT_INDEX_CORRUPTED;
         }
     }
@@ -1790,6 +1791,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 btreeitem_new = (struct btreelist_item *)
                                 mempool_alloc(sizeof(struct btreelist_item));
                 btreeitem_new->chunkno = prevchunkno + diffchunkno + 1;
+                list_insert_before(&btreelist, &btreeitem->e,
+                                   &btreeitem_new->e);
+
                 r = btree_init(&btreeitem_new->btree, trie->btreeblk_handle,
                                trie->btree_blk_ops, trie->btree_kv_ops,
                                trie->btree_nodesize, trie->chunksize,
@@ -1798,11 +1802,10 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     // Clear docrawkey, dockey
                     free(docrawkey);
                     free(dockey);
+                    _hbtrie_free_btreelist(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
                 btreeitem_new->btree.aux = trie->aux;
-                list_insert_before(&btreelist, &btreeitem->e,
-                                   &btreeitem_new->e);
 
                 // insert chunk for 'key'
                 chunk_new = key + (prevchunkno + diffchunkno + 1) *
@@ -1812,6 +1815,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     // Clear docrawkey, dockey
                     free(docrawkey);
                     free(dockey);
+                    _hbtrie_free_btreelist(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
                 // insert chunk for existing btree
@@ -1828,6 +1832,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     // Clear docrawkey, dockey
                     free(docrawkey);
                     free(dockey);
+                    _hbtrie_free_btreelist(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
 
@@ -1881,6 +1886,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
 
                 if (btreeitem->btree.height > trie->leaf_height_limit) {
                     // height growth .. extend!
+                    // btreelist is cleared out within _hbtrie_extend_leaf_tree
+                    // when _hbtrie_btree_cascaded_update is invoked
                     _hbtrie_extend_leaf_tree(trie, &btreelist, btreeitem,
                         key, curchunkno * trie->chunksize);
                     // Clear docrawkey, dockey
@@ -2059,6 +2066,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
             btreeitem_new->chunkno = midchunkno;
+            list_push_back(&btreelist, &btreeitem_new->e);
+
             r = btree_init(&btreeitem_new->btree,
                            trie->btreeblk_handle,
                            trie->btree_blk_ops, kv_ops,
@@ -2068,12 +2077,12 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 // Clear docrawkey, dockey
                 free(docrawkey);
                 free(dockey);
+                _hbtrie_free_btreelist(&btreelist);
                 return HBTRIE_RESULT_FAIL;
             }
 
             btreeitem_new->btree.aux = trie->aux;
             btreeitem_new->child_rootbid = BLK_NOT_FOUND;
-            list_push_back(&btreelist, &btreeitem_new->e);
 
             // insert new btree's bid into the previous btree
             bid_new = btreeitem_new->btree.root_bid;
@@ -2140,6 +2149,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
             btreeitem_new->chunkno = newchunkno;
+            list_push_back(&btreelist, &btreeitem_new->e);
+
             r = btree_init(&btreeitem_new->btree,
                            trie->btreeblk_handle,
                            trie->btree_blk_ops, kv_ops,
@@ -2150,8 +2161,6 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 break;
             }
             btreeitem_new->btree.aux = trie->aux;
-
-            list_push_back(&btreelist, &btreeitem_new->e);
 
             chunk_new = (uint8_t*)key_long +
                         newchunkno * trie->chunksize;
@@ -2185,6 +2194,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
             btreeitem_new->chunkno = newchunkno;
+            list_push_back(&btreelist, &btreeitem_new->e);
+
             r = btree_init(&btreeitem_new->btree, trie->btreeblk_handle,
                            trie->btree_blk_ops, kv_ops,
                            trie->btree_nodesize, trie->chunksize,
@@ -2194,7 +2205,6 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             }
             btreeitem_new->btree.aux = trie->aux;
 
-            list_push_back(&btreelist, &btreeitem_new->e);
             // insert KEY
             chunk_new = key + newchunkno * trie->chunksize;
             if (opt == HBMETA_LEAF) {
@@ -2247,7 +2257,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
     free(docrawkey);
     free(dockey);
 
-    _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
+    // btreelist is cleaned up within _hbtrie_btree_cascacded_update
+    _hbtrie_btree_cascaded_update(trie, &btreelist, key);
 
     return ret_result;
 }
