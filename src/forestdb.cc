@@ -1817,6 +1817,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 // header creation racing .. unlock and re-fetch it
                 locked = false;
                 filemgr_mutex_unlock(handle->file);
+                free(prev_filename);
                 continue;
             }
         }
@@ -2098,6 +2099,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 free(handle->bhandle);
                 free(handle->filename);
                 handle->filename = NULL;
+                free(prev_filename);
                 filemgr_close(handle->file, false, handle->filename,
                               &handle->log_callback);
                 return fs;
@@ -2143,6 +2145,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             "the global operational stats of KV store in a database file '%s'\n";
         fdb_log(&handle->log_callback, FDB_RESULT_OPEN_FAIL, msg,
                 handle->file->filename);
+        free(prev_filename);
+        _fdb_cleanup_open_err(handle);
         return FDB_RESULT_OPEN_FAIL;
     }
 
@@ -2182,13 +2186,13 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                            handle->btreeblkops, seq_kv_ops,
                            handle->config.blocksize, sizeof(fdb_seqnum_t),
                            OFFSET_SIZE, 0x0, NULL);
-            }else{
+            } else {
                 btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
                                     handle->btreeblkops, seq_kv_ops,
                                     handle->config.blocksize, seq_root_bid);
             }
         }
-    }else{
+    } else {
         handle->seqtree = NULL;
     }
 
@@ -2225,6 +2229,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (locked) {
             filemgr_mutex_unlock(handle->file);
         }
+        free(prev_filename);
         _fdb_cleanup_open_err(handle);
         return status;
     }
