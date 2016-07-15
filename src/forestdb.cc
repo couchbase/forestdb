@@ -7562,7 +7562,7 @@ fdb_status fdb_get_latency_histogram(fdb_file_handle *fhandle,
                                stats, stats_length);
 #else
     *stats = nullptr;
-    stats_length = 0;
+    *stats_length = 0;
 #endif
 
     return FDB_RESULT_SUCCESS;

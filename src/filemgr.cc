@@ -3786,7 +3786,7 @@ void LatencyStats::getHistogram(FileMgr *file,
 
     uint64_t num = file->latStats[type].lat_num.load(std::memory_order_relaxed);
     if (!num) {
-        stat = nullptr;
+        *stat = nullptr;
         *stat_length = 0;
         return;
     }
