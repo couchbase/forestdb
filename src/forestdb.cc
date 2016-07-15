@@ -8043,6 +8043,7 @@ fdb_status fdb_shutdown()
 #ifdef _MEMPOOL
             mempool_shutdown();
 #endif
+            _dbg_destroy_altstack();
             fdb_initialized = 0;
             spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
@@ -8052,7 +8053,6 @@ fdb_status fdb_shutdown()
         } else { // some file may be still open...
             spin_unlock(&initial_lock);
         }
-        _dbg_destroy_altstack();
     }
     return ret;
 }
