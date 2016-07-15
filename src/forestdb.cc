@@ -562,9 +562,11 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     fdb_config config = handle->config;
     struct filemgr *new_file;
 
+    // As partially compacted file may contain various errors,
+    // we temporarily disable log callback for compaction recovery.
     memset(&new_db, 0, sizeof(new_db));
-    new_db.log_callback.callback = handle->log_callback.callback;
-    new_db.log_callback.ctx_data = handle->log_callback.ctx_data;
+    new_db.log_callback.callback = NULL;
+    new_db.log_callback.ctx_data = NULL;
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     new_db.fhandle = handle->fhandle;
     new_db.kvs_config = handle->kvs_config;
