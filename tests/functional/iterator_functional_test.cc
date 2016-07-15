@@ -3000,10 +3000,13 @@ void reverse_seek_to_max_nokey(void)
                                   (void *) "reverse_seek_to_max_nokey");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    char temp1[10];
+    strcpy(temp1, "doc-029b");
     // set range to have end key that does not exist
-    status = fdb_iterator_init(db, &iterator, doc[24]->key, 10,
-                       (void*)"doc-029b", 10,
-                      FDB_ITR_NO_DELETES);
+    status = fdb_iterator_init(db, &iterator,
+                               doc[24]->key, 10,
+                               (void*)temp1, 10,
+                               FDB_ITR_NO_DELETES);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_iterator_seek_to_max(iterator);
@@ -3017,10 +3020,13 @@ void reverse_seek_to_max_nokey(void)
 
     fdb_iterator_close(iterator);
 
+    char temp2[10];
+    strcpy(temp2, "doc-024b");
     // set range to have start key that does not exist
-    status = fdb_iterator_init(db, &iterator, (void*)"doc-024b", 10,
+    status = fdb_iterator_init(db, &iterator,
+                               (void*)temp2, 10,
                                doc[30]->key, 10,
-                      FDB_ITR_NO_DELETES);
+                               FDB_ITR_NO_DELETES);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_iterator_seek_to_min(iterator);

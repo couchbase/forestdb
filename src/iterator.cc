@@ -146,7 +146,7 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
             end_key = end_key_temp;
             end_keylen = size_chunk;
         } else {
-            end_key_temp = alca(uint8_t, size_chunk + end_keylen + 1);
+            end_key_temp = alca(uint8_t, size_chunk + end_keylen);
             kvid2buf(size_chunk, iterHandle->kvs->getKvsId(),
                      end_key_temp);
             memcpy(end_key_temp + size_chunk, end_key, end_keylen);
