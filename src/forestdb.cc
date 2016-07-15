@@ -7953,8 +7953,8 @@ fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
             for (kvs_idx = kvs_idx - 1; kvs_idx >=0; --kvs_idx) {
                 free(markers[i].kvs_markers[kvs_idx].kv_store_name);
             }
-            free(markers[i].kvs_markers);
         }
+        free(markers[i].kvs_markers);
     }
     free(markers);
     return FDB_RESULT_SUCCESS;
