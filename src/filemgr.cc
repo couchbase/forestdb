@@ -898,6 +898,7 @@ fdb_status FileMgr::fileOpen(const char* filename, struct filemgr_ops *ops,
     fdb_status result = ops->open(filename, fops_handle, flags, mode);
     if (result != FDB_RESULT_SUCCESS) {
         ops->destructor(*fops_handle);
+        *fops_handle = nullptr;
     }
     return result;
 }
