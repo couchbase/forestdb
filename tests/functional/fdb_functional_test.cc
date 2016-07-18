@@ -414,9 +414,14 @@ void config_test()
 
         bcache_space_used = fdb_get_buffer_cache_used();
 
+        fdb_file_info finfo;
+        status = fdb_get_file_info(dbfile, &finfo);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         // Since V3 magic number, 7 blocks are used:
         // 4 superblocks + KV name header + Stale-tree root node + DB header
-        TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
+        TEST_CHK(finfo.file_size == fconfig.blocksize * 7);
+        // Buffercache must only have KV name header + stale-tree root
+        TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);

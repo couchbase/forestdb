@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include<mutex>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <unistd.h>
 #endif
@@ -3574,7 +3575,8 @@ void transaction_in_memory_snapshot_test()
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(bodybuf, "body%d", i);
-        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf,
+                            strlen(bodybuf));
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
 
@@ -3615,6 +3617,169 @@ void transaction_in_memory_snapshot_test()
     TEST_RESULT("transaction and in-memory snapshot interleaving test");
 }
 
+struct piterator_ctx {
+    fdb_config *config;
+    int num_docs;
+    const char *filename;
+    std::mutex lock;
+};
+
+void *parallel_iterator_thread(void *args)
+{
+    TEST_INIT();
+
+    struct piterator_ctx *ctx = (struct piterator_ctx *)args;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_iterator *fit, *fit2;
+    fdb_status status;
+    fdb_seqnum_t snap_seqnum;
+    int num_read = 0;
+    fdb_doc *doc;
+    char key[16];
+
+    while (num_read < ctx->num_docs) {
+        status = fdb_open(&dbfile, ctx->filename, ctx->config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        ctx->lock.lock();
+        // Open in-memory snapshot
+        status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        ctx->lock.unlock();
+
+        fdb_get_kvs_seqnum(snap_db, &snap_seqnum);
+        // Iterate the in-memory snapshot
+        status = fdb_iterator_init(snap_db, &fit, 0, 0, 0, 0, FDB_ITR_NONE);
+        fdb_iterator_sequence_init(snap_db, &fit2, 0, 0, FDB_ITR_NONE);
+
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            continue;
+        }
+        int i = 0;
+        while (status == FDB_RESULT_SUCCESS) {
+            doc = NULL;
+            status = fdb_iterator_get(fit, &doc);
+            if (status != FDB_RESULT_SUCCESS) {
+                break;
+            }
+            sprintf(key, "key%05d", i);
+            TEST_CMP(doc->key, key, doc->keylen);
+            TEST_CHK(doc->seqnum == i+1);
+            // printf("Got %s seqnum %llu\n", key, doc->seqnum);
+            fdb_doc_free(doc);
+            doc = NULL;
+
+            status = fdb_iterator_get(fit2, &doc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(doc->key, key, doc->keylen);
+            TEST_CHK(doc->seqnum == i+1);
+            fdb_doc_free(doc);
+
+            i++;
+            status = fdb_iterator_next(fit);
+            TEST_CHK(status == fdb_iterator_next(fit2));
+        }
+        TEST_CHK(i == snap_seqnum);
+        num_read = snap_seqnum;
+
+        status = fdb_iterator_close(fit);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_iterator_close(fit2);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_close(snap_db);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_close(db);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_close(dbfile);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // shutdown
+    thread_exit(0);
+    return NULL;
+}
+
+void concurrent_writer_iterator_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    int num_threads = 1;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+
+    char keybuf[16];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.num_compactor_threads = 1;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE;
+
+    // open db
+    const char *test_filename = "./mvcc_test1";
+    status = fdb_open(&dbfile, test_filename, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "concurrent_writer_iterator_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    struct piterator_ctx ctx;
+    ctx.config = &fconfig;
+    ctx.num_docs = n;
+    ctx.filename = test_filename;
+
+    // Create parallel iterator threads
+    thread_t *tid = alca(thread_t, num_threads);
+    for (i = 0; i < num_threads; ++i) {
+        thread_create(&tid[i], parallel_iterator_thread, (void *)&ctx);
+    }
+
+    // insert each key and trigger a WAL_FLUSH
+    for (i=0;i<n;++i){
+        ctx.lock.lock();
+        sprintf(keybuf, "key%05d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf)+1, NULL, 0);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        ctx.lock.unlock();
+    }
+
+    for (i = 0; i < num_threads; ++i) {
+        void *thread_ret;
+        thread_join(tid[i], &thread_ret);
+    }
+
+    // close db file
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // free all resources
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("concurrent writer and iterator consistency test");
+}
 
 void rollback_prior_to_ops(bool walflush)
 {
@@ -5185,6 +5350,7 @@ void drop_kv_on_snap_iterator_test(){
 
 int main(){
 
+    concurrent_writer_iterator_test();
     in_memory_snapshot_cleanup_test();
     drop_kv_on_snap_iterator_test();
     rollback_secondary_kvs();
