@@ -201,9 +201,6 @@ typedef int64_t wal_doc_move_func(void *dbhandle,
 typedef fdb_status wal_commit_mark_func(void *dbhandle,
                                         uint64_t offset);
 
-#define WAL_FLAG_INITIALIZED 0x1
-
-
 typedef uint8_t wal_dirty_t;
 enum {
     FDB_WAL_CLEAN = 0,
@@ -231,8 +228,6 @@ class Wal {
 public:
     Wal(FileMgr *file, size_t nbucket);
     ~Wal();
-
-    int isInitialized_Wal(void);
 
     /**
      * Index a mutation into the Write Ahead Log
@@ -450,6 +445,10 @@ public:
     size_t getNumDeletes_Wal(void);
     size_t getDataSize_Wal(void);
     size_t getMemOverhead_Wal(void);
+    bool tryRestore_Wal() {
+        bool inverse = false;
+        return isPopulated.compare_exchange_strong(inverse, true);
+    }
 
 private:
     fdb_status _insert_Wal(fdb_txn *txn,
@@ -543,7 +542,7 @@ private:
                              struct avl_tree *stale_seqnum_list,
                              struct avl_tree *kvs_delta_stats);
 
-    uint8_t flag;
+    std::atomic<bool> isPopulated; // Set when WAL is first populated OR restored from disk
     std::atomic<uint32_t> size; // total # entries in WAL (uint32_t)
     std::atomic<uint32_t> num_flushable; // # flushable entries in WAL (uint32_t)
     std::atomic<uint64_t> datasize; // total data size in WAL (uint64_t)

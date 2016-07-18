@@ -178,11 +178,11 @@ INLINE int _wal_kvs_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 Wal::Wal(FileMgr *_file, size_t nbucket)
     : file(_file)
 {
-    flag = WAL_FLAG_INITIALIZED;
     size = 0;
     num_flushable = 0;
     datasize = 0;
     mem_overhead = 0;
+    isPopulated = false;
     wal_dirty = FDB_WAL_CLEAN;
 
     list_init(&txn_list);
@@ -232,11 +232,6 @@ Wal::~Wal()
     if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         free(seq_shards);
     }
-}
-
-int Wal::isInitialized_Wal()
-{
-    return flag & WAL_FLAG_INITIALIZED;
 }
 
 inline
@@ -1747,9 +1742,18 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                         spin_unlock(&key_shards[i].lock);
                         item->old_offset = get_old_offset(dbhandle, item);
                         spin_lock(&key_shards[i].lock);
+                        if (item->old_offset == item->offset) {
+                            // Sometimes if there are uncommitted transactional
+                            // items along with flushed committed items when
+                            // file was closed, wal_restore can end up inserting
+                            // already flushed items back into WAL.
+                            // We should not try to flush them back again
+                            item->flag |= WAL_ITEM_FLUSHED_OUT;
+                        }
                         if (item->old_offset == 0 && // doc not in main index
                             item->action == WAL_ACT_REMOVE) {// insert & delete
                             item->old_offset = BLK_NOT_FOUND;
+                            item->flag |= WAL_ITEM_FLUSHED_OUT;
                         }
                         if (do_sort) {
                             avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
@@ -1779,8 +1783,7 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
         while (a) {
             item = _get_entry(a, struct wal_item, avl_flush);
             a = avl_next(a);
-            if (item->old_offset == BLK_NOT_FOUND && // doc not in main index
-                item->action == WAL_ACT_REMOVE) {// insert & immediate delete
+            if (item->flag & WAL_ITEM_FLUSHED_OUT) {
                 continue; // need not flush this item into main index..
             } // item exists solely for in-memory snapshots
             fs = _wal_do_flush(item, flush_func, dbhandle,
@@ -1795,8 +1798,7 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
         while (a) {
             item = _get_entry(a, struct wal_item, list_elem_flush);
             a = list_next(a);
-            if (item->old_offset == BLK_NOT_FOUND && // doc not in main index
-                item->action == WAL_ACT_REMOVE) {// insert & immediate delete
+            if (item->flag & WAL_ITEM_FLUSHED_OUT) {
                 continue; // need not flush this item into main index..
             } // item exists solely for in-memory snapshots
             fs = _wal_do_flush(item, flush_func, dbhandle,
@@ -3068,6 +3070,7 @@ fdb_status Wal::shutdown_Wal(ErrLogCallback *log_callback)
     num_flushable = 0;
     datasize = 0;
     mem_overhead = 0;
+    isPopulated = false;
     return wr;
 }
 

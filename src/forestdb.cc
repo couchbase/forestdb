@@ -317,6 +317,13 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     Wal *wal = file->getWal();
     ErrLogCallback *log_callback;
 
+    if (mode == FDB_RESTORE_NORMAL && !handle->shandle &&
+        !wal->tryRestore_Wal()) { // Atomically try to restore WAL
+        // Some other thread or previous open had successfully initialized WAL
+        // We can simply return here
+        return;
+    }
+
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
         return;
     }
@@ -326,10 +333,8 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     }
 
     // If a valid last header was retrieved and it matches the current header
-    // OR if WAL already had entries populated, then no crash recovery needed
-    if (hdr_off == offset || hdr_bid == last_wal_flush_hdr_bid ||
-        (!handle->shandle && wal->getSize_Wal() && mode != FDB_RESTORE_KV_INS)){
-        return;
+    if (hdr_off == offset || hdr_bid == last_wal_flush_hdr_bid) {
+        return; // No WAL section in the file
     }
 
     if (mode == FDB_RESTORE_NORMAL && !handle->shandle) {
