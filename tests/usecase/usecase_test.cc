@@ -20,16 +20,15 @@
 #include <string.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdio>
-#include <iostream>
-#include <memory>
-#include <stdexcept>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "libforestdb/forestdb.h"
+#include "atomic.h"
 #include "test.h"
 #include "timing.h"
 
@@ -57,16 +56,19 @@ enum _op_ {
 struct PoolEntry {
     PoolEntry(int _index,
               bool _avail,
+              std::string _kvsname,
               fdb_file_handle *_dbfile,
               fdb_kvs_handle *_db) {
         index = _index;
         available.store(_avail);
+        kvsname = _kvsname;
         dbfile = _dbfile;
         db = _db;
     }
 
     int index;
     std::atomic<bool> available;
+    std::string kvsname;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
 };
@@ -76,32 +78,42 @@ struct PoolEntry {
  */
 class FileHandlePool {
 public:
-    FileHandlePool(std::vector<std::string> filenames, int count,
-                   bool create_default_kvs, bool use_sequence_tree) {
+    FileHandlePool(std::vector<std::string> filenames, int kvstore_count,
+                   int num_handles_per_kvstore, bool create_default_kvs,
+                   bool use_sequence_tree) {
         fdb_status status;
-        fdb_config fconfig = fdb_get_default_config();
+        file_config = fdb_get_default_config();
         if (use_sequence_tree) {
             // enable seqtree since get_byseq
-            fconfig.seqtree_opt = FDB_SEQTREE_USE;
+            file_config.seqtree_opt = FDB_SEQTREE_USE;
         }
-        fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-        for (int i = 0; i < count; ++i) {
-            fdb_file_handle *dbfile;
-            fdb_kvs_handle *db;
-            status = fdb_open(&dbfile,
-                              filenames.at(i % filenames.size()).c_str(),
-                              &fconfig);
-            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-            if (create_default_kvs) {
-                status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
-            } else {
-                std::string kvs(filenames.at(i % filenames.size()) + "_" +
-                                std::to_string(i));
-                status = fdb_kvs_open(dbfile, &db, kvs.c_str(), &kvs_config);
+        kvs_config = fdb_get_default_kvs_config();
+        int index = 0;
+        for (int i = 0; i < kvstore_count; ++i) {
+            for (int j = 0; j < num_handles_per_kvstore; ++j) {
+                fdb_file_handle *dbfile;
+                fdb_kvs_handle *db;
+                std::string filename = filenames.at(i % filenames.size());
+                std::string kvs;
+                status = fdb_open(&dbfile, filename.c_str(), &file_config);
+                fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+                if (create_default_kvs) {
+                    kvs.assign(DEFAULT_KVS_NAME);
+                    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+                } else {
+                    kvs.assign(filename + "_" + std::to_string(i));
+                    status = fdb_kvs_open(dbfile, &db, kvs.c_str(), &kvs_config);
+                    kvs_file_map[kvs] = filename;
+                }
+                fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+                PoolEntry *pe = new PoolEntry(index++, true, kvs, dbfile, db);
+                pool_vector.push_back(pe);
             }
-            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-            PoolEntry *pe = new PoolEntry(i, true, dbfile, db);
-            pool_vector.push_back(pe);
+        }
+
+        if (init_rw_lock(&pool_vector_lock) != 0) {
+            fprintf(stderr, "Error in init() of rw_lock\n");
+            abort();
         }
 
         mutex_init(&statlock);
@@ -137,6 +149,11 @@ public:
         }
         pool_vector.clear();
 
+        if (destroy_rw_lock(&pool_vector_lock) != 0) {
+            fprintf(stderr, "Error in destroy() of rw_lock\n");
+            abort();
+        }
+
         // Delete StatAggregator
         delete sa;
 
@@ -148,17 +165,25 @@ public:
      * in the process, the handle set will be marked as unavailable for
      * any other user.
      */
-    int getAvailableResource(fdb_file_handle **dbfile, fdb_kvs_handle **db) {
+    PoolEntry* getAvailableResource() {
+        PoolEntry *pe;;
         while (true) {
-            int index = rand() % pool_vector.size();
-            bool inverse = true;
-            PoolEntry *pe = pool_vector.at(index);
-            if (pe && pe->available.compare_exchange_strong(inverse, false)) {
-                *dbfile = pe->dbfile;
-                *db = pe->db;
-                return pe->index;
+            if (reader_lock(&pool_vector_lock) == 0) {
+                int index = rand() % pool_vector.size();
+                bool inverse = true;
+                pe = pool_vector.at(index);
+                if (pe &&
+                    pe->available.compare_exchange_strong(inverse, false)) {
+                    reader_unlock(&pool_vector_lock);
+                    break;
+                }
+                reader_unlock(&pool_vector_lock);
+            } else {
+                fprintf(stderr, "Error in acquiring reader lock!\n");
+                abort();
             }
         }
+        return pe;
     }
 
     /**
@@ -167,12 +192,19 @@ public:
     void getResourceAtIndex(int index,
                             fdb_file_handle **dbfile, fdb_kvs_handle **db) {
         while (true) {
-            bool inverse = true;
-            PoolEntry *pe = pool_vector.at(index % pool_vector.size());
-            if (pe && pe->available.compare_exchange_strong(inverse, false)) {
-                *dbfile = pe->dbfile;
-                *db = pe->db;
-                return;
+            if (reader_lock(&pool_vector_lock) == 0) {
+                bool inverse = true;
+                PoolEntry *pe = pool_vector.at(index % pool_vector.size());
+                if (pe && pe->available.compare_exchange_strong(inverse, false)) {
+                    *dbfile = pe->dbfile;
+                    *db = pe->db;
+                    reader_unlock(&pool_vector_lock);
+                    return;
+                }
+                reader_unlock(&pool_vector_lock);
+            } else {
+                fprintf(stderr, "Error in acquiring reader lock!\n");
+                abort();
             }
         }
     }
@@ -182,16 +214,150 @@ public:
      * user will not be using the handles anymore.
      */
     void returnResourceToPool(int index) {
-        PoolEntry *pe = pool_vector.at(index);
-        if (!pe) {
-            fprintf(stderr, "Invalid entry!\n");
-            return;
+        if (reader_lock(&pool_vector_lock) == 0) {
+            PoolEntry *pe = pool_vector.at(index);
+            if (!pe) {
+                fprintf(stderr, "Invalid entry!\n");
+                reader_unlock(&pool_vector_lock);
+                return;
+            }
+            bool inverse = false;
+            if (!pe->available.compare_exchange_strong(inverse, true)) {
+                fprintf(stderr, "Handles were likely used by another thread!");
+                assert(false);
+            }
+            reader_unlock(&pool_vector_lock);
+        } else {
+            fprintf(stderr, "Error in acquiring reader lock!\n");
+            abort();
         }
-        bool inverse = false;
-        if (!pe->available.compare_exchange_strong(inverse, true)) {
-            fprintf(stderr, "Handles were likely used by another thread!");
-            assert(false);
+
+    }
+
+    /**
+     * Return the pointer borrowed back to pool.
+     */
+    void returnResourceToPool(PoolEntry *pe) {
+        if (reader_lock(&pool_vector_lock) == 0) {
+            if (!pe) {
+                fprintf(stderr, "Invalid entry!\n");
+                reader_unlock(&pool_vector_lock);
+                return;
+            }
+            bool inverse = false;
+            if (!pe->available.compare_exchange_strong(inverse, true)) {
+                fprintf(stderr, "Handles were likely used by another thread!");
+                assert(false);
+            }
+            reader_unlock(&pool_vector_lock);
+        } else {
+            fprintf(stderr, "Error in acquiring reader lock!\n");
+            abort();
         }
+    }
+
+    /**
+     * Moves kvstore from one file to another, in the process:
+     * delete handles to old kvstore from pool entry and replace
+     * them with handles to the kvstore in the new file.
+     */
+    void shiftPoolEntries(std::string kvs_name,
+                          std::string new_filename) {
+        if (kvs_file_map.empty()) {
+            // kvs map not available
+            fprintf(stderr,
+                    "kvs_file_map unavailable => no non-default kv stores!\n");
+            abort();
+        } else if (kvs_name.empty() || new_filename.empty()) {
+            fprintf(stderr,
+                    "Kvs name and/or new filename strings are empty!\n");
+            abort();
+        }
+
+        fdb_status status = FDB_RESULT_SUCCESS;
+        size_t i = 0;
+        while (true) {
+            if (writer_lock(&pool_vector_lock) == 0) {
+                if (i >= pool_vector.size()) {
+                    writer_unlock(&pool_vector_lock);
+                    return;
+                }
+                PoolEntry *pe = pool_vector.at(i);
+                if (pe && kvs_name.compare(pe->kvsname) == 0) {
+                    bool inverse = true;
+                    if (!pe->available.compare_exchange_strong(inverse, false)) {
+                        writer_unlock(&pool_vector_lock);
+                        continue;
+                    }
+                    // Remove old entry
+                    status = fdb_kvs_close(pe->db);
+                    fdb_assert(status == FDB_RESULT_SUCCESS,
+                               status, FDB_RESULT_SUCCESS);
+                    status = fdb_kvs_remove(pe->dbfile, kvs_name.c_str());
+                    if (status != FDB_RESULT_SUCCESS) {
+                        // Consider the possibility that there are
+                        // more open handles on the kv store
+                        fdb_assert((status == FDB_RESULT_KV_STORE_BUSY
+                                    || status == FDB_RESULT_FAIL_BY_COMPACTION
+                                    || status == FDB_RESULT_HANDLE_BUSY),
+                                   status, FDB_RESULT_SUCCESS);
+                    }
+                    status = fdb_close(pe->dbfile);
+                    fdb_assert(status == FDB_RESULT_SUCCESS,
+                               status, FDB_RESULT_SUCCESS);
+                    pool_vector.erase(std::remove(pool_vector.begin(),
+                                                  pool_vector.end(),
+                                                  pe),
+                                      pool_vector.end());
+                    delete pe;
+
+                    // Add new entry
+                    fdb_file_handle *dbfile;
+                    fdb_kvs_handle *db;
+                    status = fdb_open(&dbfile, new_filename.c_str(),
+                                      &file_config);
+                    fdb_assert(status == FDB_RESULT_SUCCESS,
+                               status, FDB_RESULT_SUCCESS);
+                    status = fdb_kvs_open(dbfile, &db, kvs_name.c_str(),
+                                          &kvs_config);
+                    fdb_assert(status == FDB_RESULT_SUCCESS,
+                               status, FDB_RESULT_SUCCESS);
+                    kvs_file_map[kvs_name] = new_filename;
+                    PoolEntry *new_pe = new PoolEntry(i, true,
+                                                      kvs_name,
+                                                      dbfile, db);
+                    pool_vector.push_back(new_pe);
+                }
+                i++;
+                writer_unlock(&pool_vector_lock);
+            } else {
+                fprintf(stderr, "Error in acquiring writer lock!\n");
+                abort();
+            }
+        }
+    }
+
+    /**
+     * Fetch a random entry from the kvs_file_map.
+     */
+    std::pair<std::string, std::string> fetchRandomAvailableKvs() {
+        if (kvs_file_map.empty()) {
+            // kvs map not available
+            fprintf(stderr,
+                    "kvs_file_map unavailable => no non-default kv stores!\n");
+            abort();
+        }
+
+        int index = rand() % kvs_file_map.size();
+        for (auto &it : kvs_file_map) {
+            if (index-- == 0) {
+                return it;
+            }
+        }
+        fprintf(stderr, "[ERROR] Cannot get here, unless kvs_file_map had "
+                        "parallel access, which is not allowed at the "
+                        "moment!\n");
+        abort();
     }
 
     void addStatToAgg(int index, const char* name) {
@@ -229,51 +395,75 @@ public:
      * pool.
      */
     void printPoolVector() {
-        fprintf(stderr, "---------------------\n");
-        for (size_t i = 0; i < pool_vector.size(); ++i) {
-            fprintf(stderr, "Index: %d Available: %d\n",
-                    (pool_vector.at(i))->index,
-                    (pool_vector.at(i))->available.load() ? 1 : 0);
+        if (reader_lock(&pool_vector_lock) == 0) {
+            fprintf(stderr, "---------------------\n");
+            for (size_t i = 0; i < pool_vector.size(); ++i) {
+                fprintf(stderr, "Index: %d Available: %d\n",
+                        (pool_vector.at(i))->index,
+                        (pool_vector.at(i))->available.load() ? 1 : 0);
+            }
+            fprintf(stderr, "---------------------\n");
+            reader_unlock(&pool_vector_lock);
+        } else {
+            fprintf(stderr, "Error in acquiring reader lock!\n");
+            abort();
         }
-        fprintf(stderr, "---------------------\n");
     }
 
     /**
      * Print FDB_LATENCY_STATS, for all file handles.
      */
     void printHandleStats() {
-        fdb_status status;
-        fdb_latency_stat stat;
-        int nstats = FDB_LATENCY_NUM_STATS;
+        if (reader_lock(&pool_vector_lock) == 0) {
+            fdb_status status;
+            fdb_latency_stat stat;
+            int nstats = FDB_LATENCY_NUM_STATS;
 
-        StatAggregator *s = new StatAggregator(nstats, 1);
+            StatAggregator *s = new StatAggregator(nstats, 1);
 
-        for (int i = 0; i < nstats; ++i) {
-            const char* name = fdb_latency_stat_name(i);
-            s->t_stats[i][0].name = name;
+            for (int i = 0; i < nstats; ++i) {
+                const char* name = fdb_latency_stat_name(i);
+                s->t_stats[i][0].name = name;
 
-            for (size_t j = 0; j < pool_vector.size(); ++j) {
-                memset(&stat, 0, sizeof(fdb_latency_stat));
-                status = fdb_get_latency_stats((pool_vector.at(j))->dbfile,
-                                               &stat, i);
-                fdb_assert(status == FDB_RESULT_SUCCESS,
-                           status, FDB_RESULT_SUCCESS);
+                for (size_t j = 0; j < pool_vector.size(); ++j) {
+                    memset(&stat, 0, sizeof(fdb_latency_stat));
+                    status = fdb_get_latency_stats((pool_vector.at(j))->dbfile,
+                                                   &stat, i);
+                    fdb_assert(status == FDB_RESULT_SUCCESS,
+                               status, FDB_RESULT_SUCCESS);
 
-                if (stat.lat_count > 0) {
-                    s->t_stats[i][0].latencies.push_back(stat.lat_avg);
+                    if (stat.lat_count > 0) {
+                        s->t_stats[i][0].latencies.push_back(stat.lat_avg);
+                    }
                 }
             }
-        }
-        (void)status;
+            (void)status;
 
-        s->aggregateAndPrintStats("FDB_STATS", pool_vector.size(), "ms");
-        delete s;
+            s->aggregateAndPrintStats("FDB_STATS", pool_vector.size(), "ms");
+            delete s;
+            reader_unlock(&pool_vector_lock);
+        } else {
+            fprintf(stderr, "Error in acquiring reader lock!\n");
+            abort();
+        }
     }
 
 private:
+    // File config
+    fdb_config file_config;
+    // Kvs config
+    fdb_kvs_config kvs_config;
+    // Vector pool of file/kvs handles
     std::vector<PoolEntry *> pool_vector;
+    // Read/Write lock to pool vector
+    fdb_rw_lock pool_vector_lock;
+    // Map of non-default KV stores to filenames
+    std::map<std::string, std::string> kvs_file_map;
+    // Number of stat samples
     int samples;
+    // Pointer to the stat aggregator class
     StatAggregator *sa;
+    // Mutex to protect stat collection & aggregation
     mutex_t statlock;
 };
 
@@ -285,7 +475,7 @@ class SnapHandlePool : public FileHandlePool {
 public:
     SnapHandlePool(std::vector<std::string> filenames, int count,
                    bool create_default_kvs, bool use_sequence_tree)
-        : FileHandlePool(filenames, count, create_default_kvs,
+        : FileHandlePool(filenames, count, 1, create_default_kvs,
                          use_sequence_tree) {
         snap_pool_vector.resize(count, nullptr);
         mutex_init(&snaplock);
@@ -335,7 +525,15 @@ public:
             fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
             delete pe;
         }
+
+        // Fetch kvs_info to get the name of the KVS instance
+        fdb_kvs_info kvs_info;
+        status = fdb_get_kvs_info(snap_handle, &kvs_info);
+        fdb_assert(status == FDB_RESULT_SUCCESS,
+                   status, FDB_RESULT_SUCCESS);
+
         snap_pool_vector[index] = new PoolEntry(index, true,
+                                                std::string(kvs_info.name),
                                                 nullptr, snap_handle);
         mutex_unlock(&snaplock);
     }
@@ -382,14 +580,12 @@ static void *invoke_writer_ops(void *args) {
 
     while (true) {
         // Acquire handles from pool
-        fdb_file_handle *dbfile = nullptr;
-        fdb_kvs_handle *db = nullptr;
-        const int index = oa->hp->getAvailableResource(&dbfile, &db);
+        PoolEntry *pe = oa->hp->getAvailableResource();
 
         char keybuf[256], bodybuf[256];
 
         // Start transaction
-        status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        status = fdb_begin_transaction(pe->dbfile, FDB_ISOLATION_READ_COMMITTED);
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
         // Issue a batch of 10 sets
@@ -399,7 +595,7 @@ static void *invoke_writer_ops(void *args) {
             sprintf(bodybuf, "body%d", i);
 
             ts_nsec beginSet = get_monotonic_ts();
-            status = fdb_set_kv(db,
+            status = fdb_set_kv(pe->db,
                                 (void*)keybuf, strlen(keybuf) + 1,
                                 (void*)bodybuf, strlen(bodybuf) + 1);
             ts_nsec endSet = get_monotonic_ts();
@@ -410,7 +606,7 @@ static void *invoke_writer_ops(void *args) {
 
         // End transaction (Commit)
         ts_nsec beginCommit = get_monotonic_ts();
-        status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+        status = fdb_end_transaction(pe->dbfile, FDB_COMMIT_NORMAL);
         ts_nsec endCommit = get_monotonic_ts();
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
@@ -418,11 +614,12 @@ static void *invoke_writer_ops(void *args) {
 
         // Create a snapshot handle if snap handle pool is in use
         if (oa->snapPoolAvailable) {
-            (static_cast<SnapHandlePool*>(oa->hp))->addNewSnapHandle(index, db);
+            (static_cast<SnapHandlePool*>(oa->hp))->addNewSnapHandle(pe->index,
+                                                                     pe->db);
         }
 
         // Return resource to pool
-        oa->hp->returnResourceToPool(index);
+        oa->hp->returnResourceToPool(pe);
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
@@ -441,14 +638,12 @@ void file_handle_reader_ops(FileHandlePool *fhp, int tracker) {
     fdb_status status;
 
     // Acquire handles from pool
-    fdb_file_handle *dbfile = nullptr;
-    fdb_kvs_handle *db = nullptr;
     fdb_kvs_handle *snap_handle = nullptr;
-    const int index = fhp->getAvailableResource(&dbfile, &db);
+    PoolEntry *pe = fhp->getAvailableResource();
 
     // Create an in-memory snapshot
     ts_nsec beginSnap = get_monotonic_ts();
-    status = fdb_snapshot_open(db, &snap_handle, FDB_SNAPSHOT_INMEM);
+    status = fdb_snapshot_open(pe->db, &snap_handle, FDB_SNAPSHOT_INMEM);
     ts_nsec endSnap = get_monotonic_ts();
     fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
@@ -497,7 +692,7 @@ void file_handle_reader_ops(FileHandlePool *fhp, int tracker) {
         char keybuf[256], bodybuf[256];
 
         fdb_file_info info;
-        status = fdb_get_file_info(dbfile, &info);
+        status = fdb_get_file_info(pe->dbfile, &info);
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
         int i = (info.doc_count > 0) ? rand() % info.doc_count : 0;
 
@@ -523,7 +718,7 @@ void file_handle_reader_ops(FileHandlePool *fhp, int tracker) {
     fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
     // Return resource to pool
-    fhp->returnResourceToPool(index);
+    fhp->returnResourceToPool(pe);
 }
 
 void snap_handle_reader_ops(SnapHandlePool *shp) {
@@ -642,6 +837,12 @@ void test_readers_writers_with_handle_pool(int nhandles,
         return;
     }
 
+    if (writers + readers < 1) {
+        fprintf(stderr, "[ERROR] Invalid number of readers (%d)/writers (%d)!",
+                readers, writers);
+        return;
+    }
+
     // Set filename(s)
     std::vector<std::string> files;
     for (int i = 1; i <= nfiles; ++i) {
@@ -649,16 +850,10 @@ void test_readers_writers_with_handle_pool(int nhandles,
         files.push_back(filename);
     }
 
-    if (writers + readers < 1) {
-        fprintf(stderr, "[ERROR] Invalid number of readers (%d)/writers (%d)!",
-                readers, writers);
-        return;
-    }
-
     // Prepare handle pool
     FileHandlePool *hp;
     if (!useSnapHandlePool) {
-        hp = new FileHandlePool(files, nhandles, createDefaultKvs, false);
+        hp = new FileHandlePool(files, nhandles, 1, createDefaultKvs, false);
     } else {
         hp = new SnapHandlePool(files, nhandles, createDefaultKvs, false);
     }
@@ -681,8 +876,8 @@ void test_readers_writers_with_handle_pool(int nhandles,
     assert(threadid == readers + writers);
 
     // Wait for child threads
-    for (int j = 0; j < (readers + writers); ++j) {
-        int r = thread_join(threads[j], nullptr);
+    for (int i = 0; i < (readers + writers); ++i) {
+        r = thread_join(threads[i], nullptr);
         assert(r == 0);
     }
     delete[] threads;
@@ -753,7 +948,7 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
     filenames.push_back("uc_test");
 
     /* Prepare file handle pool */
-    FileHandlePool *fhp = new FileHandlePool(filenames, numKvStores,
+    FileHandlePool *fhp = new FileHandlePool(filenames, numKvStores, 1,
                                              false, true);
 
     fdb_status status;
@@ -831,6 +1026,181 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
     TEST_RESULT("Writes-On-Multiple-KV-Stores-With-Compaction test");
 }
 
+static std::atomic<bool> exit_execution(false);
+
+void *thread_that_issues_writes(void *args) {
+    FileHandlePool *fhp = static_cast<FileHandlePool *>(args);
+    int i = 0;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    while (true) {
+        // Acquire handles from pool
+        PoolEntry *pe = fhp->getAvailableResource();
+
+        char keybuf[256], bodybuf[256];
+
+        // Issue a batch of 10 sets
+        int  j = 10;
+        while (--j != 0) {
+            sprintf(keybuf, "key%d", i);
+            sprintf(bodybuf, "body%d", i);
+
+            status = fdb_set_kv(pe->db,
+                                (void*)keybuf, strlen(keybuf) + 1,
+                                (void*)bodybuf, strlen(bodybuf) + 1);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+            ++i;
+        }
+        status = fdb_commit(pe->dbfile, FDB_COMMIT_NORMAL);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        // Return resource to pool
+        fhp->returnResourceToPool(pe);
+
+        if (exit_execution.load()) {
+            break;
+        }
+    }
+    return nullptr;
+}
+
+void *thread_that_fetches_stats(void *args) {
+    FileHandlePool *fhp = static_cast<FileHandlePool *>(args);
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    while (true) {
+        // Runs once every second
+        sleep(1);
+
+        // Acquire handles from pool
+        PoolEntry *pe = fhp->getAvailableResource();
+
+        // Fetch kvs_info
+        fdb_kvs_info kvs_info;
+        status = fdb_get_kvs_info(pe->db, &kvs_info);
+        fdb_assert(status == FDB_RESULT_SUCCESS,
+                   status, FDB_RESULT_SUCCESS);
+        (void)kvs_info;
+
+        // Return resource to pool
+        fhp->returnResourceToPool(pe);
+
+        if (exit_execution.load()) {
+            break;
+        }
+    }
+    return nullptr;
+}
+
+void test_kv_engines_rebalance_situation(int nfiles,
+                                         int nkvstores,
+                                         int nhandles,
+                                         int nwriters,
+                                         int nreaders,
+                                         bool useSeqTree) {
+    TEST_INIT();
+    memleak_start();
+
+    exit_execution.store(false);
+
+    int r = system(SHELL_DEL" uc_test* > errorlog.txt");
+    (void)r;
+
+    if (nfiles < 2 || nkvstores < 1) {
+        fprintf(stderr, "[ERROR] Invalid input args: %d %d!\n",
+                nfiles, nkvstores);
+        return;
+    }
+
+    if (nwriters < 1 || nreaders < 1) {
+        fprintf(stderr,
+                "[ERROR] Insufficient number of readers (%d)/writers (%d)!\n",
+                nwriters, nreaders);
+        return;
+    }
+
+    // Set filename(s)
+    std::vector<std::string> files;
+    for (int i = 1; i <= nfiles; ++i) {
+        std::string filename("./uc_test" + std::to_string(i));
+        files.push_back(filename);
+    }
+
+    // Prepare handle pool
+    FileHandlePool *fhp = new FileHandlePool(files, nkvstores, nhandles,
+                                             false, useSeqTree);
+
+    thread_t *threads = new thread_t[nwriters + nreaders];
+
+    int threadid = 0;
+    // Spawn writer thread(s)
+    for (int i = 0; i < nwriters; ++i) {
+        thread_create(&threads[threadid++], thread_that_issues_writes, fhp);
+    }
+
+    // Spawn reader/stat thread(s)
+    for (int i = 0; i < nreaders; ++i) {
+        thread_create(&threads[threadid++], thread_that_fetches_stats, fhp);
+    }
+
+    assert(threadid == nreaders + nwriters);
+
+    // Allow threads to run for five seconds
+    int num_moves = std::max(nfiles, nkvstores / 2);
+    for (int i = 0; i < num_moves; ++i) {
+        sleep(3);
+        auto kvs_info = fhp->fetchRandomAvailableKvs();
+        int pos = std::find(files.begin(), files.end(), kvs_info.second)
+                  - files.begin();
+        if (pos >= static_cast<int>(files.size())) {
+            fprintf(stderr, "[ERROR] Unknown file name: %s!\n",
+                    kvs_info.second.c_str());
+            abort();
+        }
+        std::string new_filename = files.at((pos + 1) % files.size());
+#ifdef __DEBUG_USECASE
+        fprintf(stderr, "Shifting KVS: %s; old: %s; new: %s\n", kvs_info.first.c_str(),
+                                                                kvs_info.second.c_str(),
+                                                                new_filename.c_str());
+#endif
+        fhp->shiftPoolEntries(kvs_info.first, new_filename);
+    }
+
+    // Terminate execution
+    exit_execution.store(true);
+
+    // Wait for child threads
+    for (int i = 0; i < (nreaders + nwriters); ++i) {
+        r = thread_join(threads[i], nullptr);
+        assert(r == 0);
+    }
+    delete[] threads;
+
+    /* cleanup */
+    delete fhp;
+
+    /* shutdown */
+    fdb_shutdown();
+
+    std::string test_title(std::to_string(nfiles) + "F, " +
+                           std::to_string(nkvstores) + "KVS, " +
+                           std::to_string(nhandles) + "H, " +
+                           std::to_string(nwriters) + "RW, " +
+                           std::to_string(nreaders) + "RO - ");
+    if (useSeqTree) {
+        test_title += "uses SEQ Trees - ";
+    }
+    test_title += "Rebalance situation test";
+
+#ifndef __DEBUG_USECASE
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
+    (void)r;
+#endif
+
+    memleak_end();
+    TEST_RESULT(test_title.c_str());
+}
+
 int main() {
 
     /* Test single writer with multiple readers sharing a common
@@ -879,5 +1249,21 @@ int main() {
        kv stores belonging to the file */
     test_writes_on_kv_stores_with_compaction(256   /*number of kv stores*/,
                                              1500  /*number of items per kvstore*/);
+
+    /* Test fdb_kvs_remove operation when kvs does not have any open handles */
+    test_kv_engines_rebalance_situation(4      /*number of files*/,
+                                        16     /*number of kv stores*/,
+                                        2      /*number of handles per kvs*/,
+                                        4      /*writer count*/,
+                                        2      /*reader count*/,
+                                        false  /*do not use sequence trees*/);
+
+    /* Test fdb_kvs_remove operation when kvs does not have any open handles */
+    test_kv_engines_rebalance_situation(4      /*number of files*/,
+                                        16     /*number of kv stores*/,
+                                        2      /*number of handles per kvs*/,
+                                        4      /*writer count*/,
+                                        2      /*reader count*/,
+                                        true   /*use sequence trees*/);
     return 0;
 }
