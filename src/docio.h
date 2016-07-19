@@ -35,6 +35,7 @@ struct docio_handle {
     uint16_t cur_bmp_revnum_hash;
     // for buffer purpose
     bid_t lastbid;
+    uint64_t lastBmpRevnum;
     void *readbuffer;
     err_log_callback *log_callback;
     bool compress_document_body;
