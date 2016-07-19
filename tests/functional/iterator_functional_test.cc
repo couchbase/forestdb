@@ -4118,15 +4118,123 @@ void iterator_init_using_substring_test()
     TEST_RESULT("iterator init using substring test");
 }
 
-int main(){
-    int i, j;
+void iterator_seek_to_max_key_with_deletes_test() {
+    TEST_INIT();
+    memleak_start();
 
+    int r;
+
+    fdb_status status;
+    fdb_kvs_handle *db;
+    fdb_file_handle *dbfile;
+    fdb_iterator *it = nullptr;
+    fdb_doc *rdoc = nullptr;
+
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+    TEST_STATUS(fdb_open(&dbfile, "./iterator_test1", &fconfig));
+    TEST_STATUS(fdb_kvs_open_default(dbfile, &db, &kvs_config));
+
+    fdb_set_kv(db, "A", 1, NULL, 0);
+    fdb_set_kv(db, "B", 1, NULL, 0);
+
+    status = fdb_iterator_init(db, &it, "B", 1, "Bzz", 3, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_seek_to_max(it);
+    TEST_STATUS(status);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_STATUS(status);
+    TEST_CMP(rdoc->key, "B", 1);
+    fdb_doc_free(rdoc);
+    rdoc = nullptr;
+
+    status = fdb_iterator_close(it);
+    TEST_STATUS(status);
+    it = nullptr;
+
+    status = fdb_del_kv(db, "B", 1);
+    TEST_STATUS(status);
+
+    status = fdb_iterator_init(db, &it, "B", 1, "Bzz", 3, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    status = fdb_iterator_seek_to_max(it);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    status = fdb_iterator_close(it);
+    TEST_STATUS(status);
+
+    status = fdb_close(dbfile);
+    TEST_STATUS(status);
+    status = fdb_shutdown();
+    TEST_STATUS(status);
+
+    memleak_end();
+
+    TEST_RESULT("iterator seek to max test");
+}
+
+void iterator_seek_to_min_key_with_deletes_test() {
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+
+    fdb_status status;
+    fdb_kvs_handle *db;
+    fdb_file_handle *dbfile;
+    fdb_iterator *it = nullptr;
+    fdb_doc *rdoc = nullptr;
+
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+    TEST_STATUS(fdb_open(&dbfile, "./iterator_test1", &fconfig));
+    TEST_STATUS(fdb_kvs_open_default(dbfile, &db, &kvs_config));
+
+    fdb_set_kv(db, "B", 1, NULL, 0);
+    fdb_set_kv(db, "C", 1, NULL, 0);
+
+    status = fdb_del_kv(db, "B", 1);
+    TEST_STATUS(status);
+
+    status = fdb_iterator_init(db, &it, "A", 1, "B", 1, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    status = fdb_iterator_seek_to_min(it);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    status = fdb_iterator_close(it);
+    TEST_STATUS(status);
+
+    status = fdb_close(dbfile);
+    TEST_STATUS(status);
+    status = fdb_shutdown();
+    TEST_STATUS(status);
+
+    memleak_end();
+
+    TEST_RESULT("iterator seek to max test");
+}
+int main(){
     iterator_test();
     iterator_with_concurrent_updates_test();
     iterator_compact_uncommitted_db();
     iterator_seek_test();
-    for (i=0;i<=6;++i){
-        for (j=0;j<2;++j){
+    for (int i = 0; i <= 6; ++i) {
+        for (int j = 0; j < 2; ++j) {
             iterator_complete_test(i, j);
         }
     }
@@ -4153,5 +4261,7 @@ int main(){
     iterator_deleted_doc_right_before_the_end_test();
     iterator_uncommited_seeks();
     iterator_init_using_substring_test();
+    iterator_seek_to_max_key_with_deletes_test();
+    iterator_seek_to_min_key_with_deletes_test();
     return 0;
 }

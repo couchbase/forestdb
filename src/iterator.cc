@@ -677,16 +677,16 @@ fetch_hbtrie:
         if (fetch_wal) {
             treeCursor = walIterator->searchGreater_WalItr(&query);
             iterDirection = FDB_ITR_FORWARD;
-            if (treeCursor &&
-                !next_op && // only validate range if not skip max/min key mode
-                !validateRangeLimits(treeCursor->header->key,
-                                    treeCursor->header->keylen)) {
-                treeCursor = NULL;
-            }
         }
         if (treeCursor) {
             // skip deleted WAL entry
             do {
+                if (!next_op && // only validate range if not skip max/min key mode
+                    !validateRangeLimits(treeCursor->header->key,
+                                         treeCursor->header->keylen)) {
+                    treeCursor = NULL;
+                    break;
+                }
                 snap_item = treeCursor;
                 if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
                     iterOpt & FDB_ITR_NO_DELETES) || //logical delete OR
@@ -742,16 +742,16 @@ fetch_hbtrie:
         if (fetch_wal) {
             treeCursor = walIterator->searchSmaller_WalItr(&query);
             iterDirection = FDB_ITR_REVERSE;
-            if (treeCursor &&
-                !next_op && // only validate range if not skip max/min key mode
-                !validateRangeLimits(treeCursor->header->key,
-                                    treeCursor->header->keylen)) {
-                treeCursor = NULL;
-            }
         }
         if (treeCursor) {
             // skip deleted WAL entry
             do {
+                if (!next_op && // only validate range if not skip max/min key mode
+                    !validateRangeLimits(treeCursor->header->key,
+                                         treeCursor->header->keylen)) {
+                    treeCursor = NULL;
+                    break;
+                }
                 snap_item = treeCursor;
                 if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
                      iterOpt & FDB_ITR_NO_DELETES) || //logical delete OR
