@@ -3855,7 +3855,7 @@ void LatencyStats::dump(FileMgr *file, ErrLogCallback *log_callback) {
                 if (it->count()) {
                     std::stringstream ss;
                     ss << it->start() << "µs - " << it->end() << "µs";
-                    fprintf(lat_file, "%20.20s:% " _F64 " (%.2f%%)\n",
+                    fprintf(lat_file, "%20.20s:%" _F64 " (%.2f%%)\n",
                             ss.str().c_str(),
                             static_cast<uint64_t>(it->count()),
                             (100.0 * it->count() / count));
