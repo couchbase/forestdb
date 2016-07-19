@@ -230,6 +230,7 @@ private:
     bool compress_document_body;
     ErrLogCallback *log_callback;
     bid_t lastbid;
+    uint64_t lastBmpRevnum;
     void *readbuffer;
     DISALLOW_COPY_AND_ASSIGN(DocioHandle);
 };

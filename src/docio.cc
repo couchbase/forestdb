@@ -33,7 +33,8 @@ DocioHandle::DocioHandle(FileMgr *file, bool compress_doc_body,
                          ErrLogCallback *log_callback) :
    file_Docio(file), curblock(BLK_NOT_FOUND), curpos(0), cur_bmp_revnum_hash(0),
    compress_document_body(compress_doc_body),
-   log_callback(log_callback), lastbid(BLK_NOT_FOUND), readbuffer(NULL)
+   log_callback(log_callback), lastbid(BLK_NOT_FOUND),
+   lastBmpRevnum(0), readbuffer(NULL)
 {
     malloc_align(readbuffer, FDB_SECTOR_SIZE, file->getBlockSize());
 }
@@ -693,6 +694,14 @@ fdb_status DocioHandle::_readThroughBuffer_Docio(bid_t bid,
                                                    bool read_on_cache_miss)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
+
+    // if superblock's BMP revnum has been changed,
+    // then 'lastbid' should be reset as it might be reused.
+    if (lastbid != BLK_NOT_FOUND &&
+        file_Docio->getSbBmpRevnum() != lastBmpRevnum) {
+        lastbid = BLK_NOT_FOUND;
+    }
+
     // to reduce the overhead from memcpy the same block
     if (lastbid != bid) {
         status = file_Docio->read_FileMgr(bid, readbuffer,
@@ -714,6 +723,7 @@ fdb_status DocioHandle::_readThroughBuffer_Docio(bid_t bid,
             lastbid = BLK_NOT_FOUND;
         } else {
             lastbid = bid;
+            lastBmpRevnum = file_Docio->getSbBmpRevnum();
         }
     }
 
