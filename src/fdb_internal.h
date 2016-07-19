@@ -56,10 +56,6 @@ fdb_status fdb_log(ErrLogCallback *callback,
 
 fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
                                FdbKvsHandle *handle_out);
-fdb_status _fdb_open(FdbKvsHandle *handle,
-                     const char *filename,
-                     fdb_filename_mode_t filename_mode,
-                     const fdb_config *config);
 
 fdb_status _fdb_close_root(FdbKvsHandle *handle);
 fdb_status _fdb_close(FdbKvsHandle *handle);

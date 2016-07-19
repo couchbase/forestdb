@@ -231,6 +231,8 @@ const char* fdb_error_msg(fdb_status err_code)
             return "Resource temporarily unavailable";
         case FDB_RESULT_CANCELLED:
             return "Execution cancelled";
+        case FDB_RESULT_ENGINE_NOT_INSTANTIATED:
+            return "ForestDB engine not instantiated yet";
 
         default:
             return "unknown error";

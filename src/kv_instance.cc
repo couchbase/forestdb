@@ -20,6 +20,7 @@
 
 #include "libforestdb/forestdb.h"
 #include "common.h"
+#include "fdb_engine.h"
 #include "internal_types.h"
 #include "fdb_internal.h"
 #include "file_handle.h"
@@ -1272,7 +1273,7 @@ fdb_status _fdb_kvs_clone_snapshot(FdbKvsHandle *handle_in,
 //      -> this will allocate a corresponding node and
 //         insert it into fhandle->handles list.
 // 2) if matching KVS name doesn't exist, create it.
-// 3) call _fdb_open().
+// 3) call FdbEngine::openFdb.
 fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
@@ -1321,7 +1322,7 @@ fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
                            "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
         }
     }
-    fs = _fdb_open(handle, filename, FDB_AFILENAME, config);
+    fs = FdbEngine::getInstance()->openFdb(handle, filename, FDB_AFILENAME, config);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle->node) {
             root_handle->fhandle->removeKVHandle(&handle->node->le);
@@ -1336,8 +1337,8 @@ fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
 //   2-1) if no KVS handle is opened yet from this fhandle,
 //        -> return the root handle.
 //   2-2) if the root handle is already opened,
-//        -> allocate memory for handle, and call _fdb_open().
-//        -> 'handle->kvs' will be created in _fdb_open(),
+//        -> allocate memory for handle, and call FdbEngine::openFdb().
+//        -> 'handle->kvs' will be created in FdbEngine::openFdb(),
 //           since it is treated as a default handle.
 //        -> allocate a corresponding node and insert it into
 //           fhandle->handles list.
@@ -1398,7 +1399,9 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, root_handle->file->getFileName(), FDB_AFILENAME, &config);
+            fs = FdbEngine::getInstance()->openFdb(handle,
+                                                   root_handle->file->getFileName(),
+                                                   FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 delete handle;
                 *ptr_handle = NULL;
@@ -1852,8 +1855,8 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                            kvs_name,
                            handle);
     } else {
-        fs = _fdb_open(handle, handle_in->file->getFileName(),
-                       FDB_AFILENAME, &config);
+        fs = FdbEngine::getInstance()->openFdb(handle, handle_in->file->getFileName(),
+                                               FDB_AFILENAME, &config);
     }
     handle_in->file->setRollback(0); // allow mutations
 

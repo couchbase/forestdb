@@ -359,10 +359,14 @@ typedef enum {
      * (API notified through a callback).
      */
     FDB_RESULT_CANCELLED = -73,
+    /**
+     * ForestDB engine is not instantiated yet
+     */
+    FDB_RESULT_ENGINE_NOT_INSTANTIATED = -74,
 
     // Any new error codes can be added here.
 
-    FDB_RESULT_LAST = FDB_RESULT_CANCELLED // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_ENGINE_NOT_INSTANTIATED // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus
