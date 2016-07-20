@@ -978,17 +978,17 @@ fetch_hbtrie:
             iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
                                                            &query);
             iterator->direction = FDB_ITR_FORWARD;
-            if (iterator->tree_cursor &&
-                !next_op && // only validate range if not skip max/min key mode
-                !_validate_range_limits(iterator,
-                         iterator->tree_cursor->header->key,
-                         iterator->tree_cursor->header->keylen)) {
-                iterator->tree_cursor = NULL;
-            }
         }
         if (iterator->tree_cursor) {
             // skip deleted WAL entry
             do {
+                if (!next_op && // only validate range if not skip max/min key mode
+                    !_validate_range_limits(iterator,
+                                            iterator->tree_cursor->header->key,
+                                            iterator->tree_cursor->header->keylen)) {
+                    iterator->tree_cursor = NULL;
+                    break;
+                }
                 snap_item = iterator->tree_cursor;
                 if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
                     iterator->opt & FDB_ITR_NO_DELETES) || //logical delete OR
@@ -1047,17 +1047,17 @@ fetch_hbtrie:
             iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
                                                            &query);
             iterator->direction = FDB_ITR_REVERSE;
-            if (iterator->tree_cursor &&
-                !next_op && // only validate range if not skip max/min key mode
-                !_validate_range_limits(iterator,
-                         iterator->tree_cursor->header->key,
-                         iterator->tree_cursor->header->keylen)) {
-                iterator->tree_cursor = NULL;
-            }
         }
         if (iterator->tree_cursor) {
             // skip deleted WAL entry
             do {
+                if (!next_op && // only validate range if not skip max/min key mode
+                    !_validate_range_limits(iterator,
+                                            iterator->tree_cursor->header->key,
+                                            iterator->tree_cursor->header->keylen)) {
+                    iterator->tree_cursor = NULL;
+                    break;
+                }
                 snap_item = iterator->tree_cursor;
                 if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
                      iterator->opt & FDB_ITR_NO_DELETES) || //logical delete OR
