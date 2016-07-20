@@ -5160,6 +5160,8 @@ void kvs_deletion_without_commit()
     // should fail
     TEST_CHK(s != FDB_RESULT_SUCCESS);
 
+    fdb_doc_free(doc);
+
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
