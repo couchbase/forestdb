@@ -27,9 +27,15 @@
 #include "common.h"
 
 #undef THREAD_SANITIZER
+#undef ADDRESS_SANITIZER
 #if __clang__
-#   if defined(__has_feature) && __has_feature(thread_sanitizer)
-#      define THREAD_SANITIZER
+#   if defined(__has_feature)
+#       if __has_feature(thread_sanitizer)
+#           define THREAD_SANITIZER
+#       endif
+#       if __has_feature(address_sanitizer)
+#           define ADDRESS_SANITIZER
+#       endif
 #   endif
 #endif
 

@@ -5272,7 +5272,9 @@ int main(){
     auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
+#if !defined(ADDRESS_SANITIZER)
     multi_thread_client_shutdown(NULL);
+#endif
     multi_thread_kvs_client(NULL);
     operational_stats_test(false);
     operational_stats_test(true);
