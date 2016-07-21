@@ -3669,7 +3669,7 @@ void *parallel_iterator_thread(void *args)
             }
             sprintf(key, "key%05d", i);
             TEST_CMP(doc->key, key, doc->keylen);
-            TEST_CHK(doc->seqnum == i+1);
+            TEST_CHK(doc->seqnum == static_cast<uint64_t>(i+1));
             // printf("Got %s seqnum %llu\n", key, doc->seqnum);
             fdb_doc_free(doc);
             doc = NULL;
@@ -3677,14 +3677,14 @@ void *parallel_iterator_thread(void *args)
             status = fdb_iterator_get(fit2, &doc);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             TEST_CMP(doc->key, key, doc->keylen);
-            TEST_CHK(doc->seqnum == i+1);
+            TEST_CHK(doc->seqnum == static_cast<uint64_t>(i+1));
             fdb_doc_free(doc);
 
             i++;
             status = fdb_iterator_next(fit);
             TEST_CHK(status == fdb_iterator_next(fit2));
         }
-        TEST_CHK(i == snap_seqnum);
+        TEST_CHK(snap_seqnum == static_cast<uint64_t>(i));
         num_read = snap_seqnum;
 
         status = fdb_iterator_close(fit);
