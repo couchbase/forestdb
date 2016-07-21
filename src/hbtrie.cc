@@ -562,10 +562,20 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                 }
                 btree->setAux(aux);
             } else {
-                // this is offset of document (as it is)
-                // read entire key
+                // this is offset of document (as it is), read entire key
+
+                // Allocate docrawkey, dockey on the heap just for windows
+                // as stack over flow issues are sometimes seen (because of
+                // smaller process stack size).
+                // TODO: Maintaining a simple global buffer pool and reusing
+                // it would be better than allocating space for every operation.
+#if defined(WIN32) || defined(_WIN32)
                 uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
                 uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+#else
+                uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+                uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+#endif
                 uint32_t docrawkeylen, dockeylen;
                 uint64_t offset;
                 int docnchunk, diffchunkno;
@@ -597,8 +607,12 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                     // just return value
                     memcpy(valuebuf, btree_value, valuelen);
                 }
+
+#if defined(WIN32) || defined(_WIN32)
+                // Free heap memory that was allocated only for windows
                 free(docrawkey);
                 free(dockey);
+#endif
                 return result;
             }
         }
@@ -944,8 +958,18 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         memset(oldvalue_out, 0xff, valuelen);
     }
 
+    // Allocate docrawkey, dockey on the heap just for windows
+    // as stack over flow issues are sometimes seen (because of
+    // smaller process stack size).
+    // TODO: Maintaining a simple global buffer pool and reusing
+    // it would be better than allocating space for every operation.
+#if defined(WIN32) || defined(_WIN32)
     uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
     uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+#else
+    uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+    uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+#endif
 
     while (curchunkno < nchunk) {
         // get current chunk number
@@ -1011,8 +1035,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                                                btree_nodesize, chunksize, valuelen,
                                                0x0, &meta);
                 if (r != BTREE_RESULT_SUCCESS) {
+#if defined(WIN32) || defined(_WIN32)
+                    // Free heap memory that was allocated only for windows
                     free(docrawkey);
                     free(dockey);
+#endif
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1023,8 +1050,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                                   chunksize;
                 r = btreeitem_new->btree->insert(chunk_new, value);
                 if (r == BTREE_RESULT_FAIL) {
+#if defined(WIN32) || defined(_WIN32)
+                    // Free heap memory that was allocated only for windows
                     free(docrawkey);
                     free(dockey);
+#endif
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1038,8 +1068,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 valueSetMsb((void*)&_bid);
                 r = btreeitem_new->btree->insert(chunk_new, (void*)&_bid);
                 if (r == BTREE_RESULT_FAIL) {
+#if defined(WIN32) || defined(_WIN32)
+                    // Free heap memory that was allocated only for windows
                     free(docrawkey);
                     free(dockey);
+#endif
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1096,8 +1129,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                     // btreelist is cleared out within extendLeafTree when
                     // btreeCascacdedUpdate is invoked.
                     extendLeafTree(&btreelist, btreeitem, key, curchunkno * chunksize);
+#if defined(WIN32) || defined(_WIN32)
+                    // Free heap memory that was allocated only for windows
                     free(docrawkey);
                     free(dockey);
+#endif
                     return ret_result;
                 }
             } else {
@@ -1269,8 +1305,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             r = btreeitem_new->btree->init(btreeblk_handle, kv_ops, btree_nodesize,
                                            chunksize, valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
+#if defined(WIN32) || defined(_WIN32)
+                // Free heap memory that was allocated only for windows
                 free(docrawkey);
                 free(dockey);
+#endif
                 freeBtreeList(&btreelist);
                 return HBTRIE_RESULT_FAIL;
             }
@@ -1429,8 +1468,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         break;
     } // while
 
+#if defined(WIN32) || defined(_WIN32)
+    // Free heap memory that was allocated only for windows
     free(docrawkey);
     free(dockey);
+#endif
 
     // btreelist is cleaned up as part of btreeCascadedUpdate
     btreeCascadedUpdate(&btreelist, key);
