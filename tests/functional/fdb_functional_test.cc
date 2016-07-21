@@ -420,6 +420,7 @@ void config_test()
 
         fdb_file_info finfo;
         status = fdb_get_file_info(dbfile, &finfo);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         // Since V3 magic number, 9 blocks are used:
         // 4 superblocks + KV name header*2 + Stale-tree root node + DB header*2
         TEST_CHK(finfo.file_size == fconfig.blocksize * 9);
