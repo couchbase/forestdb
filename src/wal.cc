@@ -2126,7 +2126,6 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (!shandle->is_persisted_snapshot &&
         shandle->snap_tag_idx) { // the KVS did have items in WAL..
-        spin_lock(&lock);
         struct snap_handle *_shandle = shandle;
         DBG("%s Close InMem Snapshot %" _F64 " - %" _F64 " taken at %"
                 _F64 " for kv id %" _F64 " prev_snaps=%d\n",
@@ -2145,7 +2144,6 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
         // Decrement ref count on current handle so it may be removed
         fdb_assert(shandle->ref_cnt_kvs, shandle->ref_cnt_kvs, 1);
         shandle->ref_cnt_kvs--;
-        spin_unlock(&lock);
         return fs;
     } // ELSE persisted or un-shared snapshot ...
     if (!(--shandle->ref_cnt_kvs)) {
