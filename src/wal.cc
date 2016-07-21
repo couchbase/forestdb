@@ -277,6 +277,7 @@ struct snap_handle *Wal::_wal_snapshot_create(fdb_kvs_id_t kv_id,
        shandle->cmp_info = *key_cmp_info; // (key_cmp_info may be stack memory)
        avl_init(&shandle->key_tree, &shandle->cmp_info);
        avl_init(&shandle->seq_tree, NULL);
+       list_init(&shandle->active_txn_list);
        shandle->kvs_snapshots = kvs_snapshots;
        return shandle;
    }
@@ -358,7 +359,16 @@ inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
         shandle->is_persisted_snapshot = true;
     }
     shandle->global_txn = file->getGlobalTxn();
-    list_init(&shandle->active_txn_list);
+
+    // Clear out possible list items from the previous snapshot
+    // open in case of a reuse.
+    for (struct list_elem *e = list_begin(&shandle->active_txn_list); e;) {
+        struct wal_txn_wrapper *active_txn = _get_entry(e,
+                                                struct wal_txn_wrapper, le);
+        e = list_remove(&shandle->active_txn_list, e);
+        free(active_txn);
+    }
+
     ee = list_begin(&txn_list);
     while (ee) {
         struct wal_txn_wrapper *txn_wrapper;
