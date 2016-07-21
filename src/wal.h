@@ -196,6 +196,7 @@ struct wal_shard {
 
 struct wal {
     uint8_t flag;
+    atomic_uint8_t isPopulated; // Set when WAL is first populated OR restored
     atomic_uint32_t size; // total # entries in WAL (uint32_t)
     atomic_uint32_t num_flushable; // # flushable entries in WAL (uint32_t)
     atomic_uint64_t datasize; // total data size in WAL (uint64_t)
@@ -249,6 +250,7 @@ union wal_flush_items {
 
 fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
+bool wal_try_restore(struct filemgr *file);
 fdb_status wal_insert(fdb_txn *txn,
                       struct filemgr *file,
                       struct _fdb_key_cmp_info *cmp_info,
