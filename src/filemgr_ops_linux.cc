@@ -223,7 +223,7 @@ int _filemgr_aio_prep_read(fdb_fileops_handle fops_handle,
     if (!aio_handle) {
         return FDB_RESULT_INVALID_ARGS;
     }
-    io_prep_pread(aio_handle->ioq[aio_idx], aio_handle->fd,
+    io_prep_pread(aio_handle->ioq[aio_idx], handle_to_fd(aio_handle->fops_handle),
                   aio_handle->aio_buf + (aio_idx * aio_handle->block_size),
                   aio_handle->block_size,
                   (offset / aio_handle->block_size) * aio_handle->block_size);
