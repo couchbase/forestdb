@@ -50,7 +50,9 @@ struct btreeblk_block {
     uint8_t age;
     void *addr;
     struct list_elem le;
+#ifdef __BTREEBLK_READ_TREE
     struct avl_node avl;
+#endif
 #ifdef __BTREEBLK_BLOCKPOOL
     struct btreeblk_addr *addr_item;
 #endif
