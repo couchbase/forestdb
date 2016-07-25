@@ -1536,7 +1536,9 @@ void FileMgr::updateFilePointers() {
     FileMgr *new_file = getNewFile();
     if (new_file != NULL) {
         new_file->acquireSpinLock();
-        new_file->setPrevFile(getPrevFile());
+        if (new_file->getPrevFile() == this) {
+            new_file->setPrevFile(getPrevFile());
+        }
         new_file->releaseSpinLock();
     }
 }
