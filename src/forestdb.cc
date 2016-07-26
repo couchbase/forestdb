@@ -7445,10 +7445,14 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
     if (fhandle->root->config.auto_commit &&
         filemgr_get_ref_count(fhandle->root->file) == 1) {
         // auto commit mode & the last handle referring the file
-        // commit file before close
-        fs = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
+        // commit file before close only if WAL has unflushed data..
+        if (wal_get_dirty_status(fhandle->root->file) == FDB_WAL_DIRTY) {
+            // Since auto-commit ensures WAL flushed commit, if WAL is dirty
+            // then it means that there is uncommitted data present
+            fs = fdb_commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
     }
 
