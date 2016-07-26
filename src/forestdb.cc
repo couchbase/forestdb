@@ -7357,23 +7357,28 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
     }
 
     fdb_status fs;
-    if (fhandle->getRootHandle()->config.auto_commit &&
-        fhandle->getRootHandle()->file->getRefCount() == 1) {
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+    FileMgr *file = handle->file;
+    if (handle->config.auto_commit && file->getRefCount() == 1) {
         // auto commit mode & the last handle referring the file
         // commit file before close
-        fs = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
+        if (file->getWal()->getDirtyStatus_Wal() == FDB_WAL_DIRTY) {
+            // Since auto-commit ensures WAL flushed commit, if WAL is dirty
+            // then it means that there is uncommitted data present
+            fs = fdb_commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
     }
 
-    fhandle->getRootHandle()->file->fhandleRemove(fhandle);
-    fs = _fdb_close_root(fhandle->getRootHandle());
+    file->fhandleRemove(fhandle);
+    fs = _fdb_close_root(handle);
     if (fs == FDB_RESULT_SUCCESS) {
         fhandle->closeAllKVHandles();
         delete fhandle;
     } else {
-        fhandle->getRootHandle()->file->fhandleAdd(fhandle);
+        file->fhandleAdd(fhandle);
     }
     return fs;
 }

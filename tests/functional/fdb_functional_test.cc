@@ -3786,6 +3786,56 @@ void auto_commit_test()
     TEST_RESULT("auto commit test");
 }
 
+void auto_commit_space_used_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    int ntimes = 4;
+    int i;
+    char fname[32];
+
+    // remove previous func_test test files
+    int r = system(SHELL_DEL" func_test* > errorlog.txt");
+    (void)r;
+
+    fconfig = fdb_get_default_config();
+    fconfig.buffercache_size= 0;
+    fconfig.auto_commit = true;
+
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+
+    for (i = ntimes; i; --i) {
+        sprintf(fname, "./func_test1");
+        status = fdb_open(&dbfile, fname, &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open(dbfile, &db, "justonekv", &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_file_info finfo;
+        status = fdb_get_file_info(dbfile, &finfo);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // Since V3 magic number, 9 blocks are used:
+        // 4 superblocks + KV name header*2 + Stale-tree root node + DB header*2
+        TEST_CHK(finfo.file_size == fconfig.blocksize * 9);
+
+        status = fdb_close(dbfile);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("auto_commit space used on close test");
+}
+
 void last_wal_flush_header_test()
 {
     TEST_INIT();
@@ -5277,6 +5327,7 @@ int main(){
     flush_before_commit_test();
     flush_before_commit_multi_writers_test();
     auto_commit_test();
+    auto_commit_space_used_test();
     last_wal_flush_header_test();
     long_key_test();
 #if !defined(ADDRESS_SANITIZER)
