@@ -187,6 +187,11 @@
     #endif // 32-bit vs 64-bit platform check
 
     #define _ARCH_O_DIRECT (O_DIRECT)
+
+    #if defined(__arm__) || defined(__mips32__)
+    #define _ALIGN_MEM_ACCESS
+    #endif
+
     #define malloc_align(addr, align, size) \
         (addr = memalign((align), (size)))
     #define free_align(addr) free(addr)
