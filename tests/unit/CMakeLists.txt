@@ -157,6 +157,7 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/hbtrie.cc
                ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/memory_pool.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc

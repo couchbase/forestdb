@@ -739,6 +739,9 @@ fdb_status fdb_init(fdb_config *config)
         // Initialize breakpad
         _dbg_handle_crashes(config->breakpad_minidump_dir);
 
+        // Initialize HBtrie's memory pool
+        HBTrie::initMemoryPool(get_num_cores(), _config.buffercache_size);
+
         fdb_initialized = 1;
     }
     spin_unlock(&initial_lock);
@@ -8050,6 +8053,10 @@ fdb_status fdb_shutdown()
 #endif
             _dbg_destroy_altstack();
             fdb_initialized = 0;
+
+            // Shutdown HBtrie's memory pool
+            HBTrie::shutdownMemoryPool();
+
             spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
             spin_destroy(&initial_lock);

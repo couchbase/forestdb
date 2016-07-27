@@ -21,6 +21,7 @@
 #include "common.h"
 #include "btree.h"
 #include "list.h"
+#include "memory_pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -208,7 +209,40 @@ public:
      */
     size_t readKey(uint64_t offset, void *buf);
 
+    /**
+     * Initializes a global memory pool whose reusable memory bins
+     * will be used to temporarily store raw keys.
+     */
+    static void initMemoryPool(size_t num_cores, uint64_t buffercache_size);
+
+    /**
+     * Deallocates all the memory from the pool.
+     */
+    static void shutdownMemoryPool();
+
+    /**
+     * Assigns a preallocated fixed size memory bin to the buffer.
+     * If in the case of no available memory bins, memory is allocated
+     * for the buffer on the stack, and on the heap just for windows as
+     * stack overflow issues are sometimes seen (due to smaller stack
+     * size).
+     *
+     * Returns the index of the memory bin assigned (used for deallocation),
+     * if in case memory was allocated, index will be -1.
+     */
+    static const int allocateBuffer(uint8_t **buf);
+
+    /**
+     * Returns the bin at the specific index to the memory pool in case of
+     * a non-negative index. If index is negative (-1), the memory is
+     * freed (only for windows).
+     */
+    static void deallocateBuffer(uint8_t **buf, int index);
+
 private:
+    // Memory Pool
+    static MemoryPool* hbtrieMP;
+
     typedef enum {
         HBMETA_NORMAL,
         HBMETA_LEAF,

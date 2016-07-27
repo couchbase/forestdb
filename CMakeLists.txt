@@ -220,6 +220,7 @@ SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/kvs_handle.cc
     ${PROJECT_SOURCE_DIR}/src/kv_instance.cc
     ${PROJECT_SOURCE_DIR}/src/list.cc
+    ${PROJECT_SOURCE_DIR}/src/memory_pool.cc
     ${PROJECT_SOURCE_DIR}/src/staleblock.cc
     ${PROJECT_SOURCE_DIR}/src/superblock.cc
     ${PROJECT_SOURCE_DIR}/src/transaction.cc

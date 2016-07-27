@@ -76,6 +76,10 @@ struct btreeit_item {
 
 #define HBTRIE_PARTIAL_UPDATE (0x1)
 
+#define HBTRIE_MEMPOOL_MIN_BINS 4
+
+MemoryPool* HBTrie::hbtrieMP(nullptr);
+
 int HBTrie::reformKey(void *rawkey, int rawkeylen, void *keyout)
 {
     int outkeylen;
@@ -564,18 +568,9 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
             } else {
                 // this is offset of document (as it is), read entire key
 
-                // Allocate docrawkey, dockey on the heap just for windows
-                // as stack over flow issues are sometimes seen (because of
-                // smaller process stack size).
-                // TODO: Maintaining a simple global buffer pool and reusing
-                // it would be better than allocating space for every operation.
-#if defined(WIN32) || defined(_WIN32)
-                uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
-                uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
-#else
-                uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-                uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-#endif
+                uint8_t *docrawkey = nullptr, *dockey = nullptr;
+                const int rawkey_buffer_index = allocateBuffer(&docrawkey);
+                const int key_buffer_index = allocateBuffer(&dockey);
                 uint32_t docrawkeylen, dockeylen;
                 uint64_t offset;
                 int docnchunk, diffchunkno;
@@ -608,11 +603,9 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                     memcpy(valuebuf, btree_value, valuelen);
                 }
 
-#if defined(WIN32) || defined(_WIN32)
-                // Free heap memory that was allocated only for windows
-                free(docrawkey);
-                free(dockey);
-#endif
+                deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                deallocateBuffer(&dockey, key_buffer_index);
+
                 return result;
             }
         }
@@ -958,18 +951,9 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         memset(oldvalue_out, 0xff, valuelen);
     }
 
-    // Allocate docrawkey, dockey on the heap just for windows
-    // as stack over flow issues are sometimes seen (because of
-    // smaller process stack size).
-    // TODO: Maintaining a simple global buffer pool and reusing
-    // it would be better than allocating space for every operation.
-#if defined(WIN32) || defined(_WIN32)
-    uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
-    uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
-#else
-    uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-    uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-#endif
+    uint8_t *docrawkey = nullptr, *dockey = nullptr;
+    const int rawkey_buffer_index = allocateBuffer(&docrawkey);
+    const int key_buffer_index = allocateBuffer(&dockey);
 
     while (curchunkno < nchunk) {
         // get current chunk number
@@ -1035,11 +1019,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                                                btree_nodesize, chunksize, valuelen,
                                                0x0, &meta);
                 if (r != BTREE_RESULT_SUCCESS) {
-#if defined(WIN32) || defined(_WIN32)
-                    // Free heap memory that was allocated only for windows
-                    free(docrawkey);
-                    free(dockey);
-#endif
+                    deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                    deallocateBuffer(&dockey, key_buffer_index);
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1050,11 +1031,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                                   chunksize;
                 r = btreeitem_new->btree->insert(chunk_new, value);
                 if (r == BTREE_RESULT_FAIL) {
-#if defined(WIN32) || defined(_WIN32)
-                    // Free heap memory that was allocated only for windows
-                    free(docrawkey);
-                    free(dockey);
-#endif
+                    deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                    deallocateBuffer(&dockey, key_buffer_index);
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1068,11 +1046,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 valueSetMsb((void*)&_bid);
                 r = btreeitem_new->btree->insert(chunk_new, (void*)&_bid);
                 if (r == BTREE_RESULT_FAIL) {
-#if defined(WIN32) || defined(_WIN32)
-                    // Free heap memory that was allocated only for windows
-                    free(docrawkey);
-                    free(dockey);
-#endif
+                    deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                    deallocateBuffer(&dockey, key_buffer_index);
                     freeBtreeList(&btreelist);
                     return HBTRIE_RESULT_FAIL;
                 }
@@ -1129,11 +1104,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                     // btreelist is cleared out within extendLeafTree when
                     // btreeCascacdedUpdate is invoked.
                     extendLeafTree(&btreelist, btreeitem, key, curchunkno * chunksize);
-#if defined(WIN32) || defined(_WIN32)
-                    // Free heap memory that was allocated only for windows
-                    free(docrawkey);
-                    free(dockey);
-#endif
+                    deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                    deallocateBuffer(&dockey, key_buffer_index);
                     return ret_result;
                 }
             } else {
@@ -1305,11 +1277,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             r = btreeitem_new->btree->init(btreeblk_handle, kv_ops, btree_nodesize,
                                            chunksize, valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
-#if defined(WIN32) || defined(_WIN32)
-                // Free heap memory that was allocated only for windows
-                free(docrawkey);
-                free(dockey);
-#endif
+                deallocateBuffer(&docrawkey, rawkey_buffer_index);
+                deallocateBuffer(&dockey, key_buffer_index);
                 freeBtreeList(&btreelist);
                 return HBTRIE_RESULT_FAIL;
             }
@@ -1468,11 +1437,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         break;
     } // while
 
-#if defined(WIN32) || defined(_WIN32)
-    // Free heap memory that was allocated only for windows
-    free(docrawkey);
-    free(dockey);
-#endif
+    deallocateBuffer(&docrawkey, rawkey_buffer_index);
+    deallocateBuffer(&dockey, key_buffer_index);
 
     // btreelist is cleaned up as part of btreeCascadedUpdate
     btreeCascadedUpdate(&btreelist, key);
@@ -1497,6 +1463,60 @@ size_t HBTrie::readKey(uint64_t offset, void *buf)
     return readkey(doc_handle, offset, buf);
 }
 
+void HBTrie::initMemoryPool(size_t num_cores, uint64_t buffercache_size)
+{
+    /**
+     * Allocate number of bins in the memory pool based on the
+     * number of cores on the machine, and the buffer cache
+     * size:
+     *  - 2x the number of cores if buffer cache is default or greater
+     *  - 75% the number of cores if buffer cache is less than default
+     *    with a minimum number of 4.
+     *
+     * For example:
+     * (1) with a 40 core machine, default buffer cache
+     *      Number of bins: 2 * 40 = 30
+     *      Memory consumption: 80 * 65536 / (1024 * 1024) = 5MB
+     * (2) with a 4 core machine, buffer cache less than default
+     *      Number of bins: std::max(HBTRIE_MEMPOOL_MIN_BINS,
+     *                               0.75 * 4) = 4
+     *      Memory consumption: 4 * 65536 / (1024 * 1024) = 0.25MB
+     */
+    int num_bins = 0;
+    if (buffercache_size >= 134217728 /*default:128MB*/) {
+        num_bins = static_cast<int>(2 * num_cores);
+    } else {
+        num_bins = std::max(HBTRIE_MEMPOOL_MIN_BINS,
+                            static_cast<int>(0.75 * num_cores));
+    }
+    hbtrieMP = new MemoryPool(num_bins, HBTRIE_MAX_KEYLEN);
+}
+
+void HBTrie::shutdownMemoryPool()
+{
+    if (hbtrieMP) {
+        delete hbtrieMP;
+    }
+}
+
+const int HBTrie::allocateBuffer(uint8_t **buf) {
+    if (hbtrieMP) {
+        int index = hbtrieMP->fetchBlock(buf);
+        if (index >= 0) {
+            return index;
+        }
+    }
+    *buf = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+    return -1;
+}
+
+void HBTrie::deallocateBuffer(uint8_t **buf, int index) {
+    if (hbtrieMP && index >= 0) {
+        hbtrieMP->returnBlock(index);
+    } else {
+        free(*buf);
+    }
+}
 
 HBTrieIterator::HBTrieIterator() :
     trie(), curkey(NULL), keylen(0), flags(0)
