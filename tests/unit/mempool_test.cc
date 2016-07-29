@@ -44,19 +44,27 @@ struct worker_args{
     StatAggregator *sa;
 };
 
+inline uint64_t xorshiftstar(uint64_t *seed) {
+    *seed ^= *seed >> 12;
+    *seed ^= *seed << 25;
+    *seed ^= *seed >> 27;
+    return *seed * 2685821657736338717;
+}
+
 void *basic_tester(void *args_)
 {
     TEST_INIT();
     struct worker_args *args = (struct worker_args *)args_;
     size_t bin_size = args->bin_size;
     for (int i = args->num_runs; i; --i) {
-        uint8_t *buf;
+        uint64_t seed = 7;
+        volatile uint8_t *buf;
         ts_nsec start = get_monotonic_ts();
-        const int idx = args->mp->fetchBlock(&buf);
+        const int idx = args->mp->fetchBlock(const_cast<uint8_t**>(&buf));
         ts_nsec end = get_monotonic_ts();
         TEST_CHK(idx != -1);
-        for (int j = 100; j; --j) {
-            buf[rand() % (bin_size - 1)] = 'X';
+        for (int j = 0; j < 100; j++) {
+            buf[xorshiftstar(&seed) % args->bin_size] = 'X';
         }
         collect_stat(args->sa, (end - start));
         args->mp->returnBlock(idx);
@@ -149,7 +157,7 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
 
 int main()
 {
-    basic_test(10000, 8, 10485760); //1000 runs of 8 x 10MB buffers
-    multi_thread_test(8, 10000, 8, 10485760); // repeat with 8 threads
+    basic_test(1000000, 8, 1024 * 1024); //1000000 runs of 8 x 1MB buffers
+    multi_thread_test(8, 1000000, 8, 1024 * 1024); // repeat with 8 threads
     return 0;
 }
