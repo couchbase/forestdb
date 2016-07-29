@@ -17,49 +17,46 @@
 
 #include <memory_pool.h>
 
-MemoryPool::MemoryPool(int num_bins, size_t bin_size) {
+MemoryPool::MemoryPool(int num_bins, size_t bin_size) :
+    numBins(num_bins), binSize(bin_size), memPool(num_bins * bin_size) {
     spin_init(&lock);
-    for (int i = 0; i < num_bins; ++i) {
-        memPool.push_back((uint8_t *) malloc(bin_size));
-        enQueue(i);
+    for (int i = num_bins - 1; i >= 0; --i) {
+          push(i);
     }
 }
 
 MemoryPool::~MemoryPool() {
     spin_destroy(&lock);
-    for (auto &it : memPool) {
-        free(it);
-    }
 }
 
 const int MemoryPool::fetchBlock(uint8_t **buf) {
-    int ret = deQueue();
-    if (ret == -1) {
+    const int ret = pop();
+    if (ret < 0) {
         *buf = nullptr;
     } else {
-        *buf = memPool.at(ret);
+        *buf = &memPool.data()[ret * binSize];
     }
     return ret;
 }
 
 void MemoryPool::returnBlock(int index) {
-    if (index >= 0 && index < static_cast<int>(memPool.size())) {
-        enQueue(index);
+    if (index >= 0 && index < numBins) {
+        push(index);
     }
 }
 
-inline void MemoryPool::enQueue(int index) {
+inline void MemoryPool::push(int index) {
     spin_lock(&lock);
-    indexQ.push(index);
+    indexes.push(index);
     spin_unlock(&lock);
 }
 
-inline int MemoryPool::deQueue() {
+inline int MemoryPool::pop() {
     int data = -1;
     spin_lock(&lock);
-    if (indexQ.size()) {
-        data = indexQ.front();
-        indexQ.pop();
+    if (indexes.size()) {
+        data = indexes.top();
+        indexes.pop();
     }
     spin_unlock(&lock);
     return data;
