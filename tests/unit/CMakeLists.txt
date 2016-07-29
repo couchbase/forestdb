@@ -10,6 +10,20 @@ add_executable(hash_test
 target_link_libraries(hash_test ${PTHREAD_LIB} ${LIBM} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT})
 
+add_executable(mempool_test
+               mempool_test.cc
+               ${ROOT_SRC}/memory_pool.cc
+               ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
+               ${GETTIMEOFDAY_VS}
+               ${ROOT_UTILS}/time_utils.cc)
+
+target_link_libraries(mempool_test ${PTHREAD_LIB} ${LIBM}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(mempool_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
+
 add_executable(bcache_test
                bcache_test.cc
                ${ROOT_SRC}/avltree.cc
@@ -183,6 +197,7 @@ target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
 
 # add test target
 add_test(hash_test hash_test)
+add_test(mempool_test mempool_test)
 add_test(bcache_test bcache_test)
 add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
