@@ -1112,8 +1112,10 @@ fdb_status fdb_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         handle_in->file->setSeqnum(seqnum);
         handle_in->file->mutexUnlock();
 
-        fs = _fdb_commit(handle, FDB_COMMIT_MANUAL_WAL_FLUSH,
-                !(handle_in->config.durability_opt & FDB_DRB_ASYNC));
+        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(handle,
+                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
+                                                          sync);
         if (fs == FDB_RESULT_SUCCESS) {
             if (handle_in->txn) {
                 handle->txn = handle_in->txn;
@@ -1257,8 +1259,9 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
         file->setSeqnum(handle->seqnum);
         file->mutexUnlock();
 
-        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL,
-                         !(handle->config.durability_opt & FDB_DRB_ASYNC));
+        bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, FDB_COMMIT_NORMAL,
+                                                          sync);
         if (fs == FDB_RESULT_SUCCESS) {
             _fdb_close(super_handle);
             *super_handle = *handle;
@@ -2108,357 +2111,47 @@ static void _fdb_release_dirty_root(FdbKvsHandle *handle)
     }
 }
 
-fdb_status _fdb_get(FdbKvsHandle *handle, fdb_doc *doc,
-                    bool metaOnly)
-{
-    uint64_t offset;
-    struct docio_object _doc;
-    DocioHandle *dhandle;
-    FileMgr *wal_file = NULL;
-    struct _fdb_key_cmp_info cmp_info;
-    fdb_status wr;
-    hbtrie_result hr = HBTRIE_RESULT_FAIL;
-    fdb_txn *txn;
-    fdb_doc doc_kv;
-    LATENCY_STAT_START();
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    if (!doc || !doc->key ||
-        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        (handle->kvs_config.custom_cmp &&
-            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    doc_kv = *doc;
-
-    if (handle->kvs) {
-        // multi KV instance mode
-        int size_chunk = handle->config.chunksize;
-        doc_kv.keylen = doc->keylen + size_chunk;
-        doc_kv.key = alca(uint8_t, doc_kv.keylen);
-        kvid2buf(size_chunk, handle->kvs->getKvsId(), doc_kv.key);
-        memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
-    }
-
-    if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
-
-        txn = handle->fhandle->getRootHandle()->txn;
-        if (!txn) {
-            txn = handle->file->getGlobalTxn();
-        }
-    } else {
-        txn = handle->shandle->snap_txn;
-    }
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-    wal_file = handle->file;
-    dhandle = handle->dhandle;
-
-    if (handle->kvs) {
-        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, &doc_kv,
-                                     &offset);
-    } else {
-        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc,
-                                     &offset);
-    }
-
-    if (!handle->shandle) {
-        fdb_sync_db_header(handle);
-    }
-
-    handle->op_stats->num_gets++;
-
-    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        _fdb_sync_dirty_root(handle);
-
-        if (handle->kvs) {
-            hr = handle->trie->find(doc_kv.key, doc_kv.keylen, (void *)&offset);
-        } else {
-            hr = handle->trie->find(doc->key, doc->keylen, (void *)&offset);
-        }
-        handle->bhandle->flushBuffer();
-        offset = _endian_decode(offset);
-
-        _fdb_release_dirty_root(handle);
-    }
-
-    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-        hr == HBTRIE_RESULT_SUCCESS) {
-
-        bool alloced_meta = doc->meta ? false : true;
-        bool alloced_body = (metaOnly || doc->body) ? false : true;
-
-        if (handle->kvs) {
-            _doc.key = doc_kv.key;
-            _doc.length.keylen = doc_kv.keylen;
-            if (!metaOnly) {
-                doc->deleted = doc_kv.deleted; // update deleted field if wal_find
-            }
-        } else {
-            _doc.key = doc->key;
-            _doc.length.keylen = doc->keylen;
-        }
-
-        _doc.meta = doc->meta;
-        _doc.body = doc->body;
-
-        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        int64_t _offset = 0;
-        if (metaOnly) {
-            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
-        } else {
-            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
-        }
-
-        if (_offset <= 0) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if ((_doc.length.keylen != doc_kv.keylen) ||
-            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
-            free_docio_object(&_doc, false, alloced_meta, alloced_body);
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        doc->seqnum = _doc.seqnum;
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
-        doc->deleted = _doc.length.flag & DOCIO_DELETED;
-        doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = offset;
-
-        LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_SUCCESS;
-    }
-
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_KEY_NOT_FOUND;
-}
-
 LIBFDB_API
 fdb_status fdb_get(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    return _fdb_get(handle, doc, /*metaOnly*/false);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->get(handle, doc, /*metaOnly*/false);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 // search document metadata using key
 LIBFDB_API
 fdb_status fdb_get_metaonly(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    return _fdb_get(handle, doc, /*metaOnly*/true);
-}
-
-fdb_status _fdb_get_byseq(FdbKvsHandle *handle,
-                          fdb_doc *doc,
-                          bool metaOnly)
-{
-    uint64_t offset;
-    struct docio_object _doc;
-    DocioHandle *dhandle;
-    FileMgr *wal_file = NULL;
-    fdb_status wr;
-    btree_result br = BTREE_RESULT_FAIL;
-    fdb_seqnum_t _seqnum;
-    fdb_txn *txn;
-    struct _fdb_key_cmp_info cmp_info;
-    LATENCY_STAT_START();
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->get(handle, doc, /*metaOnly*/true);
     }
-
-    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    // Sequence trees are a must for byseq operations
-    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
-
-        txn = handle->fhandle->getRootHandle()->txn;
-        if (!txn) {
-            txn = handle->file->getGlobalTxn();
-        }
-    } else {
-        txn = handle->shandle->snap_txn;
-    }
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-    wal_file = handle->file;
-    dhandle = handle->dhandle;
-
-    // prevent searching by key in WAL if 'doc' is not empty
-    size_t key_len = doc->keylen;
-    doc->keylen = 0;
-    if (handle->kvs) {
-        wr = wal_file->getWal()->findWithKvid_Wal(txn, handle->kvs->getKvsId(),
-                                             &cmp_info,
-                                             handle->shandle, doc, &offset);
-    } else {
-        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc, &offset);
-    }
-
-    doc->keylen = key_len;
-    if (!handle->shandle) {
-        fdb_sync_db_header(handle);
-    }
-
-    handle->op_stats->num_gets++;
-
-    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        _fdb_sync_dirty_root(handle);
-
-        _seqnum = _endian_encode(doc->seqnum);
-        if (handle->kvs) {
-            int size_id, size_seq;
-            uint8_t *kv_seqnum;
-            hbtrie_result hr;
-            fdb_kvs_id_t _kv_id;
-
-            _kv_id = _endian_encode(handle->kvs->getKvsId());
-            size_id = sizeof(fdb_kvs_id_t);
-            size_seq = sizeof(fdb_seqnum_t);
-            kv_seqnum = alca(uint8_t, size_id + size_seq);
-            memcpy(kv_seqnum, &_kv_id, size_id);
-            memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
-            hr = handle->seqtrie->find((void *)kv_seqnum, size_id + size_seq,
-                                       (void *)&offset);
-            br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
-        } else {
-            br = handle->seqtree->find((void *)&_seqnum, (void *)&offset);
-        }
-        handle->bhandle->flushBuffer();
-        offset = _endian_decode(offset);
-
-        _fdb_release_dirty_root(handle);
-    }
-
-    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         br != BTREE_RESULT_FAIL) {
-        bool alloc_key, alloc_meta, alloc_body;
-        if (!handle->kvs) { // single KVS mode
-            _doc.key = doc->key;
-            _doc.length.keylen = doc->keylen;
-            alloc_key = doc->key ? false : true;
-        } else {
-            _doc.key = NULL;
-            alloc_key = true;
-        }
-        alloc_meta = doc->meta ? false : true;
-        _doc.meta = doc->meta;
-        alloc_body = (metaOnly || doc->body) ? false : true;
-        _doc.body = doc->body;
-
-        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        int64_t _offset = 0;
-        if (metaOnly) {
-            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
-        } else {
-            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
-        }
-
-        if (_offset <= 0) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if ((metaOnly && doc->seqnum != _doc.seqnum) ||
-            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        doc->seqnum = _doc.seqnum;
-
-        if (handle->kvs) {
-            int size_chunk = handle->config.chunksize;
-            doc->keylen = _doc.length.keylen - size_chunk;
-            if (doc->key) { // doc->key is given by user
-                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
-                free_docio_object(&_doc, true, false, false);
-            } else {
-                doc->key = _doc.key;
-                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
-            }
-        } else {
-            doc->keylen = _doc.length.keylen;
-            doc->key = _doc.key;
-        }
-
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
-        doc->deleted = _doc.length.flag & DOCIO_DELETED;
-        doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = offset;
-
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
-        return FDB_RESULT_SUCCESS;
-    }
-
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_KEY_NOT_FOUND;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 // search document using sequence number
 LIBFDB_API
 fdb_status fdb_get_byseq(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    return _fdb_get_byseq(handle, doc, /*metaOnly*/false);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getBySeq(handle, doc, /*metaOnly*/false);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 // search document metadata using sequence number
 LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    return _fdb_get_byseq(handle, doc, /*metaOnly*/true);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getBySeq(handle, doc, /*metaOnly*/true);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
@@ -2496,92 +2189,11 @@ INLINE void _remove_kv_id(FdbKvsHandle *handle, struct docio_object *doc)
 LIBFDB_API
 fdb_status fdb_get_byoffset(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getByOffset(handle, doc);
     }
-
-    if (!doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint64_t offset = doc->offset;
-    struct docio_object _doc;
-
-    if (!offset || offset == BLK_NOT_FOUND) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    handle->op_stats->num_gets++;
-    memset(&_doc, 0, sizeof(struct docio_object));
-
-    int64_t _offset = handle->dhandle->readDoc_Docio(offset, &_doc, true);
-    if (_offset <= 0 || !_doc.key || (_doc.length.flag & DOCIO_TXN_COMMITTED)) {
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
-    } else {
-        if (handle->kvs) {
-            fdb_kvs_id_t kv_id;
-            buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
-            if (kv_id != handle->kvs->getKvsId()) {
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
-                free_docio_object(&_doc, true, true, true);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            _remove_kv_id(handle, &_doc);
-        }
-        if (!equal_docs(doc, &_doc)) {
-            free_docio_object(&_doc, true, true, true);
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-    }
-
-    doc->seqnum = _doc.seqnum;
-    doc->keylen = _doc.length.keylen;
-    doc->metalen = _doc.length.metalen;
-    doc->bodylen = _doc.length.bodylen;
-    if (doc->key) {
-        free(_doc.key);
-    } else {
-        doc->key = _doc.key;
-    }
-    if (doc->meta) {
-        free(_doc.meta);
-    } else {
-        doc->meta = _doc.meta;
-    }
-    if (doc->body) {
-        if (_doc.length.bodylen > 0) {
-            memcpy(doc->body, _doc.body, _doc.length.bodylen);
-        }
-        free(_doc.body);
-    } else {
-        doc->body = _doc.body;
-    }
-    doc->deleted = _doc.length.flag & DOCIO_DELETED;
-    doc->size_ondisk = _fdb_get_docsize(_doc.length);
-    if (handle->kvs) {
-        // Since _doc.length was adjusted in _remove_kv_id(),
-        // we need to compensate it.
-        doc->size_ondisk += handle->config.chunksize;
-    }
-
-    cond = 1;
-    if (_doc.length.flag & DOCIO_DELETED) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_KEY_NOT_FOUND;
-    }
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 INLINE uint64_t _fdb_get_wal_threshold(FdbKvsHandle *handle)
@@ -2592,308 +2204,21 @@ INLINE uint64_t _fdb_get_wal_threshold(FdbKvsHandle *handle)
 LIBFDB_API
 fdb_status fdb_set(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->set(handle, doc);
     }
-
-    uint64_t offset;
-    struct docio_object _doc;
-    FileMgr *file;
-    DocioHandle *dhandle;
-    struct timeval tv;
-    bool txn_enabled = false;
-    bool sub_handle = false;
-    bool wal_flushed = false;
-    bool immediate_remove = false;
-    file_status_t fMgrStatus;
-    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
-    struct _fdb_key_cmp_info cmp_info;
-    fdb_status wr = FDB_RESULT_SUCCESS;
-    LATENCY_STAT_START();
-
-    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: SET is not allowed on the read-only DB file '%s'.",
-                       handle->file->getFileName());
-    }
-
-    if (!doc || doc->key == NULL ||
-        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        (doc->metalen > 0 && doc->meta == NULL) ||
-        (doc->bodylen > 0 && doc->body == NULL) ||
-        (handle->kvs_config.custom_cmp &&
-            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    _doc.length.keylen = doc->keylen;
-    _doc.length.metalen = doc->metalen;
-    _doc.length.bodylen = doc->deleted ? 0 : doc->bodylen;
-    _doc.key = doc->key;
-    _doc.meta = doc->meta;
-    _doc.body = doc->deleted ? NULL : doc->body;
-
-    if (handle->kvs) {
-        // multi KV instance mode
-        // allocate more (temporary) space for key, to store ID number
-        int size_chunk = handle->config.chunksize;
-        _doc.length.keylen = doc->keylen + size_chunk;
-        _doc.key = alca(uint8_t, _doc.length.keylen);
-        // copy ID
-        kvid2buf(size_chunk, handle->kvs->getKvsId(), _doc.key);
-        // copy key
-        memcpy((uint8_t*)_doc.key + size_chunk, doc->key, doc->keylen);
-
-        if (handle->kvs->getKvsType() == KVS_SUB) {
-            sub_handle = true;
-        } else {
-            sub_handle = false;
-        }
-    }
-
-fdb_set_start:
-    fdb_check_file_reopen(handle, NULL);
-
-    size_t throttling_delay = handle->file->getThrottlingDelay();
-    if (throttling_delay) {
-        usleep(throttling_delay);
-    }
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    handle->file->mutexLock();
-    fdb_sync_db_header(handle);
-
-    if (handle->file->isRollbackOn()) {
-        handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
-
-    file = handle->file;
-    dhandle = handle->dhandle;
-
-    fMgrStatus = file->getFileStatus();
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        // we must not write into this file
-        // file status was changed by other thread .. start over
-        file->mutexUnlock();
-        goto fdb_set_start;
-    }
-
-    if (sub_handle) {
-        // multiple KV instance mode AND sub handle
-        fdb_seqnum_t kv_seqnum = fdb_kvs_get_seqnum(file,
-                                                    handle->kvs->getKvsId());
-        if (doc->seqnum != SEQNUM_NOT_USED &&
-            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
-            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
-                handle->seqnum = doc->seqnum;
-                fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(),
-                                   handle->seqnum);
-            }
-            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
-        } else { // normal monotonically increasing sequence numbers..
-            doc->seqnum = ++kv_seqnum;
-            handle->seqnum = doc->seqnum; // keep handle's seqnum the highest
-            fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(), handle->seqnum);
-        }
-    } else {
-        fdb_seqnum_t kv_seqnum = file->getSeqnum();
-        // super handle OR single KV instance mode
-        if (doc->seqnum != SEQNUM_NOT_USED &&
-            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
-            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
-                handle->seqnum = doc->seqnum;
-                file->setSeqnum(handle->seqnum);
-            }
-            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
-        } else { // normal monotonically increasing sequence numbers..
-            doc->seqnum = ++kv_seqnum;
-            handle->seqnum = doc->seqnum;
-            file->setSeqnum(handle->seqnum);
-        }
-    }
-    _doc.seqnum = doc->seqnum;
-
-    if (doc->deleted) {
-        // set timestamp
-        gettimeofday(&tv, NULL);
-        _doc.timestamp = (timestamp_t)tv.tv_sec;
-    } else {
-        _doc.timestamp = 0;
-    }
-
-    if (txn) {
-        txn_enabled = true;
-    }
-
-    offset = dhandle->appendDoc_Docio(&_doc, doc->deleted, txn_enabled);
-    if (offset == BLK_NOT_FOUND) {
-        file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_WRITE_FAIL;
-    }
-
-    if (doc->deleted && !handle->config.purging_interval) {
-        // immediately remove from hbtrie upon WAL flush
-        immediate_remove = true;
-    }
-
-    doc->size_ondisk = _fdb_get_docsize(_doc.length);
-    doc->offset = offset;
-    if (!txn) {
-        txn = file->getGlobalTxn();
-    }
-    if (handle->kvs) {
-        // multi KV instance mode
-        fdb_doc kv_ins_doc = *doc;
-        kv_ins_doc.key = _doc.key;
-        kv_ins_doc.keylen = _doc.length.keylen;
-        if (!immediate_remove) {
-            file->getWal()->insert_Wal(txn, &cmp_info, &kv_ins_doc, offset,
-                       WAL_INS_WRITER);
-        } else {
-            file->getWal()->immediateRemove_Wal(txn, &cmp_info, &kv_ins_doc, offset,
-                                 WAL_INS_WRITER);
-        }
-    } else {
-        if (!immediate_remove) {
-            file->getWal()->insert_Wal(txn, &cmp_info, doc, offset, WAL_INS_WRITER);
-        } else {
-            file->getWal()->immediateRemove_Wal(txn, &cmp_info, doc, offset,
-                                           WAL_INS_WRITER);
-        }
-    }
-
-    if (file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
-        file->getWal()->setDirtyStatus_Wal(FDB_WAL_DIRTY);
-    }
-
-    if (handle->config.auto_commit &&
-        file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
-        // we don't need dirty WAL flushing in auto commit mode
-        // (_fdb_commit() is internally called at the end of this function)
-        wal_flushed = true;
-
-    } else if (handle->config.wal_flush_before_commit) {
-
-        bid_t dirty_idtree_root = BLK_NOT_FOUND;
-        bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-
-        if (!txn_enabled) {
-            handle->dirty_updates = 1;
-        }
-
-        if (file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
-            union wal_flush_items flush_items;
-
-            // commit only for non-transactional WAL entries
-            wr = file->getWal()->commit_Wal(file->getGlobalTxn(), NULL,
-                                            &handle->log_callback);
-            if (wr != FDB_RESULT_SUCCESS) {
-                file->mutexUnlock();
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
-                return wr;
-            }
-
-            struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
-
-            _fdb_dirty_update_ready(handle, &prev_node, &new_node,
-                                    &dirty_idtree_root, &dirty_seqtree_root, true);
-
-            wr = file->getWal()->flush_Wal((void *)handle,
-                                      _fdb_wal_flush_func,
-                                      _fdb_wal_get_old_offset,
-                                      _fdb_wal_flush_seq_purge,
-                                      _fdb_wal_flush_kvs_delta_stats,
-                                      &flush_items);
-
-            if (wr != FDB_RESULT_SUCCESS) {
-                handle->bhandle->clearDirtyUpdate();
-                FileMgr::dirtyUpdateCloseNode(prev_node);
-                handle->file->dirtyUpdateRemoveNode(new_node);
-                file->mutexUnlock();
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
-                return wr;
-            }
-
-            _fdb_dirty_update_finalize(handle, prev_node, new_node,
-                                       &dirty_idtree_root, &dirty_seqtree_root, false);
-
-            file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-            // it is ok to release flushed items becuase
-            // these items are not actually committed yet.
-            // they become visible after fdb_commit is invoked.
-            file->getWal()->releaseFlushedItems_Wal(&flush_items);
-
-            wal_flushed = true;
-            handle->bhandle->resetSubblockInfo();
-        }
-    }
-
-    file->mutexUnlock();
-
-    LATENCY_STAT_END(file, FDB_LATENCY_SETS);
-
-    if (!doc->deleted) {
-        handle->op_stats->num_sets++;
-    }
-
-    cond = 1;
-    if (wal_flushed && handle->config.auto_commit) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return _fdb_commit(handle->fhandle->getRootHandle(), FDB_COMMIT_NORMAL,
-                           false); // asynchronous commit only
-    }
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_del(FdbKvsHandle *handle, fdb_doc *doc)
 {
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->del(handle, doc);
     }
-
-    if (!doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: DEL is not allowed on the read-only DB file '%s'.",
-                       handle->file->getFileName());
-    }
-
-    if (doc->key == NULL || doc->keylen == 0 ||
-        doc->keylen > FDB_MAX_KEYLEN ||
-        (handle->kvs_config.custom_cmp &&
-            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    doc->deleted = true;
-    fdb_doc _doc;
-    _doc = *doc;
-    _doc.bodylen = 0;
-    _doc.body = NULL;
-
-    handle->op_stats->num_dels++;
-
-    return fdb_set(handle, &_doc);
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 static uint64_t _fdb_export_header_flags(FdbKvsHandle *handle)
@@ -3123,256 +2448,11 @@ static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 LIBFDB_API
 fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->commit(fhandle, opt);
     }
-
-    return _fdb_commit(fhandle->getRootHandle(), opt,
-                       !(fhandle->getRootHandle()->config.durability_opt & FDB_DRB_ASYNC));
-}
-
-fdb_status _fdb_commit(FdbKvsHandle *handle,
-                       fdb_commit_opt_t opt,
-                       bool sync)
-{
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    uint64_t cur_bmp_revnum;
-    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
-    fdb_txn *earliest_txn;
-    file_status_t fMgrStatus;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    bool wal_flushed = false;
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-    union wal_flush_items flush_items;
-    fdb_status wr = FDB_RESULT_SUCCESS;
-    LATENCY_STAT_START();
-
-    if (handle->kvs) {
-        if (handle->kvs->getKvsType() == KVS_SUB) {
-            // deny commit on sub handle
-            return FDB_RESULT_INVALID_HANDLE;
-        }
-    }
-    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: Commit is not allowed on the read-only DB file '%s'.",
-                       handle->file->getFileName());
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-fdb_commit_start:
-    fdb_check_file_reopen(handle, NULL);
-    handle->file->mutexLock();
-    fdb_sync_db_header(handle);
-
-    if (handle->file->isRollbackOn()) {
-        handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
-
-    fMgrStatus = handle->file->getFileStatus();
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        // we must not commit this file
-        // file status was changed by other thread .. start over
-        handle->file->mutexUnlock();
-        goto fdb_commit_start;
-    }
-
-    fs = handle->bhandle->flushBuffer();
-    if (fs != FDB_RESULT_SUCCESS) {
-        handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        return fs;
-    }
-
-    // commit wal
-    if (txn) {
-        // transactional updates
-        wr = handle->file->getWal()->commit_Wal(txn, _fdb_append_commit_mark,
-                                           &handle->log_callback);
-        if (wr != FDB_RESULT_SUCCESS) {
-            handle->file->mutexUnlock();
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return wr;
-        }
-        if (handle->file->getWal()->getDirtyStatus_Wal()== FDB_WAL_CLEAN) {
-            handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_DIRTY);
-        }
-    } else {
-        // non-transactional updates
-        handle->file->getWal()->commit_Wal(handle->file->getGlobalTxn(), NULL,
-                                           &handle->log_callback);
-    }
-
-    if (handle->file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle) ||
-        handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_PENDING ||
-        opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
-        // wal flush when
-        // 1. wal size exceeds threshold
-        // 2. wal is already flushed before commit
-        //    (in this case, flush the rest of entries)
-        // 3. user forces to manually flush wal
-
-        struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
-
-        _fdb_dirty_update_ready(handle, &prev_node, &new_node,
-                                &dirty_idtree_root, &dirty_seqtree_root, false);
-
-        wr = handle->file->getWal()->flush_Wal((void *)handle,
-                       _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                       _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                       &flush_items);
-
-        if (wr != FDB_RESULT_SUCCESS) {
-            handle->bhandle->clearDirtyUpdate();
-            FileMgr::dirtyUpdateCloseNode(prev_node);
-            handle->file->dirtyUpdateRemoveNode(new_node);
-            handle->file->mutexUnlock();
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return wr;
-        }
-        handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
-        wal_flushed = true;
-
-        _fdb_dirty_update_finalize(handle, prev_node, new_node,
-                                   &dirty_idtree_root, &dirty_seqtree_root, true);
-    }
-
-    // Note: Appending KVS header must be done after flushing WAL
-    //       because KVS stats info is updated during WAL flushing.
-    if (handle->kvs) {
-        // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle);
-    }
-
-    filemgr_header_revnum_t next_revnum;
-    next_revnum = handle->file->getHeaderRevnum() + 1;
-
-    if (handle->rollback_revnum) {
-        // if this commit is called by rollback API,
-        // remove all stale-tree entries related to the rollback
-        handle->file->getStaleData()->rollbackStaleBlocks(handle, next_revnum);
-        handle->rollback_revnum = 0;
-    }
-
-    if (wal_flushed) {
-        handle->file->getStaleData()->gatherRegions(handle, next_revnum,
-                                                    handle->last_hdr_bid,
-                                                    handle->kv_info_offset,
-                                                    handle->file->getSeqnum(),
-                                                    false);
-    }
-
-    SuperblockBase *sb = handle->file->getSb();
-    // Note: Getting header BID must be done after
-    //       all other data are written into the file!!
-    //       Or, header BID inconsistency will occur (it will
-    //       point to wrong block).
-    handle->last_hdr_bid = handle->file->alloc_FileMgr(&handle->log_callback);
-    if (sb) {
-        cur_bmp_revnum = sb->getBmpRevnum();
-    } else {
-        cur_bmp_revnum = 0;
-    }
-
-    if (handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
-        earliest_txn = handle->file->getWal()->getEarliestTxn_Wal(
-                                        (txn)?(txn):(handle->file->getGlobalTxn()));
-        if (earliest_txn) {
-            filemgr_header_revnum_t last_revnum;
-            last_revnum = _fdb_get_header_revnum(handle, handle->last_wal_flush_hdr_bid);
-            // there exists other transaction that is not committed yet
-            if (last_revnum < earliest_txn->prev_revnum) {
-                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
-            }
-        } else {
-            // there is no other transaction .. now WAL is empty
-            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-        }
-    }
-
-    // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
-
-    if (txn == NULL) {
-        // update global_txn's previous header BID
-        handle->file->getGlobalTxn()->prev_hdr_bid = handle->last_hdr_bid;
-        // reset TID (this is thread-safe as filemgr_mutex is grabbed)
-        handle->file->getGlobalTxn()->prev_revnum = handle->cur_header_revnum;
-    }
-
-    if (sb) {
-        // sync superblock
-        sb->updateHeader(handle);
-        if (sb->checkSyncPeriod() && wal_flushed) {
-            sb_decision_t decision;
-            bool block_reclaimed = false;
-
-            decision = sb->checkBlockReuse(handle);
-            if (decision == SBD_RECLAIM) {
-                // gather reusable blocks
-                handle->bhandle->discardBlocks();
-                block_reclaimed = sb->reclaimReusableBlocks(handle);
-                if (block_reclaimed) {
-                    sb->appendBmpDoc(handle);
-                }
-            } else if (decision == SBD_RESERVE) {
-                // reserve reusable blocks
-                handle->bhandle->discardBlocks();
-                block_reclaimed = sb->reserveNextReusableBlocks(handle);
-                if (block_reclaimed) {
-                    sb->appendRsvBmpDoc(handle);
-                }
-            } else if (decision == SBD_SWITCH) {
-                // switch reserved reusable blocks
-                handle->bhandle->discardBlocks();
-                sb->switchReservedBlocks();
-            }
-            // header should be updated one more time
-            // since block reclaiming or stale block gathering changes root nodes
-            // of each tree. but at this time we don't increase header revision number.
-            handle->cur_header_revnum = fdb_set_file_header(handle, false);
-            sb->updateHeader(handle);
-            sb->syncCircular(handle);
-            // reset allocation counter for next reclaim check
-            sb->resetNumAlloc();
-        } else {
-            // update superblock for every commit
-            sb->syncCircular(handle);
-        }
-    }
-
-    // file commit
-    fs = handle->file->commitBid(handle->last_hdr_bid,
-                                 cur_bmp_revnum, sync,
-                                 &handle->log_callback);
-    if (wal_flushed) {
-        handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
-    }
-
-    handle->bhandle->resetSubblockInfo();
-
-    handle->dirty_updates = 0;
-    handle->file->mutexUnlock();
-
-    LATENCY_STAT_END(handle->file, FDB_LATENCY_COMMITS);
-    handle->op_stats->num_commits++;
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
@@ -5580,7 +4660,6 @@ fdb_status _fdb_compact_file_checks(FdbKvsHandle *handle,
     // if the file is already compacted by other thread
     if (handle->file->getFileStatus() != FILE_NORMAL ||
         !handle->file->getNewFileName().empty()) {
-
         // update handle and return
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
@@ -6385,6 +5464,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
          * the same database file should be closed before calling this API and
          * any open API calls should not be made until the completion of this API.
          */
+
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
             // 1. deregister from compactor (by calling fdb_close)
             // 2. remove [filename].meta
@@ -8069,6 +7149,981 @@ fdb_status FdbEngine::setLogCallback(FdbKvsHandle *handle,
     handle->log_callback.setCallback(log_callback);
     handle->log_callback.setCtxData(ctx_data);
     return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
+                          bool metaOnly)
+{
+    uint64_t offset;
+    struct docio_object _doc;
+    DocioHandle *dhandle;
+    FileMgr *wal_file = NULL;
+    struct _fdb_key_cmp_info cmp_info;
+    fdb_status wr;
+    hbtrie_result hr = HBTRIE_RESULT_FAIL;
+    fdb_txn *txn;
+    fdb_doc doc_kv;
+    LATENCY_STAT_START();
+
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || !doc->key ||
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    doc_kv = *doc;
+
+    if (handle->kvs) {
+        // multi KV instance mode
+        int size_chunk = handle->config.chunksize;
+        doc_kv.keylen = doc->keylen + size_chunk;
+        doc_kv.key = alca(uint8_t, doc_kv.keylen);
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), doc_kv.key);
+        memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
+    }
+
+    if (!handle->shandle) {
+        fdb_check_file_reopen(handle, NULL);
+
+        txn = handle->fhandle->getRootHandle()->txn;
+        if (!txn) {
+            txn = handle->file->getGlobalTxn();
+        }
+    } else {
+        txn = handle->shandle->snap_txn;
+    }
+
+    cmp_info.kvs_config = handle->kvs_config;
+    cmp_info.kvs = handle->kvs;
+    wal_file = handle->file;
+    dhandle = handle->dhandle;
+
+    if (handle->kvs) {
+        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, &doc_kv,
+                                     &offset);
+    } else {
+        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc,
+                                     &offset);
+    }
+
+    if (!handle->shandle) {
+        fdb_sync_db_header(handle);
+    }
+
+    handle->op_stats->num_gets++;
+
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
+        _fdb_sync_dirty_root(handle);
+
+        if (handle->kvs) {
+            hr = handle->trie->find(doc_kv.key, doc_kv.keylen, (void *)&offset);
+        } else {
+            hr = handle->trie->find(doc->key, doc->keylen, (void *)&offset);
+        }
+        handle->bhandle->flushBuffer();
+        offset = _endian_decode(offset);
+
+        _fdb_release_dirty_root(handle);
+    }
+
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+        hr == HBTRIE_RESULT_SUCCESS) {
+
+        bool alloced_meta = doc->meta ? false : true;
+        bool alloced_body = (metaOnly || doc->body) ? false : true;
+
+        if (handle->kvs) {
+            _doc.key = doc_kv.key;
+            _doc.length.keylen = doc_kv.keylen;
+            if (!metaOnly) {
+                doc->deleted = doc_kv.deleted; // update deleted field if wal_find
+            }
+        } else {
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+        }
+
+        _doc.meta = doc->meta;
+        _doc.body = doc->body;
+
+        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        int64_t _offset = 0;
+        if (metaOnly) {
+            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
+        } else {
+            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
+        }
+
+        if (_offset <= 0) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if ((_doc.length.keylen != doc_kv.keylen) ||
+            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
+            free_docio_object(&_doc, false, alloced_meta, alloced_body);
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        doc->seqnum = _doc.seqnum;
+        doc->metalen = _doc.length.metalen;
+        doc->bodylen = _doc.length.bodylen;
+        doc->meta = _doc.meta;
+        doc->body = _doc.body;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
+        doc->offset = offset;
+
+        LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_SUCCESS;
+    }
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return FDB_RESULT_KEY_NOT_FOUND;
+}
+
+fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
+                               fdb_doc *doc,
+                               bool metaOnly)
+{
+    uint64_t offset;
+    struct docio_object _doc;
+    DocioHandle *dhandle;
+    FileMgr *wal_file = NULL;
+    fdb_status wr;
+    btree_result br = BTREE_RESULT_FAIL;
+    fdb_seqnum_t _seqnum;
+    fdb_txn *txn;
+    struct _fdb_key_cmp_info cmp_info;
+    LATENCY_STAT_START();
+
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // Sequence trees are a must for byseq operations
+    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    if (!handle->shandle) {
+        fdb_check_file_reopen(handle, NULL);
+
+        txn = handle->fhandle->getRootHandle()->txn;
+        if (!txn) {
+            txn = handle->file->getGlobalTxn();
+        }
+    } else {
+        txn = handle->shandle->snap_txn;
+    }
+
+    cmp_info.kvs_config = handle->kvs_config;
+    cmp_info.kvs = handle->kvs;
+    wal_file = handle->file;
+    dhandle = handle->dhandle;
+
+    // prevent searching by key in WAL if 'doc' is not empty
+    size_t key_len = doc->keylen;
+    doc->keylen = 0;
+    if (handle->kvs) {
+        wr = wal_file->getWal()->findWithKvid_Wal(txn, handle->kvs->getKvsId(),
+                                             &cmp_info,
+                                             handle->shandle, doc, &offset);
+    } else {
+        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc, &offset);
+    }
+
+    doc->keylen = key_len;
+    if (!handle->shandle) {
+        fdb_sync_db_header(handle);
+    }
+
+    handle->op_stats->num_gets++;
+
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
+        _fdb_sync_dirty_root(handle);
+
+        _seqnum = _endian_encode(doc->seqnum);
+        if (handle->kvs) {
+            int size_id, size_seq;
+            uint8_t *kv_seqnum;
+            hbtrie_result hr;
+            fdb_kvs_id_t _kv_id;
+
+            _kv_id = _endian_encode(handle->kvs->getKvsId());
+            size_id = sizeof(fdb_kvs_id_t);
+            size_seq = sizeof(fdb_seqnum_t);
+            kv_seqnum = alca(uint8_t, size_id + size_seq);
+            memcpy(kv_seqnum, &_kv_id, size_id);
+            memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
+            hr = handle->seqtrie->find((void *)kv_seqnum, size_id + size_seq,
+                                       (void *)&offset);
+            br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
+        } else {
+            br = handle->seqtree->find((void *)&_seqnum, (void *)&offset);
+        }
+        handle->bhandle->flushBuffer();
+        offset = _endian_decode(offset);
+
+        _fdb_release_dirty_root(handle);
+    }
+
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+         br != BTREE_RESULT_FAIL) {
+        bool alloc_key, alloc_meta, alloc_body;
+        if (!handle->kvs) { // single KVS mode
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+            alloc_key = doc->key ? false : true;
+        } else {
+            _doc.key = NULL;
+            alloc_key = true;
+        }
+        alloc_meta = doc->meta ? false : true;
+        _doc.meta = doc->meta;
+        alloc_body = (metaOnly || doc->body) ? false : true;
+        _doc.body = doc->body;
+
+        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        int64_t _offset = 0;
+        if (metaOnly) {
+            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
+        } else {
+            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
+        }
+
+        if (_offset <= 0) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if ((metaOnly && doc->seqnum != _doc.seqnum) ||
+            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        doc->seqnum = _doc.seqnum;
+
+        if (handle->kvs) {
+            int size_chunk = handle->config.chunksize;
+            doc->keylen = _doc.length.keylen - size_chunk;
+            if (doc->key) { // doc->key is given by user
+                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
+                free_docio_object(&_doc, true, false, false);
+            } else {
+                doc->key = _doc.key;
+                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            }
+        } else {
+            doc->keylen = _doc.length.keylen;
+            doc->key = _doc.key;
+        }
+
+        doc->metalen = _doc.length.metalen;
+        doc->bodylen = _doc.length.bodylen;
+        doc->meta = _doc.meta;
+        doc->body = _doc.body;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
+        doc->offset = offset;
+
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
+        return FDB_RESULT_SUCCESS;
+    }
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return FDB_RESULT_KEY_NOT_FOUND;
+}
+
+fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint64_t offset = doc->offset;
+    struct docio_object _doc;
+
+    if (!offset || offset == BLK_NOT_FOUND) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    handle->op_stats->num_gets++;
+    memset(&_doc, 0, sizeof(struct docio_object));
+
+    int64_t _offset = handle->dhandle->readDoc_Docio(offset, &_doc, true);
+    if (_offset <= 0 || !_doc.key || (_doc.length.flag & DOCIO_TXN_COMMITTED)) {
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
+    } else {
+        if (handle->kvs) {
+            fdb_kvs_id_t kv_id;
+            buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
+            if (kv_id != handle->kvs->getKvsId()) {
+                cond = 1;
+                handle->handle_busy.compare_exchange_strong(cond, 0);
+                free_docio_object(&_doc, true, true, true);
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+            _remove_kv_id(handle, &_doc);
+        }
+        if (!equal_docs(doc, &_doc)) {
+            free_docio_object(&_doc, true, true, true);
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+    }
+
+    doc->seqnum = _doc.seqnum;
+    doc->keylen = _doc.length.keylen;
+    doc->metalen = _doc.length.metalen;
+    doc->bodylen = _doc.length.bodylen;
+    if (doc->key) {
+        free(_doc.key);
+    } else {
+        doc->key = _doc.key;
+    }
+    if (doc->meta) {
+        free(_doc.meta);
+    } else {
+        doc->meta = _doc.meta;
+    }
+    if (doc->body) {
+        if (_doc.length.bodylen > 0) {
+            memcpy(doc->body, _doc.body, _doc.length.bodylen);
+        }
+        free(_doc.body);
+    } else {
+        doc->body = _doc.body;
+    }
+    doc->deleted = _doc.length.flag & DOCIO_DELETED;
+    doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    if (handle->kvs) {
+        // Since _doc.length was adjusted in _remove_kv_id(),
+        // we need to compensate it.
+        doc->size_ondisk += handle->config.chunksize;
+    }
+
+    cond = 1;
+    if (_doc.length.flag & DOCIO_DELETED) {
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_KEY_NOT_FOUND;
+    }
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::set(FdbKvsHandle *handle, fdb_doc *doc)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    uint64_t offset;
+    struct docio_object _doc;
+    FileMgr *file;
+    DocioHandle *dhandle;
+    struct timeval tv;
+    bool txn_enabled = false;
+    bool sub_handle = false;
+    bool wal_flushed = false;
+    bool immediate_remove = false;
+    file_status_t fMgrStatus;
+    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
+    struct _fdb_key_cmp_info cmp_info;
+    fdb_status wr = FDB_RESULT_SUCCESS;
+    LATENCY_STAT_START();
+
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: SET is not allowed on the read-only DB file '%s'.",
+                       handle->file->getFileName());
+    }
+
+    if (!doc || doc->key == NULL ||
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+        (doc->metalen > 0 && doc->meta == NULL) ||
+        (doc->bodylen > 0 && doc->body == NULL) ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    _doc.length.keylen = doc->keylen;
+    _doc.length.metalen = doc->metalen;
+    _doc.length.bodylen = doc->deleted ? 0 : doc->bodylen;
+    _doc.key = doc->key;
+    _doc.meta = doc->meta;
+    _doc.body = doc->deleted ? NULL : doc->body;
+
+    if (handle->kvs) {
+        // multi KV instance mode
+        // allocate more (temporary) space for key, to store ID number
+        int size_chunk = handle->config.chunksize;
+        _doc.length.keylen = doc->keylen + size_chunk;
+        _doc.key = alca(uint8_t, _doc.length.keylen);
+        // copy ID
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), _doc.key);
+        // copy key
+        memcpy((uint8_t*)_doc.key + size_chunk, doc->key, doc->keylen);
+
+        if (handle->kvs->getKvsType() == KVS_SUB) {
+            sub_handle = true;
+        } else {
+            sub_handle = false;
+        }
+    }
+
+fdb_set_start:
+    fdb_check_file_reopen(handle, NULL);
+
+    size_t throttling_delay = handle->file->getThrottlingDelay();
+    if (throttling_delay) {
+        usleep(throttling_delay);
+    }
+
+    cmp_info.kvs_config = handle->kvs_config;
+    cmp_info.kvs = handle->kvs;
+
+    handle->file->mutexLock();
+    fdb_sync_db_header(handle);
+
+    if (handle->file->isRollbackOn()) {
+        handle->file->mutexUnlock();
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    file = handle->file;
+    dhandle = handle->dhandle;
+
+    fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        // we must not write into this file
+        // file status was changed by other thread .. start over
+        file->mutexUnlock();
+        goto fdb_set_start;
+    }
+
+    if (sub_handle) {
+        // multiple KV instance mode AND sub handle
+        fdb_seqnum_t kv_seqnum = fdb_kvs_get_seqnum(file,
+                                                    handle->kvs->getKvsId());
+        if (doc->seqnum != SEQNUM_NOT_USED &&
+            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
+                handle->seqnum = doc->seqnum;
+                fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(),
+                                   handle->seqnum);
+            }
+            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
+        } else { // normal monotonically increasing sequence numbers..
+            doc->seqnum = ++kv_seqnum;
+            handle->seqnum = doc->seqnum; // keep handle's seqnum the highest
+            fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(), handle->seqnum);
+        }
+    } else {
+        fdb_seqnum_t kv_seqnum = file->getSeqnum();
+        // super handle OR single KV instance mode
+        if (doc->seqnum != SEQNUM_NOT_USED &&
+            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
+                handle->seqnum = doc->seqnum;
+                file->setSeqnum(handle->seqnum);
+            }
+            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
+        } else { // normal monotonically increasing sequence numbers..
+            doc->seqnum = ++kv_seqnum;
+            handle->seqnum = doc->seqnum;
+            file->setSeqnum(handle->seqnum);
+        }
+    }
+    _doc.seqnum = doc->seqnum;
+
+    if (doc->deleted) {
+        // set timestamp
+        gettimeofday(&tv, NULL);
+        _doc.timestamp = (timestamp_t)tv.tv_sec;
+    } else {
+        _doc.timestamp = 0;
+    }
+
+    if (txn) {
+        txn_enabled = true;
+    }
+
+    offset = dhandle->appendDoc_Docio(&_doc, doc->deleted, txn_enabled);
+    if (offset == BLK_NOT_FOUND) {
+        file->mutexUnlock();
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_WRITE_FAIL;
+    }
+
+    if (doc->deleted && !handle->config.purging_interval) {
+        // immediately remove from hbtrie upon WAL flush
+        immediate_remove = true;
+    }
+
+    doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    doc->offset = offset;
+    if (!txn) {
+        txn = file->getGlobalTxn();
+    }
+    if (handle->kvs) {
+        // multi KV instance mode
+        fdb_doc kv_ins_doc = *doc;
+        kv_ins_doc.key = _doc.key;
+        kv_ins_doc.keylen = _doc.length.keylen;
+        if (!immediate_remove) {
+            file->getWal()->insert_Wal(txn, &cmp_info, &kv_ins_doc, offset,
+                       WAL_INS_WRITER);
+        } else {
+            file->getWal()->immediateRemove_Wal(txn, &cmp_info, &kv_ins_doc, offset,
+                                 WAL_INS_WRITER);
+        }
+    } else {
+        if (!immediate_remove) {
+            file->getWal()->insert_Wal(txn, &cmp_info, doc, offset, WAL_INS_WRITER);
+        } else {
+            file->getWal()->immediateRemove_Wal(txn, &cmp_info, doc, offset,
+                                           WAL_INS_WRITER);
+        }
+    }
+
+    if (file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
+        file->getWal()->setDirtyStatus_Wal(FDB_WAL_DIRTY);
+    }
+
+    if (handle->config.auto_commit &&
+        file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
+        // we don't need dirty WAL flushing in auto commit mode
+        // (commitWithKVHandle is internally called at the end of this function)
+        wal_flushed = true;
+
+    } else if (handle->config.wal_flush_before_commit) {
+
+        bid_t dirty_idtree_root = BLK_NOT_FOUND;
+        bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+
+        if (!txn_enabled) {
+            handle->dirty_updates = 1;
+        }
+
+        if (file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
+            union wal_flush_items flush_items;
+
+            // commit only for non-transactional WAL entries
+            wr = file->getWal()->commit_Wal(file->getGlobalTxn(), NULL,
+                                            &handle->log_callback);
+            if (wr != FDB_RESULT_SUCCESS) {
+                file->mutexUnlock();
+                cond = 1;
+                handle->handle_busy.compare_exchange_strong(cond, 0);
+                return wr;
+            }
+
+            struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+            _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                                    &dirty_idtree_root, &dirty_seqtree_root, true);
+
+            wr = file->getWal()->flush_Wal((void *)handle,
+                                      _fdb_wal_flush_func,
+                                      _fdb_wal_get_old_offset,
+                                      _fdb_wal_flush_seq_purge,
+                                      _fdb_wal_flush_kvs_delta_stats,
+                                      &flush_items);
+
+            if (wr != FDB_RESULT_SUCCESS) {
+                handle->bhandle->clearDirtyUpdate();
+                FileMgr::dirtyUpdateCloseNode(prev_node);
+                handle->file->dirtyUpdateRemoveNode(new_node);
+                file->mutexUnlock();
+                cond = 1;
+                handle->handle_busy.compare_exchange_strong(cond, 0);
+                return wr;
+            }
+
+            _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                                       &dirty_idtree_root, &dirty_seqtree_root, false);
+
+            file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
+            // it is ok to release flushed items becuase
+            // these items are not actually committed yet.
+            // they become visible after fdb_commit is invoked.
+            file->getWal()->releaseFlushedItems_Wal(&flush_items);
+
+            wal_flushed = true;
+            handle->bhandle->resetSubblockInfo();
+        }
+    }
+
+    file->mutexUnlock();
+
+    LATENCY_STAT_END(file, FDB_LATENCY_SETS);
+
+    if (!doc->deleted) {
+        handle->op_stats->num_sets++;
+    }
+
+    cond = 1;
+    if (wal_flushed && handle->config.auto_commit) {
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return commitWithKVHandle(handle->fhandle->getRootHandle(), FDB_COMMIT_NORMAL,
+                                  false); // asynchronous commit only
+    }
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::del(FdbKvsHandle *handle, fdb_doc *doc)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: DEL is not allowed on the read-only DB file '%s'.",
+                       handle->file->getFileName());
+    }
+
+    if (doc->key == NULL || doc->keylen == 0 ||
+        doc->keylen > FDB_MAX_KEYLEN ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    doc->deleted = true;
+    fdb_doc _doc;
+    _doc = *doc;
+    _doc.bodylen = 0;
+    _doc.body = NULL;
+
+    handle->op_stats->num_dels++;
+
+    return set(handle, &_doc);
+}
+
+fdb_status FdbEngine::commit(FdbFileHandle *fhandle, fdb_commit_opt_t opt)
+{
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    bool sync = !(fhandle->getRootHandle()->config.durability_opt & FDB_DRB_ASYNC);
+    return commitWithKVHandle(fhandle->getRootHandle(), opt, sync);
+}
+
+fdb_status FdbEngine::commitWithKVHandle(FdbKvsHandle *handle,
+                                         fdb_commit_opt_t opt,
+                                         bool sync)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    uint64_t cur_bmp_revnum;
+    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
+    fdb_txn *earliest_txn;
+    file_status_t fMgrStatus;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    bool wal_flushed = false;
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    union wal_flush_items flush_items;
+    fdb_status wr = FDB_RESULT_SUCCESS;
+    LATENCY_STAT_START();
+
+    if (handle->kvs) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
+            // deny commit on sub handle
+            return FDB_RESULT_INVALID_HANDLE;
+        }
+    }
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Commit is not allowed on the read-only DB file '%s'.",
+                       handle->file->getFileName());
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+fdb_commit_start:
+    fdb_check_file_reopen(handle, NULL);
+    handle->file->mutexLock();
+    fdb_sync_db_header(handle);
+
+    if (handle->file->isRollbackOn()) {
+        handle->file->mutexUnlock();
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    fMgrStatus = handle->file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        // we must not commit this file
+        // file status was changed by other thread .. start over
+        handle->file->mutexUnlock();
+        goto fdb_commit_start;
+    }
+
+    fs = handle->bhandle->flushBuffer();
+    if (fs != FDB_RESULT_SUCCESS) {
+        handle->file->mutexUnlock();
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return fs;
+    }
+
+    // commit wal
+    if (txn) {
+        // transactional updates
+        wr = handle->file->getWal()->commit_Wal(txn, _fdb_append_commit_mark,
+                                                &handle->log_callback);
+        if (wr != FDB_RESULT_SUCCESS) {
+            handle->file->mutexUnlock();
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return wr;
+        }
+        if (handle->file->getWal()->getDirtyStatus_Wal()== FDB_WAL_CLEAN) {
+            handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_DIRTY);
+        }
+    } else {
+        // non-transactional updates
+        handle->file->getWal()->commit_Wal(handle->file->getGlobalTxn(), NULL,
+                                           &handle->log_callback);
+    }
+
+    if (handle->file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle) ||
+        handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_PENDING ||
+        opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
+        // wal flush when
+        // 1. wal size exceeds threshold
+        // 2. wal is already flushed before commit
+        //    (in this case, flush the rest of entries)
+        // 3. user forces to manually flush wal
+
+        struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+        _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                                &dirty_idtree_root, &dirty_seqtree_root, false);
+
+        wr = handle->file->getWal()->flush_Wal((void *)handle,
+                       _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                       _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
+                       &flush_items);
+
+        if (wr != FDB_RESULT_SUCCESS) {
+            handle->bhandle->clearDirtyUpdate();
+            FileMgr::dirtyUpdateCloseNode(prev_node);
+            handle->file->dirtyUpdateRemoveNode(new_node);
+            handle->file->mutexUnlock();
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return wr;
+        }
+        handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
+        wal_flushed = true;
+
+        _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                                   &dirty_idtree_root, &dirty_seqtree_root, true);
+    }
+
+    // Note: Appending KVS header must be done after flushing WAL
+    //       because KVS stats info is updated during WAL flushing.
+    if (handle->kvs) {
+        // multi KV instance mode .. append up-to-date KV header
+        handle->kv_info_offset = fdb_kvs_header_append(handle);
+    }
+
+    filemgr_header_revnum_t next_revnum;
+    next_revnum = handle->file->getHeaderRevnum() + 1;
+
+    if (handle->rollback_revnum) {
+        // if this commit is called by rollback API,
+        // remove all stale-tree entries related to the rollback
+        handle->file->getStaleData()->rollbackStaleBlocks(handle, next_revnum);
+        handle->rollback_revnum = 0;
+    }
+
+    if (wal_flushed) {
+        handle->file->getStaleData()->gatherRegions(handle, next_revnum,
+                                                    handle->last_hdr_bid,
+                                                    handle->kv_info_offset,
+                                                    handle->file->getSeqnum(),
+                                                    false);
+    }
+
+    SuperblockBase *sb = handle->file->getSb();
+    // Note: Getting header BID must be done after
+    //       all other data are written into the file!!
+    //       Or, header BID inconsistency will occur (it will
+    //       point to wrong block).
+    handle->last_hdr_bid = handle->file->alloc_FileMgr(&handle->log_callback);
+    if (sb) {
+        cur_bmp_revnum = sb->getBmpRevnum();
+    } else {
+        cur_bmp_revnum = 0;
+    }
+
+    if (handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
+        earliest_txn = handle->file->getWal()->getEarliestTxn_Wal(
+                                        (txn)?(txn):(handle->file->getGlobalTxn()));
+        if (earliest_txn) {
+            filemgr_header_revnum_t last_revnum;
+            last_revnum = _fdb_get_header_revnum(handle, handle->last_wal_flush_hdr_bid);
+            // there exists other transaction that is not committed yet
+            if (last_revnum < earliest_txn->prev_revnum) {
+                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+            }
+        } else {
+            // there is no other transaction .. now WAL is empty
+            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+        }
+    }
+
+    // file header should be set after stale-block tree is updated.
+    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+
+    if (txn == NULL) {
+        // update global_txn's previous header BID
+        handle->file->getGlobalTxn()->prev_hdr_bid = handle->last_hdr_bid;
+        // reset TID (this is thread-safe as filemgr_mutex is grabbed)
+        handle->file->getGlobalTxn()->prev_revnum = handle->cur_header_revnum;
+    }
+
+    if (sb) {
+        // sync superblock
+        sb->updateHeader(handle);
+        if (sb->checkSyncPeriod() && wal_flushed) {
+            sb_decision_t decision;
+            bool block_reclaimed = false;
+
+            decision = sb->checkBlockReuse(handle);
+            if (decision == SBD_RECLAIM) {
+                // gather reusable blocks
+                handle->bhandle->discardBlocks();
+                block_reclaimed = sb->reclaimReusableBlocks(handle);
+                if (block_reclaimed) {
+                    sb->appendBmpDoc(handle);
+                }
+            } else if (decision == SBD_RESERVE) {
+                // reserve reusable blocks
+                handle->bhandle->discardBlocks();
+                block_reclaimed = sb->reserveNextReusableBlocks(handle);
+                if (block_reclaimed) {
+                    sb->appendRsvBmpDoc(handle);
+                }
+            } else if (decision == SBD_SWITCH) {
+                // switch reserved reusable blocks
+                handle->bhandle->discardBlocks();
+                sb->switchReservedBlocks();
+            }
+            // header should be updated one more time
+            // since block reclaiming or stale block gathering changes root nodes
+            // of each tree. but at this time we don't increase header revision number.
+            handle->cur_header_revnum = fdb_set_file_header(handle, false);
+            sb->updateHeader(handle);
+            sb->syncCircular(handle);
+            // reset allocation counter for next reclaim check
+            sb->resetNumAlloc();
+        } else {
+            // update superblock for every commit
+            sb->syncCircular(handle);
+        }
+    }
+
+    // file commit
+    fs = handle->file->commitBid(handle->last_hdr_bid,
+                                 cur_bmp_revnum, sync,
+                                 &handle->log_callback);
+    if (wal_flushed) {
+        handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
+    }
+
+    handle->bhandle->resetSubblockInfo();
+
+    handle->dirty_updates = 0;
+    handle->file->mutexUnlock();
+
+    LATENCY_STAT_END(handle->file, FDB_LATENCY_COMMITS);
+    handle->op_stats->num_commits++;
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return fs;
 }
 
 void _fdb_dump_handle(FdbKvsHandle *h) {

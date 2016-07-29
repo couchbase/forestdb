@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "fdb_internal.h"
 #include "file_handle.h"
 #include "internal_types.h"
@@ -200,8 +201,9 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
 
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
-        fs = _fdb_commit(handle, opt,
-                         !(handle->config.durability_opt & FDB_DRB_ASYNC));
+        bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, opt,
+                                                          sync);
     }
 
     if (fs == FDB_RESULT_SUCCESS) {

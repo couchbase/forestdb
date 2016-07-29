@@ -59,9 +59,6 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
 
 fdb_status _fdb_close_root(FdbKvsHandle *handle);
 fdb_status _fdb_close(FdbKvsHandle *handle);
-fdb_status _fdb_commit(FdbKvsHandle *handle,
-                       fdb_commit_opt_t opt,
-                       bool sync);
 
 fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status);
 void fdb_sync_db_header(FdbKvsHandle *handle);

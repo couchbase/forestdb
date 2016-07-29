@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "common.h"
 #include "fdb_engine.h"
 #include "internal_types.h"
@@ -1913,8 +1914,10 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         handle_in->file->mutexUnlock();
 
         super_handle->rollback_revnum = handle->rollback_revnum;
-        fs = _fdb_commit(super_handle, FDB_COMMIT_MANUAL_WAL_FLUSH,
-                         !(handle_in->config.durability_opt & FDB_DRB_ASYNC));
+        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(super_handle,
+                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
+                                                          sync);
         if (fs == FDB_RESULT_SUCCESS) {
             _fdb_kvs_close(handle);
             *handle_ptr = handle_in;

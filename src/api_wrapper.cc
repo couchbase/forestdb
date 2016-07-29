@@ -22,6 +22,7 @@
 
 #include "libforestdb/forestdb.h"
 #include "common.h"
+#include "fdb_engine.h"
 #include "internal_types.h"
 #include "btree_var_kv_ops.h"
 #include "hbtrie.h"
@@ -45,12 +46,58 @@ fdb_status fdb_get_kv(FdbKvsHandle *handle,
                       const void *key, size_t keylen,
                       void **value_out, size_t *valuelen_out)
 {
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getKeyValue(handle,
+                                       key, keylen,
+                                       value_out, valuelen_out);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+LIBFDB_API
+fdb_status fdb_set_kv(FdbKvsHandle *handle,
+                      const void *key, size_t keylen,
+                      const void *value, size_t valuelen)
+{
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->setKeyValue(handle,
+                                       key, keylen,
+                                       value, valuelen);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+LIBFDB_API
+fdb_status fdb_del_kv(FdbKvsHandle *handle,
+                      const void *key, size_t keylen)
+{
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->delKey(handle,
+                                  key, keylen);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+LIBFDB_API
+fdb_status fdb_free_block(void *ptr)
+{
+    free(ptr);
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::getKeyValue(FdbKvsHandle *handle,
+                                  const void *key, size_t keylen,
+                                  void **value_out, size_t *valuelen_out)
+{
+    fdb_doc *doc = NULL;
+    fdb_status fs;
+
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
-
-    fdb_doc *doc = NULL;
-    fdb_status fs;
 
     if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
         value_out == NULL || valuelen_out == NULL ||
@@ -87,10 +134,9 @@ fdb_status fdb_get_kv(FdbKvsHandle *handle,
     return fs;
 }
 
-LIBFDB_API
-fdb_status fdb_set_kv(FdbKvsHandle *handle,
-                      const void *key, size_t keylen,
-                      const void *value, size_t valuelen)
+fdb_status FdbEngine::setKeyValue(FdbKvsHandle *handle,
+                                  const void *key, size_t keylen,
+                                  const void *value, size_t valuelen)
 {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -128,9 +174,8 @@ fdb_status fdb_set_kv(FdbKvsHandle *handle,
     return fs;
 }
 
-LIBFDB_API
-fdb_status fdb_del_kv(FdbKvsHandle *handle,
-                      const void *key, size_t keylen)
+fdb_status FdbEngine::delKey(FdbKvsHandle *handle,
+                             const void *key, size_t keylen)
 {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -164,12 +209,5 @@ fdb_status fdb_del_kv(FdbKvsHandle *handle,
     fdb_doc_free(doc);
 
     return fs;
-}
-
-LIBFDB_API
-fdb_status fdb_free_block(void *ptr)
-{
-    free(ptr);
-    return FDB_RESULT_SUCCESS;
 }
 
