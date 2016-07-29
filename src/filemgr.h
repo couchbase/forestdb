@@ -628,24 +628,12 @@ public:
         return fileConfig;
     }
 
-    void setNewFile(FileMgr *to) {
-        newFile = to;
-    }
-
-    FileMgr* getNewFile() {
-        return newFile;
-    }
-
-    void setPrevFile(FileMgr *to) {
-        prevFile = to;
-    }
-
-    FileMgr* getPrevFile() {
-        return prevFile;
-    }
-
     const std::string& getOldFileName() {
         return oldFileName;
+    }
+
+    const std::string& getNewFileName() {
+        return newFileName;
     }
 
     void setBCache(FileBlockCache *to) {
@@ -794,7 +782,15 @@ public:
 
     fdb_status sync_FileMgr(bool sync_option, ErrLogCallback *log_callback);
 
-    int updateFileStatus(file_status_t status, const char *old_filename);
+    void updateFileStatus(file_status_t status);
+
+    /**
+     * Updates the oldFileName and newFileName of the current instance,
+     * with the arguments (non-null) provided.
+     *
+     * Returns false if oldFileName has already been set.
+     */
+    bool updateFileLinkage(const char *old_filename, const char *new_filename);
 
     bool isRollbackOn();
 
@@ -1127,11 +1123,6 @@ public:
 private:
 
     /**
-     * Update the previous / next file pointers for a given file
-     */
-    void updateFilePointers();
-
-    /**
      * Remove a given dirty node from the dirty block tree
      */
     void removeDirtyNode(struct filemgr_dirty_update_node *node);
@@ -1220,9 +1211,8 @@ private:
     struct filemgr_ops *fMgrOps;
     std::atomic<uint8_t> fMgrStatus;
     FileMgrConfig *fileConfig;
-    FileMgr *newFile;                 // Pointer to new file upon compaction
-    FileMgr *prevFile;                // Pointer to prev file upon compaction
     std::string oldFileName;          // Old file name before compaction
+    std::string newFileName;          // Latest filename after compaction
     std::atomic<FileBlockCache *> bCache;
     fdb_txn globalTxn;
     bool inPlaceCompaction;

@@ -2252,14 +2252,17 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
+    if (compacted_filename) {
+        handle->file->updateFileLinkage(nullptr, compacted_filename);
+    }
+
     if (prev_filename) {
         if (!handle->shandle &&
             strcmp(prev_filename, handle->file->getFileName())) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
-            if (handle->file->updateFileStatus(handle->file->getFileStatus(),
-                                               prev_filename)) {
+            if (handle->file->updateFileLinkage(prev_filename, nullptr)) {
                 // Open the old file with read-only mode.
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
@@ -3909,10 +3912,10 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
                sizeof(_edn_safe_64), offset);
 
     // size of newly compacted target file name
-    FileMgr *new_file = handle->file->getNewFile();
-    if (new_file) {
-        new_filename_len = new_file->getFileNameLen() + 1;
+    if (!handle->file->getNewFileName().empty()) {
+        new_filename_len = handle->file->getNewFileName().length() + 1;
     }
+
     _edn_safe_16 = _endian_encode(new_filename_len);
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(new_filename_len), offset);
 
@@ -3924,7 +3927,7 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(old_filename_len), offset);
 
     if (new_filename_len) {
-        seq_memcpy(buf + offset, new_file->getFileName(),
+        seq_memcpy(buf + offset, handle->file->getNewFileName().data(),
                    new_filename_len, offset);
     }
 
@@ -6465,7 +6468,8 @@ fdb_status _fdb_compact_file_checks(FdbKvsHandle *handle,
 
     // if the file is already compacted by other thread
     if (handle->file->getFileStatus() != FILE_NORMAL ||
-        handle->file->getNewFile()) {
+        !handle->file->getNewFileName().empty()) {
+
         // update handle and return
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
@@ -6911,7 +6915,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     }
 
     // Mark new file as newly compacted
-    new_file->updateFileStatus(FILE_COMPACT_NEW, NULL);
+    new_file->updateFileStatus(FILE_COMPACT_NEW);
     handle->file->mutexUnlock();
     new_file->mutexUnlock();
 
@@ -7133,7 +7137,12 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     delete handle->staletree;
     handle->staletree = new_staletree;
 
-    new_file->updateFileStatus(FILE_NORMAL, old_file->getFileName());
+    // Update new_file's links
+    new_file->updateFileLinkage(old_file->getFileName(), nullptr);
+    // Update new_file's status
+    new_file->updateFileStatus(FILE_NORMAL);
+    // Update old_file's links
+    old_file->updateFileLinkage(nullptr, new_file->getFileName());
 
     // Atomically perform
     // 1) commit new file
@@ -8164,9 +8173,12 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
             h->file->getConfig()->getNumWalShards());
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
             h->file->getConfig()->getNumBcacheShards());
-    fprintf(stderr, "file: newFile %p\n", (void *)h->file->getNewFile());
-    fprintf(stderr, "file: prevFile %p\n", (void *)h->file->getPrevFile());
-    fprintf(stderr, "file: oldFileName %p\n", (void *)h->file->getOldFileName().c_str());
+    fprintf(stderr, "file: oldFileName %s\n", h->file->getOldFileName().empty()
+                                                ? "nil"
+                                                : h->file->getOldFileName().c_str());
+    fprintf(stderr, "file: oldFileName %s\n", h->file->getOldFileName().empty()
+                                                ? "nil"
+                                                : h->file->getNewFileName().c_str());
     fprintf(stderr, "file: FileBlockCache: bcache %p\n",
             (void *)h->file->getBCache());
     fprintf(stderr, "file: globalTxn: handle %p\n",

@@ -231,6 +231,10 @@ void FileMgrMap::removeEntry(const std::string filename) {
 }
 
 FileMgr* FileMgrMap::fetchEntry(const std::string filename) {
+    if (filename.empty()) {
+        return nullptr;
+    }
+
     FileMgr *file;
     spin_lock(&fileMapLock);
     auto it = fileMap.find(filename);
@@ -275,10 +279,10 @@ FileMgr::FileMgr()
     : refCount(1), fMgrFlags(0x00), blockSize(global_config.getBlockSize()),
       fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
       ioInprog(0), fMgrWal(nullptr), fMgrOps(nullptr), fMgrStatus(FILE_NORMAL),
-      fileConfig(nullptr), newFile(nullptr), prevFile(nullptr), bCache(nullptr),
-      inPlaceCompaction(false), fsType(0), kvHeader(nullptr),
-      throttlingDelay(0), fMgrVersion(0), fMgrSb(nullptr), kvsStatOps(this),
-      crcMode(CRC_DEFAULT), staleData(nullptr), latestDirtyUpdate(nullptr)
+      fileConfig(nullptr), bCache(nullptr), inPlaceCompaction(false),
+      fsType(0), kvHeader(nullptr), throttlingDelay(0), fMgrVersion(0),
+      fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
+      staleData(nullptr), latestDirtyUpdate(nullptr)
 {
 
     fMgrHeader.bid = 0;
@@ -1521,28 +1525,6 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
     return bid;
 }
 
-void FileMgr::updateFilePointers() {
-    // Update new_file pointers of all previously redirected downstream files
-    FileMgr *temp = getPrevFile();
-    while (temp != NULL) {
-        temp->acquireSpinLock();
-        if (temp->getNewFile() == this) {
-            temp->setNewFile(getNewFile());
-        }
-        temp->releaseSpinLock();
-        temp = temp->getPrevFile();
-    }
-    // Update prev_file pointer of the upstream file if any
-    FileMgr *new_file = getNewFile();
-    if (new_file != NULL) {
-        new_file->acquireSpinLock();
-        if (new_file->getPrevFile() == this) {
-            new_file->setPrevFile(getPrevFile());
-        }
-        new_file->releaseSpinLock();
-    }
-}
-
 fdb_status FileMgr::fileClose(struct filemgr_ops *ops,
                               fdb_fileops_handle fops_handle)
 {
@@ -1598,10 +1580,11 @@ fdb_status FileMgr::close(FileMgr *file,
         if (file->fMgrStatus.load() == FILE_REMOVED_PENDING) {
 
             bool foreground_deletion = false;
+            FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->newFileName);
 
             // immediately remove file if background remove function is not set
             if (!lazyFileDeletionEnabled ||
-                (file->newFile && file->newFile->inPlaceCompaction)) {
+                (new_file && new_file->inPlaceCompaction)) {
                 // TODO: to avoid the scenario below, we prevent background
                 //       deletion of in-place compacted files at this time.
                 // 1) In-place compacted from 'A' to 'A.1'.
@@ -1627,7 +1610,6 @@ fdb_status FileMgr::close(FileMgr *file,
             file->releaseSpinLock();
             FileMgrMap::get()->removeEntry(file->getFileName());
 
-            file->updateFilePointers();
             spin_unlock(&fileMgrOpenlock);
 
             if (foreground_deletion) {
@@ -1645,13 +1627,11 @@ fdb_status FileMgr::close(FileMgr *file,
                     uint32_t old_file_refcount = 0;
                     FileMgr *orig_file = FileMgrMap::get()->fetchEntry(
                                                                 orig_file_name);
-                    if (!file->oldFileName.empty()) {
-                        // get old file's ref count if exists
-                        FileMgr *old_file = FileMgrMap::get()->fetchEntry(
-                                                                file->oldFileName);
-                        if (old_file) {
-                            old_file_refcount = old_file->refCount.load();
-                        }
+                    // get old file's ref count if exists
+                    FileMgr *old_file = FileMgrMap::get()->fetchEntry(
+                                                            file->oldFileName);
+                    if (old_file) {
+                        old_file_refcount = old_file->refCount.load();
                     }
 
                     // If old file is opened by other handle, renaming should be
@@ -1677,7 +1657,6 @@ fdb_status FileMgr::close(FileMgr *file,
                 // Clean up FileMgrFactory's unordered map, WAL index, and buffer cache.
                 FileMgrMap::get()->removeEntry(file->getFileName());
 
-                file->updateFilePointers();
                 spin_unlock(&fileMgrOpenlock);
 
                 FileMgr::freeFunc(file);
@@ -1779,8 +1758,10 @@ void FileMgr::removeFile(FileMgr *file,
     FileMgrMap::get()->removeEntry(file->fileName);
     spin_unlock(&fileMgrOpenlock);
 
+    FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->newFileName);
+
     if (!lazyFileDeletionEnabled ||
-        (file->newFile && file->newFile->inPlaceCompaction)) {
+        (new_file && new_file->inPlaceCompaction)) {
         FileMgr::freeFunc(file);
     } else {
         registerFileRemoval(file, log_callback);
@@ -2566,17 +2547,26 @@ fdb_status FileMgr::copyFileRange(FileMgr *src_file,
     return FDB_RESULT_SUCCESS;
 }
 
-int FileMgr::updateFileStatus(file_status_t status, const char *old_filename) {
-    int ret = 1;
+void FileMgr::updateFileStatus(file_status_t status) {
     acquireSpinLock();
     fMgrStatus = status;
+    releaseSpinLock();
+}
+
+bool FileMgr::updateFileLinkage(const char *old_filename,
+                                const char *new_filename) {
+    bool ret = true;
+    acquireSpinLock();
     if (old_filename) {
         if (oldFileName.empty()) {
             oldFileName = std::string(old_filename);
         } else {
-            ret = 0;
+            ret = false;
             fdb_assert(refCount.load(), refCount.load(), 0);
         }
+    }
+    if (new_filename) {
+        newFileName = std::string(new_filename);
     }
     releaseSpinLock();
     return ret;
@@ -2584,15 +2574,21 @@ int FileMgr::updateFileStatus(file_status_t status, const char *old_filename) {
 
 void FileMgr::setCompactionState(FileMgr *old_file, FileMgr *new_file,
                                  file_status_t status) {
-    spin_lock(&old_file->fMgrLock);
-    old_file->newFile = new_file;
-    old_file->fMgrStatus = status;
-    spin_unlock(&old_file->fMgrLock);
+    if (old_file) {
+        spin_lock(&old_file->fMgrLock);
+        if (new_file) {
+            old_file->newFileName = std::string(new_file->getFileName());
+        } else {
+            old_file->newFileName.clear();
+        }
+        old_file->fMgrStatus = status;
+        spin_unlock(&old_file->fMgrLock);
 
-    if (new_file) {
-        spin_lock(&new_file->fMgrLock);
-        new_file->prevFile = old_file;
-        spin_unlock(&new_file->fMgrLock);
+        if (new_file) {
+            spin_lock(&new_file->fMgrLock);
+            new_file->oldFileName = std::string(old_file->getFileName());
+            spin_unlock(&new_file->fMgrLock);
+        }
     }
 }
 
@@ -2628,7 +2624,7 @@ static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
     FileMgr *cur_file = reinterpret_cast<FileMgr *>(ctx);
     file->acquireSpinLock();
     if (file->getFileStatus() == FILE_REMOVED_PENDING &&
-        file->getNewFile() == cur_file) {
+        file->getNewFileName().compare(std::string(cur_file->getFileName())) == 0) {
         // Incrementing reference counter below is the same as Filemgr::open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
@@ -2652,11 +2648,17 @@ FileMgr* FileMgr::searchStaleLinks() {
 char* FileMgr::redirectOldFile(FileMgr *very_old_file,
                                FileMgr *new_file,
                                filemgr_redirect_hdr_func redirect_header_func) {
+    if (!very_old_file || !new_file) {
+        return NULL;
+    }
+
     size_t old_header_len, new_header_len;
     char *past_filename;
     spin_lock(&very_old_file->fMgrLock);
 
-    if (very_old_file->accessHeader()->size == 0 || very_old_file->newFile == NULL) {
+    FileMgr *newFile = FileMgrMap::get()->fetchEntry(very_old_file->newFileName);
+
+    if (very_old_file->accessHeader()->size == 0 || !newFile ) {
         spin_unlock(&very_old_file->fMgrLock);
         return NULL;
     }
@@ -2664,15 +2666,16 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
     old_header_len = very_old_file->accessHeader()->size;
     // Find out the new DB header length with new_file's filename
     new_header_len = old_header_len -
-        very_old_file->newFile->getFileNameLen() + new_file->getFileNameLen();
+                     newFile->getFileNameLen() + new_file->getFileNameLen();
     // As we are going to change the new_filename field in the DB header of the
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
         very_old_file->accessHeader()->data = realloc(very_old_file->accessHeader()->data,
-                                                 new_file->getBlockSize());
+                                                      new_file->getBlockSize());
     }
-    very_old_file->newFile = new_file; // Re-direct very_old_file to new_file
-    // Note that the prev_file pointer of the new_file is not updated, this
+    // Re-direct very_old_file to new_file
+    very_old_file->newFileName = std::string(new_file->getFileName());
+    // Note that the oldFileName of the new_file is not updated, this
     // is so that every file in the history is reachable from the current file.
 
     past_filename = redirect_header_func(very_old_file,
@@ -2688,14 +2691,14 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
 void FileMgr::removePending(FileMgr *old_file,
                             FileMgr *new_file,
                             ErrLogCallback *log_callback) {
-    if (new_file == NULL) {
+    if (old_file == NULL || new_file == NULL) {
         return;
     }
 
     spin_lock(&old_file->fMgrLock);
     if (old_file->refCount.load() > 0) {
         // delay removing
-        old_file->newFile = new_file;
+        old_file->newFileName = std::string(new_file->getFileName());
         old_file->fMgrStatus.store(FILE_REMOVED_PENDING);
 
 #if !(defined(WIN32) || defined(_WIN32))
@@ -2713,17 +2716,19 @@ void FileMgr::removePending(FileMgr *old_file,
 
         spin_unlock(&old_file->fMgrLock);
 
-        // Update new_file's prevFile link
+        // Update new_file's oldFileName
         spin_lock(&new_file->fMgrLock);
-        new_file->prevFile = old_file;
+        new_file->oldFileName = std::string(old_file->getFileName());
         spin_unlock(&new_file->fMgrLock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
         spin_unlock(&old_file->fMgrLock);
 
+        FileMgr *new_file = FileMgrMap::get()->fetchEntry(old_file->newFileName);
+
         if (!lazyFileDeletionEnabled ||
-            (old_file->newFile && old_file->newFile->inPlaceCompaction)) {
+            (new_file && new_file->inPlaceCompaction)) {
             remove(old_file->fileName);
         }
         FileMgr::removeFile(old_file, log_callback);
