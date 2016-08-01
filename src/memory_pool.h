@@ -19,9 +19,10 @@
 
 #include <stdlib.h>
 
-#include <mutex>
 #include <queue>
 #include <vector>
+
+#include "common.h"
 
 class MemoryPool {
 /**
@@ -81,8 +82,8 @@ private:
      */
     int deQueue();
 
-    // Lock to protect queue operations
-    std::mutex queueGuard;
+    // Spin lock for queue ops
+    spin_t lock;
     // Queue of indexes
     std::queue<int> indexQ;
     // Vector of pre-allocated memory

@@ -18,6 +18,7 @@
 #include <memory_pool.h>
 
 MemoryPool::MemoryPool(int num_bins, size_t bin_size) {
+    spin_init(&lock);
     for (int i = 0; i < num_bins; ++i) {
         memPool.push_back((uint8_t *) malloc(bin_size));
         enQueue(i);
@@ -25,6 +26,7 @@ MemoryPool::MemoryPool(int num_bins, size_t bin_size) {
 }
 
 MemoryPool::~MemoryPool() {
+    spin_destroy(&lock);
     for (auto &it : memPool) {
         free(it);
     }
@@ -47,16 +49,18 @@ void MemoryPool::returnBlock(int index) {
 }
 
 inline void MemoryPool::enQueue(int index) {
-    std::lock_guard<std::mutex> guard(queueGuard);
+    spin_lock(&lock);
     indexQ.push(index);
+    spin_unlock(&lock);
 }
 
 inline int MemoryPool::deQueue() {
     int data = -1;
-    std::lock_guard<std::mutex> guard(queueGuard);
+    spin_lock(&lock);
     if (indexQ.size()) {
         data = indexQ.front();
         indexQ.pop();
     }
+    spin_unlock(&lock);
     return data;
 }
