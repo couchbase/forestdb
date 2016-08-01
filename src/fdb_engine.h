@@ -289,6 +289,53 @@ public:
     fdb_status commitWithKVHandle(FdbKvsHandle *handle,
                                   fdb_commit_opt_t opt,
                                   bool sync);
+    /**
+     * Create a snapshot of a KV store.
+     *
+     * @param handle_in ForestDB KV store handle pointer from which snapshot is to be made
+     * @param handle_out Pointer to KV store snapshot handle, close with fdb_kvs_close()
+     * @param snapshot_seqnum The sequence number or snapshot marker of snapshot.
+     *        Note that this seq number should correspond to one of the commits
+     *        that have been persisted for a given KV store instance.
+     *        To create an in-memory snapshot for a given KV store, pass
+     *        FDB_SNAPSHOT_INMEM as the sequence number.
+     *        In-memory snapshot is a non-durable consistent copy of the KV store
+     *        instance and carries the latest version of all the keys at the point
+     *        of the snapshot and can even be taken out of uncommitted transaction.
+     * @return FDB_RESULT_SUCCESS on success.
+     *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
+     *                                 if sequence number tree is not enabled
+     *         Any other error from fdb_open may be returned
+     */
+    fdb_status openSnapshot(FdbKvsHandle *handle_in,
+                            FdbKvsHandle **handle_out,
+                            fdb_seqnum_t snapshot_seqnum);
+
+    /**
+     * Rollback a KV store to a specified point represented by a given sequence
+     * number.
+     *
+     * @param handle_ptr ForestDB KV store handle that needs to be rolled back.
+     * @param rollback_seqnum sequence number or rollback point marker of snapshot
+     * @return FDB_RESULT_SUCCESS on success.
+     *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
+     *                                 if sequence number tree is not enabled
+     *         Any other error from fdb_open may be returned
+     */
+    fdb_status rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
+
+    /**
+     * Rollback all the KV stores in a file to a specified point represented by
+     * a file-level snapshot marker returned by fdb_get_all_snap_markers api.
+     *
+     * @param fhandle ForestDB file handle.
+     * @param marker file level marker or the rollback point of all KV stores
+     * @return FDB_RESULT_SUCCESS on success.
+     *         FDB_RESULT_HANDLE_BUSY if there are multiple kv stores used whose
+     *                                handles have not yet been closed
+     */
+    fdb_status rollbackAll(fdb_file_handle *fhandle,
+                           fdb_snapshot_marker_t marker);
 
 private:
 

@@ -779,230 +779,11 @@ LIBFDB_API
 fdb_status fdb_snapshot_open(FdbKvsHandle *handle_in,
                              FdbKvsHandle **ptr_handle, fdb_seqnum_t seqnum)
 {
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
-
-    if (!handle_in || !ptr_handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->openSnapshot(handle_in, ptr_handle, seqnum);
     }
-
-    fdb_config config = handle_in->config;
-    fdb_kvs_config kvs_config = handle_in->kvs_config;
-    fdb_kvs_id_t kv_id = 0;
-    FdbKvsHandle *handle;
-    fdb_txn *txn = NULL;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    FileMgr *file;
-    file_status_t fMgrStatus = FILE_NORMAL;
-    struct snap_handle dummy_shandle;
-    struct _fdb_key_cmp_info cmp_info;
-    LATENCY_STAT_START();
-
-fdb_snapshot_open_start:
-    if (!handle_in->shandle) {
-        fdb_check_file_reopen(handle_in, &fMgrStatus);
-        fdb_sync_db_header(handle_in);
-        file = handle_in->file;
-
-        if (handle_in->kvs && handle_in->kvs->getKvsType() == KVS_SUB) {
-            handle_in->seqnum = fdb_kvs_get_seqnum(file,
-                                                   handle_in->kvs->getKvsId());
-        } else {
-            handle_in->seqnum = file->getSeqnum();
-        }
-    } else {
-        file = handle_in->file;
-    }
-
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current FdbKvsHandle
-    if (seqnum != FDB_SNAPSHOT_INMEM && seqnum > handle_in->seqnum) {
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
-    handle = new FdbKvsHandle();
-    if (!handle) { // LCOV_EXCL_START
-        return FDB_RESULT_ALLOC_FAIL;
-    } // LCOV_EXCL_STOP
-
-    handle->handle_busy = 0;
-    handle->log_callback = handle_in->log_callback;
-    handle->max_seqnum = seqnum;
-    handle->fhandle = handle_in->fhandle;
-
-    config.flags |= FDB_OPEN_FLAG_RDONLY;
-    // do not perform compaction for snapshot
-    config.compaction_mode = FDB_COMPACTION_MANUAL;
-
-    // If cloning an existing snapshot handle, then rewind indexes
-    // to its last DB header and point its avl tree to existing snapshot's tree
-    bool clone_snapshot = false;
-    if (handle_in->shandle) {
-        handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
-        fs = file->getWal()->snapshotClone_Wal(handle_in->shandle,
-                                               &handle->shandle, seqnum);
-        if (fs == FDB_RESULT_SUCCESS) {
-            clone_snapshot = true;
-            handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
-        } else {
-            fdb_log(&handle_in->log_callback, fs,
-                    "Warning: Snapshot clone at sequence number %" _F64
-                    "does not match its snapshot handle %" _F64
-                    "in file '%s'.", seqnum, handle_in->seqnum,
-                    file->getFileName());
-            delete handle;
-            return fs;
-        }
-    }
-
-    cmp_info.kvs_config = handle_in->kvs_config;
-    cmp_info.kvs = handle_in->kvs;
-
-    if (!handle->shandle) {
-        txn = handle_in->fhandle->getRootHandle()->txn;
-        if (!txn) {
-            txn = file->getGlobalTxn();
-        }
-        if (handle_in->kvs) {
-            kv_id = handle_in->kvs->getKvsId();
-        }
-        if (seqnum == FDB_SNAPSHOT_INMEM) {
-            memset(&dummy_shandle, 0, sizeof(struct snap_handle));
-            // tmp value to denote snapshot & not rollback to _fdb_open
-            handle->shandle = &dummy_shandle; // dummy
-        } else {
-            fs = file->getWal()->snapshotOpenPersisted_Wal(seqnum,
-                                                      &cmp_info, txn,
-                                                      &handle->shandle);
-        }
-        if (fs != FDB_RESULT_SUCCESS) {
-            delete handle;
-            return fs;
-        }
-    }
-
-    if (handle_in->kvs) {
-        // sub-handle in multi KV instance mode
-        if (clone_snapshot) {
-            fs = _fdb_kvs_clone_snapshot(handle_in, handle);
-        } else {
-            fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
-                              &config, &kvs_config, file,
-                              file->getFileName(),
-                              _fdb_kvs_get_name(handle_in, file),
-                              handle);
-        }
-    } else {
-        if (clone_snapshot) {
-            fs = _fdb_clone_snapshot(handle_in, handle);
-        } else {
-            fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
-                                                   FDB_AFILENAME, &config);
-        }
-    }
-
-    if (fs == FDB_RESULT_SUCCESS) {
-        if (seqnum == FDB_SNAPSHOT_INMEM &&
-            !handle_in->shandle) {
-            handle->max_seqnum = handle_in->seqnum;
-
-            // synchronize dirty root nodes if exist
-            bid_t dirty_idtree_root = BLK_NOT_FOUND;
-            bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-            struct filemgr_dirty_update_node *dirty_update;
-
-            dirty_update = handle->file->dirtyUpdateGetLatest();
-            handle->bhandle->setDirtyUpdate(dirty_update);
-
-            if (dirty_update) {
-                FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
-                                            &dirty_seqtree_root);
-                _fdb_import_dirty_root(handle, dirty_idtree_root,
-                                       dirty_seqtree_root);
-                handle->bhandle->discardBlocks();
-            }
-            // Having synced the dirty root, make an in-memory WAL snapshot
-            // TODO: Re-enable WAL sharing once ready...
-#ifdef _MVCC_WAL_ENABLE
-            if (txn == handle_in->file->getGlobalTxn()) {
-
-                fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, seqnum,
-                                                 &cmp_info, &handle->shandle);
-            } else { // Snapshots from uncommitted transactions are isolated
-                fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
-                                                          &cmp_info, txn,
-                                                          &handle->shandle);
-                if (fs == FDB_RESULT_SUCCESS) {
-                    fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
-                                                      (bool)handle_in->kvs);
-                }
-                (void)kv_id;
-            }
-#else
-            fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
-                                                      &cmp_info, txn,
-                                                      &handle->shandle);
-            if (fs == FDB_RESULT_SUCCESS) {
-                fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
-                                                  (bool)handle_in->kvs);
-            }
-            (void)kv_id;
-#endif // _MVCC_WAL_ENABLE
-        } else if (clone_snapshot) {
-            // Snapshot is created on the other snapshot handle
-
-            handle->max_seqnum = handle_in->seqnum;
-
-            if (seqnum == FDB_SNAPSHOT_INMEM) {
-                // in-memory snapshot
-                // Clone dirty root nodes from the source snapshot by incrementing
-                // their ref counters
-                handle->trie->setRootBid(handle_in->trie->getRootBid());
-                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                    if (handle->kvs) {
-                        handle->seqtrie->setRootBid(handle_in->seqtrie->getRootBid());
-                    } else {
-                        handle->seqtree->setRootBid(handle_in->seqtree->getRootBid());
-                    }
-                }
-                handle->bhandle->discardBlocks();
-
-                // increase ref count for dirty update
-                struct filemgr_dirty_update_node *dirty_update;
-                dirty_update = handle_in->bhandle->getDirtyUpdate();
-                FileMgr::dirtyUpdateIncRefCount(dirty_update);
-                handle->bhandle->setDirtyUpdate(dirty_update);
-            }
-        }
-        *ptr_handle = handle;
-    } else {
-        *ptr_handle = NULL;
-        if (clone_snapshot || seqnum != FDB_SNAPSHOT_INMEM) {
-            handle->file->getWal()->snapshotClose_Wal(handle->shandle);
-        }
-        delete handle;
-
-        // If compactor thread had finished compaction just before this routine
-        // calls _fdb_open, then it is possible that the snapshot's DB header
-        // is only present in the new_file. So we must retry the snapshot
-        // open attempt IFF _fdb_open indicates FDB_RESULT_NO_DB_INSTANCE..
-        if (fs == FDB_RESULT_NO_DB_INSTANCE && fMgrStatus == FILE_COMPACT_OLD) {
-            if (file->getFileStatus() == FILE_REMOVED_PENDING) {
-                goto fdb_snapshot_open_start;
-            }
-        }
-    }
-
-    if (handle_in->shandle) {
-        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_CLONE);
-    } else if (seqnum == FDB_SNAPSHOT_INMEM) {
-        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_INMEM);
-    } else {
-        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_DUR);
-    }
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in);
@@ -1010,275 +791,22 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in);
 LIBFDB_API
 fdb_status fdb_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
 {
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
-
-    fdb_config config;
-    FdbKvsHandle *handle_in, *handle;
-    fdb_status fs;
-    fdb_seqnum_t old_seqnum;
-
-    if (!handle_ptr) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->rollback(handle_ptr, seqnum);
     }
-
-    handle_in = *handle_ptr;
-
-    if (!handle_in) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    config = handle_in->config;
-
-    if (handle_in->kvs) {
-        return fdb_kvs_rollback(handle_ptr, seqnum);
-    }
-
-    if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
-                       handle_in->file->getFileName());
-    }
-
-    uint8_t cond = 0;
-    if (!handle_in->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    handle_in->file->mutexLock();
-    handle_in->file->setRollback(1); // disallow writes operations
-    // All transactions should be closed before rollback
-    if (handle_in->file->getWal()->doesTxnExist_Wal()) {
-        handle_in->file->setRollback(0);
-        handle_in->file->mutexUnlock();
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_FAIL_BY_TRANSACTION;
-    }
-
-    // If compaction is running, wait until it is aborted.
-    // TODO: Find a better way of waiting for the compaction abortion.
-    unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fMgrStatus = handle_in->file->getFileStatus();
-    while (fMgrStatus == FILE_COMPACT_OLD) {
-        handle_in->file->mutexUnlock();
-        decaying_usleep(&sleep_time, 1000000);
-        handle_in->file->mutexLock();
-        fMgrStatus = handle_in->file->getFileStatus();
-    }
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        handle_in->file->mutexUnlock();
-        fdb_check_file_reopen(handle_in, NULL);
-    } else {
-        handle_in->file->mutexUnlock();
-    }
-
-    fdb_sync_db_header(handle_in);
-
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current FdbKvsHandle
-    if (seqnum > handle_in->seqnum) {
-        handle_in->file->setRollback(0); // allow mutations
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
-    handle = new FdbKvsHandle();
-    if (!handle) { // LCOV_EXCL_START
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
-        return FDB_RESULT_ALLOC_FAIL;
-    } // LCOV_EXCL_STOP
-
-    handle->handle_busy = 0;
-    handle->log_callback = handle_in->log_callback;
-    handle->fhandle = handle_in->fhandle;
-    if (seqnum == 0) {
-        fs = _fdb_reset(handle, handle_in);
-    } else {
-        handle->max_seqnum = seqnum;
-        fs = FdbEngine::getInstance()->openFdb(handle, handle_in->file->getFileName(),
-                                               FDB_AFILENAME, &config);
-    }
-
-    handle_in->file->setRollback(0); // allow mutations
-    if (fs == FDB_RESULT_SUCCESS) {
-        // rollback the file's sequence number
-        handle_in->file->mutexLock();
-        old_seqnum = handle_in->file->getSeqnum();
-        handle_in->file->setSeqnum(seqnum);
-        handle_in->file->mutexUnlock();
-
-        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(handle,
-                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
-                                                          sync);
-        if (fs == FDB_RESULT_SUCCESS) {
-            if (handle_in->txn) {
-                handle->txn = handle_in->txn;
-                handle_in->txn = NULL;
-            }
-            handle_in->fhandle->setRootHandle(handle);
-            _fdb_close_root(handle_in);
-            handle->max_seqnum = 0;
-            handle->seqnum = seqnum;
-            *handle_ptr = handle;
-        } else {
-            // cancel the rolling-back of the sequence number
-            handle_in->file->mutexLock();
-            handle_in->file->setSeqnum(old_seqnum);
-            handle_in->file->mutexUnlock();
-            delete handle;
-            cond = 1;
-            handle_in->handle_busy.compare_exchange_strong(cond, 0);
-        }
-    } else {
-        delete handle;
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
-    }
-
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
                             fdb_snapshot_marker_t marker)
 {
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
-
-    fdb_config config;
-    FdbKvsHandle *super_handle;
-    FdbKvsHandle rhandle;
-    FdbKvsHandle *handle = &rhandle;
-    FileMgr *file;
-    fdb_kvs_config kvs_config;
-    fdb_status fs;
-    ErrLogCallback log_callback;
-    KvsInfo *kvs;
-    struct snap_handle shandle; // dummy snap handle
-
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->rollbackAll(fhandle, marker);
     }
-
-    super_handle = fhandle->getRootHandle();
-    kvs = super_handle->kvs;
-
-    // fdb_rollback_all cannot be allowed when there are kv store instances
-    // still open, because we do not have means of invalidating open kv handles
-    // which may not be present in the rollback point
-    if (kvs && _fdb_kvs_is_busy(fhandle)) {
-        return FDB_RESULT_KV_STORE_BUSY;
-    }
-    file = super_handle->file;
-    config = super_handle->config;
-    kvs_config = super_handle->kvs_config;
-    log_callback = super_handle->log_callback;
-
-    if (super_handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&super_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
-                       super_handle->file->getFileName());
-    }
-
-    super_handle->file->mutexLock();
-    super_handle->file->setRollback(1); // disallow writes operations
-    // All transactions should be closed before rollback
-    if (super_handle->file->getWal()->doesTxnExist_Wal()) {
-        super_handle->file->setRollback(0);
-        super_handle->file->mutexUnlock();
-        return FDB_RESULT_FAIL_BY_TRANSACTION;
-    }
-
-    // If compaction is running, wait until it is aborted.
-    // TODO: Find a better way of waiting for the compaction abortion.
-    unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fMgrStatus = super_handle->file->getFileStatus();
-    while (fMgrStatus == FILE_COMPACT_OLD) {
-        super_handle->file->mutexUnlock();
-        decaying_usleep(&sleep_time, 1000000);
-        super_handle->file->mutexLock();
-        fMgrStatus = super_handle->file->getFileStatus();
-    }
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        super_handle->file->mutexUnlock();
-        fdb_check_file_reopen(super_handle, NULL);
-    } else {
-        super_handle->file->mutexUnlock();
-    }
-
-    fdb_sync_db_header(super_handle);
-    // Shutdown WAL discarding entries from all KV Stores..
-    fs = super_handle->file->getWal()->shutdown_Wal(&super_handle->log_callback);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
-
-    memset(&shandle, 0, sizeof(struct snap_handle));
-    handle->log_callback = log_callback;
-    handle->fhandle = fhandle;
-    handle->last_hdr_bid = (bid_t)marker; // Fast rewind on open
-    handle->max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
-    handle->shandle = &shandle; // a dummy handle to prevent WAL restore
-    if (kvs) {
-        fdb_kvs_header_free(file); // KV header will be recreated below.
-        handle->kvs = new KvsInfo(*kvs); // re-use super_handle's kvs info
-        handle->kvs_config = kvs_config;
-    }
-    handle->config = config;
-
-    fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
-                                           FDB_AFILENAME, &config);
-
-    if (handle->config.multi_kv_instances) {
-        handle->file->mutexLock();
-        fdb_kvs_header_create(handle->file);
-        fdb_kvs_header_read(handle->file->getKVHeader_UNLOCKED(), handle->dhandle,
-                            handle->kv_info_offset,
-                            handle->file->getVersion(), false);
-        handle->file->mutexUnlock();
-    }
-
-    file->setRollback(0); // allow mutations
-    handle->shandle = NULL; // just a dummy handle never allocated
-
-    if (fs == FDB_RESULT_SUCCESS) {
-        fdb_seqnum_t old_seqnum;
-        // Restore WAL for all KV instances...
-        _fdb_restore_wal(handle, FDB_RESTORE_NORMAL, (bid_t)marker, 0);
-
-        // rollback the file's sequence number
-        file->mutexLock();
-        old_seqnum = file->getSeqnum();
-        file->setSeqnum(handle->seqnum);
-        file->mutexUnlock();
-
-        bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, FDB_COMMIT_NORMAL,
-                                                          sync);
-        if (fs == FDB_RESULT_SUCCESS) {
-            _fdb_close(super_handle);
-            *super_handle = *handle;
-        } else {
-            file->mutexLock();
-            file->setSeqnum(old_seqnum);
-            file->mutexUnlock();
-        }
-    } else { // Rollback failed, restore KV header
-        fdb_kvs_header_create(file);
-        fdb_kvs_header_read(file->getKVHeader_UNLOCKED(), super_handle->dhandle,
-                            super_handle->kv_info_offset,
-                            ver_get_latest_magic(),
-                            false);
-    }
-
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 static void _fdb_init_file_config(const fdb_config *config,
@@ -8123,6 +7651,508 @@ fdb_commit_start:
     handle->op_stats->num_commits++;
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
+    return fs;
+}
+
+fdb_status FdbEngine::openSnapshot(FdbKvsHandle *handle_in,
+                                   FdbKvsHandle **ptr_handle,
+                                   fdb_seqnum_t seqnum)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    if (!handle_in || !ptr_handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    fdb_config config = handle_in->config;
+    fdb_kvs_config kvs_config = handle_in->kvs_config;
+    fdb_kvs_id_t kv_id = 0;
+    FdbKvsHandle *handle;
+    fdb_txn *txn = NULL;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    FileMgr *file;
+    file_status_t fMgrStatus = FILE_NORMAL;
+    struct snap_handle dummy_shandle;
+    struct _fdb_key_cmp_info cmp_info;
+    LATENCY_STAT_START();
+
+fdb_snapshot_open_start:
+    if (!handle_in->shandle) {
+        fdb_check_file_reopen(handle_in, &fMgrStatus);
+        fdb_sync_db_header(handle_in);
+        file = handle_in->file;
+
+        if (handle_in->kvs && handle_in->kvs->getKvsType() == KVS_SUB) {
+            handle_in->seqnum = fdb_kvs_get_seqnum(file,
+                                                   handle_in->kvs->getKvsId());
+        } else {
+            handle_in->seqnum = file->getSeqnum();
+        }
+    } else {
+        file = handle_in->file;
+    }
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current FdbKvsHandle
+    if (seqnum != FDB_SNAPSHOT_INMEM && seqnum > handle_in->seqnum) {
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    handle = new FdbKvsHandle();
+    if (!handle) { // LCOV_EXCL_START
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    handle->handle_busy = 0;
+    handle->log_callback = handle_in->log_callback;
+    handle->max_seqnum = seqnum;
+    handle->fhandle = handle_in->fhandle;
+
+    config.flags |= FDB_OPEN_FLAG_RDONLY;
+    // do not perform compaction for snapshot
+    config.compaction_mode = FDB_COMPACTION_MANUAL;
+
+    // If cloning an existing snapshot handle, then rewind indexes
+    // to its last DB header and point its avl tree to existing snapshot's tree
+    bool clone_snapshot = false;
+    if (handle_in->shandle) {
+        handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
+        fs = file->getWal()->snapshotClone_Wal(handle_in->shandle,
+                                               &handle->shandle, seqnum);
+        if (fs == FDB_RESULT_SUCCESS) {
+            clone_snapshot = true;
+            handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
+        } else {
+            fdb_log(&handle_in->log_callback, fs,
+                    "Warning: Snapshot clone at sequence number %" _F64
+                    "does not match its snapshot handle %" _F64
+                    "in file '%s'.", seqnum, handle_in->seqnum,
+                    file->getFileName());
+            delete handle;
+            return fs;
+        }
+    }
+
+    cmp_info.kvs_config = handle_in->kvs_config;
+    cmp_info.kvs = handle_in->kvs;
+
+    if (!handle->shandle) {
+        txn = handle_in->fhandle->getRootHandle()->txn;
+        if (!txn) {
+            txn = file->getGlobalTxn();
+        }
+        if (handle_in->kvs) {
+            kv_id = handle_in->kvs->getKvsId();
+        }
+        if (seqnum == FDB_SNAPSHOT_INMEM) {
+            memset(&dummy_shandle, 0, sizeof(struct snap_handle));
+            // tmp value to denote snapshot & not rollback to _fdb_open
+            handle->shandle = &dummy_shandle; // dummy
+        } else {
+            fs = file->getWal()->snapshotOpenPersisted_Wal(seqnum,
+                                                      &cmp_info, txn,
+                                                      &handle->shandle);
+        }
+        if (fs != FDB_RESULT_SUCCESS) {
+            delete handle;
+            return fs;
+        }
+    }
+
+    if (handle_in->kvs) {
+        // sub-handle in multi KV instance mode
+        if (clone_snapshot) {
+            fs = _fdb_kvs_clone_snapshot(handle_in, handle);
+        } else {
+            fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
+                              &config, &kvs_config, file,
+                              file->getFileName(),
+                              _fdb_kvs_get_name(handle_in, file),
+                              handle);
+        }
+    } else {
+        if (clone_snapshot) {
+            fs = _fdb_clone_snapshot(handle_in, handle);
+        } else {
+            fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
+                                                   FDB_AFILENAME, &config);
+        }
+    }
+
+    if (fs == FDB_RESULT_SUCCESS) {
+        if (seqnum == FDB_SNAPSHOT_INMEM &&
+            !handle_in->shandle) {
+            handle->max_seqnum = handle_in->seqnum;
+
+            // synchronize dirty root nodes if exist
+            bid_t dirty_idtree_root = BLK_NOT_FOUND;
+            bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+            struct filemgr_dirty_update_node *dirty_update;
+
+            dirty_update = handle->file->dirtyUpdateGetLatest();
+            handle->bhandle->setDirtyUpdate(dirty_update);
+
+            if (dirty_update) {
+                FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
+                                            &dirty_seqtree_root);
+                _fdb_import_dirty_root(handle, dirty_idtree_root,
+                                       dirty_seqtree_root);
+                handle->bhandle->discardBlocks();
+            }
+            // Having synced the dirty root, make an in-memory WAL snapshot
+            // TODO: Re-enable WAL sharing once ready...
+#ifdef _MVCC_WAL_ENABLE
+            if (txn == handle_in->file->getGlobalTxn()) {
+
+                fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, seqnum,
+                                                 &cmp_info, &handle->shandle);
+            } else { // Snapshots from uncommitted transactions are isolated
+                fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
+                                                          &cmp_info, txn,
+                                                          &handle->shandle);
+                if (fs == FDB_RESULT_SUCCESS) {
+                    fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
+                                                      (bool)handle_in->kvs);
+                }
+                (void)kv_id;
+            }
+#else
+            fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
+                                                      &cmp_info, txn,
+                                                      &handle->shandle);
+            if (fs == FDB_RESULT_SUCCESS) {
+                fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
+                                                  (bool)handle_in->kvs);
+            }
+            (void)kv_id;
+#endif // _MVCC_WAL_ENABLE
+        } else if (clone_snapshot) {
+            // Snapshot is created on the other snapshot handle
+
+            handle->max_seqnum = handle_in->seqnum;
+
+            if (seqnum == FDB_SNAPSHOT_INMEM) {
+                // in-memory snapshot
+                // Clone dirty root nodes from the source snapshot by incrementing
+                // their ref counters
+                handle->trie->setRootBid(handle_in->trie->getRootBid());
+                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                    if (handle->kvs) {
+                        handle->seqtrie->setRootBid(handle_in->seqtrie->getRootBid());
+                    } else {
+                        handle->seqtree->setRootBid(handle_in->seqtree->getRootBid());
+                    }
+                }
+                handle->bhandle->discardBlocks();
+
+                // increase ref count for dirty update
+                struct filemgr_dirty_update_node *dirty_update;
+                dirty_update = handle_in->bhandle->getDirtyUpdate();
+                FileMgr::dirtyUpdateIncRefCount(dirty_update);
+                handle->bhandle->setDirtyUpdate(dirty_update);
+            }
+        }
+        *ptr_handle = handle;
+    } else {
+        *ptr_handle = NULL;
+        if (clone_snapshot || seqnum != FDB_SNAPSHOT_INMEM) {
+            handle->file->getWal()->snapshotClose_Wal(handle->shandle);
+        }
+        delete handle;
+
+        // If compactor thread had finished compaction just before this routine
+        // calls _fdb_open, then it is possible that the snapshot's DB header
+        // is only present in the new_file. So we must retry the snapshot
+        // open attempt IFF _fdb_open indicates FDB_RESULT_NO_DB_INSTANCE..
+        if (fs == FDB_RESULT_NO_DB_INSTANCE && fMgrStatus == FILE_COMPACT_OLD) {
+            if (file->getFileStatus() == FILE_REMOVED_PENDING) {
+                goto fdb_snapshot_open_start;
+            }
+        }
+    }
+
+    if (handle_in->shandle) {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_CLONE);
+    } else if (seqnum == FDB_SNAPSHOT_INMEM) {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_INMEM);
+    } else {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_DUR);
+    }
+    return fs;
+}
+
+fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    FdbKvsHandle *handle_in, *handle;
+    fdb_status fs;
+    fdb_seqnum_t old_seqnum;
+
+    if (!handle_ptr) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    handle_in = *handle_ptr;
+
+    if (!handle_in) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    config = handle_in->config;
+
+    if (handle_in->kvs) {
+        return fdb_kvs_rollback(handle_ptr, seqnum);
+    }
+
+    if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
+                       handle_in->file->getFileName());
+    }
+
+    uint8_t cond = 0;
+    if (!handle_in->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    handle_in->file->mutexLock();
+    handle_in->file->setRollback(1); // disallow writes operations
+    // All transactions should be closed before rollback
+    if (handle_in->file->getWal()->doesTxnExist_Wal()) {
+        handle_in->file->setRollback(0);
+        handle_in->file->mutexUnlock();
+        cond = 1;
+        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_FAIL_BY_TRANSACTION;
+    }
+
+    // If compaction is running, wait until it is aborted.
+    // TODO: Find a better way of waiting for the compaction abortion.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fMgrStatus = handle_in->file->getFileStatus();
+    while (fMgrStatus == FILE_COMPACT_OLD) {
+        handle_in->file->mutexUnlock();
+        decaying_usleep(&sleep_time, 1000000);
+        handle_in->file->mutexLock();
+        fMgrStatus = handle_in->file->getFileStatus();
+    }
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        handle_in->file->mutexUnlock();
+        fdb_check_file_reopen(handle_in, NULL);
+    } else {
+        handle_in->file->mutexUnlock();
+    }
+
+    fdb_sync_db_header(handle_in);
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current FdbKvsHandle
+    if (seqnum > handle_in->seqnum) {
+        handle_in->file->setRollback(0); // allow mutations
+        cond = 1;
+        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    handle = new FdbKvsHandle();
+    if (!handle) { // LCOV_EXCL_START
+        cond = 1;
+        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    handle->handle_busy = 0;
+    handle->log_callback = handle_in->log_callback;
+    handle->fhandle = handle_in->fhandle;
+    if (seqnum == 0) {
+        fs = _fdb_reset(handle, handle_in);
+    } else {
+        handle->max_seqnum = seqnum;
+        fs = FdbEngine::getInstance()->openFdb(handle, handle_in->file->getFileName(),
+                                               FDB_AFILENAME, &config);
+    }
+
+    handle_in->file->setRollback(0); // allow mutations
+    if (fs == FDB_RESULT_SUCCESS) {
+        // rollback the file's sequence number
+        handle_in->file->mutexLock();
+        old_seqnum = handle_in->file->getSeqnum();
+        handle_in->file->setSeqnum(seqnum);
+        handle_in->file->mutexUnlock();
+
+        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(handle,
+                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
+                                                          sync);
+        if (fs == FDB_RESULT_SUCCESS) {
+            if (handle_in->txn) {
+                handle->txn = handle_in->txn;
+                handle_in->txn = NULL;
+            }
+            handle_in->fhandle->setRootHandle(handle);
+            _fdb_close_root(handle_in);
+            handle->max_seqnum = 0;
+            handle->seqnum = seqnum;
+            *handle_ptr = handle;
+        } else {
+            // cancel the rolling-back of the sequence number
+            handle_in->file->mutexLock();
+            handle_in->file->setSeqnum(old_seqnum);
+            handle_in->file->mutexUnlock();
+            delete handle;
+            cond = 1;
+            handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        }
+    } else {
+        delete handle;
+        cond = 1;
+        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+    }
+
+    return fs;
+}
+
+fdb_status FdbEngine::rollbackAll(fdb_file_handle *fhandle,
+                                  fdb_snapshot_marker_t marker)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    FdbKvsHandle *super_handle;
+    FdbKvsHandle rhandle;
+    FdbKvsHandle *handle = &rhandle;
+    FileMgr *file;
+    fdb_kvs_config kvs_config;
+    fdb_status fs;
+    ErrLogCallback log_callback;
+    KvsInfo *kvs;
+    struct snap_handle shandle; // dummy snap handle
+
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    super_handle = fhandle->getRootHandle();
+    kvs = super_handle->kvs;
+
+    // fdb_rollback_all cannot be allowed when there are kv store instances
+    // still open, because we do not have means of invalidating open kv handles
+    // which may not be present in the rollback point
+    if (kvs && _fdb_kvs_is_busy(fhandle)) {
+        return FDB_RESULT_KV_STORE_BUSY;
+    }
+    file = super_handle->file;
+    config = super_handle->config;
+    kvs_config = super_handle->kvs_config;
+    log_callback = super_handle->log_callback;
+
+    if (super_handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&super_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
+                       super_handle->file->getFileName());
+    }
+
+    super_handle->file->mutexLock();
+    super_handle->file->setRollback(1); // disallow writes operations
+    // All transactions should be closed before rollback
+    if (super_handle->file->getWal()->doesTxnExist_Wal()) {
+        super_handle->file->setRollback(0);
+        super_handle->file->mutexUnlock();
+        return FDB_RESULT_FAIL_BY_TRANSACTION;
+    }
+
+    // If compaction is running, wait until it is aborted.
+    // TODO: Find a better way of waiting for the compaction abortion.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fMgrStatus = super_handle->file->getFileStatus();
+    while (fMgrStatus == FILE_COMPACT_OLD) {
+        super_handle->file->mutexUnlock();
+        decaying_usleep(&sleep_time, 1000000);
+        super_handle->file->mutexLock();
+        fMgrStatus = super_handle->file->getFileStatus();
+    }
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        super_handle->file->mutexUnlock();
+        fdb_check_file_reopen(super_handle, NULL);
+    } else {
+        super_handle->file->mutexUnlock();
+    }
+
+    fdb_sync_db_header(super_handle);
+    // Shutdown WAL discarding entries from all KV Stores..
+    fs = super_handle->file->getWal()->shutdown_Wal(&super_handle->log_callback);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+
+    memset(&shandle, 0, sizeof(struct snap_handle));
+    handle->log_callback = log_callback;
+    handle->fhandle = fhandle;
+    handle->last_hdr_bid = (bid_t)marker; // Fast rewind on open
+    handle->max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
+    handle->shandle = &shandle; // a dummy handle to prevent WAL restore
+    if (kvs) {
+        fdb_kvs_header_free(file); // KV header will be recreated below.
+        handle->kvs = new KvsInfo(*kvs); // re-use super_handle's kvs info
+        handle->kvs_config = kvs_config;
+    }
+    handle->config = config;
+
+    fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
+                                           FDB_AFILENAME, &config);
+
+    if (handle->config.multi_kv_instances) {
+        handle->file->mutexLock();
+        fdb_kvs_header_create(handle->file);
+        fdb_kvs_header_read(handle->file->getKVHeader_UNLOCKED(), handle->dhandle,
+                            handle->kv_info_offset,
+                            handle->file->getVersion(), false);
+        handle->file->mutexUnlock();
+    }
+
+    file->setRollback(0); // allow mutations
+    handle->shandle = NULL; // just a dummy handle never allocated
+
+    if (fs == FDB_RESULT_SUCCESS) {
+        fdb_seqnum_t old_seqnum;
+        // Restore WAL for all KV instances...
+        _fdb_restore_wal(handle, FDB_RESTORE_NORMAL, (bid_t)marker, 0);
+
+        // rollback the file's sequence number
+        file->mutexLock();
+        old_seqnum = file->getSeqnum();
+        file->setSeqnum(handle->seqnum);
+        file->mutexUnlock();
+
+        bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
+        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, FDB_COMMIT_NORMAL,
+                                                          sync);
+        if (fs == FDB_RESULT_SUCCESS) {
+            _fdb_close(super_handle);
+            *super_handle = *handle;
+        } else {
+            file->mutexLock();
+            file->setSeqnum(old_seqnum);
+            file->mutexUnlock();
+        }
+    } else { // Rollback failed, restore KV header
+        fdb_kvs_header_create(file);
+        fdb_kvs_header_read(file->getKVHeader_UNLOCKED(), super_handle->dhandle,
+                            super_handle->kv_info_offset,
+                            ver_get_latest_magic(),
+                            false);
+    }
+
     return fs;
 }
 
