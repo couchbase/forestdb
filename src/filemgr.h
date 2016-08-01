@@ -576,7 +576,17 @@ public:
         return &fMgrHeader;
     }
 
+    /**
+     * Get the revision number of the current commit header
+     */
     filemgr_header_revnum_t getHeaderRevnum();
+
+    /**
+     * Get the revision number of a given commit header
+     *
+     * @param bid Block ID of a commit header whose revision number is returned
+     */
+    filemgr_header_revnum_t getHeaderRevnum(bid_t bid);
 
     fdb_seqnum_t getSeqnum() const;
 
@@ -597,6 +607,15 @@ public:
      * @return Current bitmap revision number.
      */
     uint64_t getSbBmpRevnum();
+
+    /**
+     * Get the bitmap revision number of superblock that corresponds to a given
+     * commit header
+     *
+     * @param bid Block ID of a commit header whose bitmap revision number
+     *        should be returned.
+     */
+    uint64_t getSbBmpRevnum(bid_t bid);
 
     fdb_status fetchHeader(uint64_t bid, void *buf, size_t *len,
                            fdb_seqnum_t *seqnum,

@@ -43,6 +43,7 @@
 #include "configuration.h"
 #include "internal_types.h"
 #include "bgflusher.h"
+#include "compaction.h"
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
@@ -66,7 +67,7 @@
 std::atomic<FdbEngine *> FdbEngine::instance(nullptr);
 std::mutex FdbEngine::instanceMutex;
 
-INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
+int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
 {
     (void) aux;
     uint64_t a,b;
@@ -248,43 +249,6 @@ void fdb_fetch_header(uint64_t version,
     }
 }
 
-// read the revnum of the given header of BID
-INLINE filemgr_header_revnum_t _fdb_get_header_revnum(FdbKvsHandle *handle, bid_t bid)
-{
-    uint8_t *buf = alca(uint8_t, handle->file->getBlockSize());
-    uint64_t version;
-    size_t header_len;
-    fdb_seqnum_t seqnum;
-    filemgr_header_revnum_t revnum = 0;
-    fdb_status fs;
-
-    fs = handle->file->fetchHeader(bid, buf, &header_len,
-                                   &seqnum, &revnum, NULL, &version, NULL,
-                                   &handle->log_callback);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return 0;
-    }
-    return revnum;
-}
-
-INLINE filemgr_header_revnum_t _fdb_get_bmp_revnum(FdbKvsHandle *handle, bid_t bid)
-{
-    uint8_t *buf = alca(uint8_t, handle->file->getBlockSize());
-    uint64_t version, bmp_revnum = 0;
-    size_t header_len;
-    fdb_seqnum_t seqnum;
-    filemgr_header_revnum_t revnum;
-    fdb_status fs;
-
-    fs = handle->file->fetchHeader(bid, buf, &header_len,
-                                   &seqnum, &revnum, NULL, &version, &bmp_revnum,
-                                   &handle->log_callback);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return 0;
-    }
-    return bmp_revnum;
-}
-
 void fdb_dummy_log_callback(int err_code, const char *err_msg, void *ctx_data)
 {
     (void)err_code;
@@ -353,8 +317,8 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     cmp_info.kvs_config = handle->kvs_config;
     cmp_info.kvs = handle->kvs;
 
-    start_bmp_revnum = _fdb_get_bmp_revnum(handle, last_wal_flush_hdr_bid);
-    stop_bmp_revnum= _fdb_get_bmp_revnum(handle, hdr_bid);
+    start_bmp_revnum = handle->file->getSbBmpRevnum(last_wal_flush_hdr_bid);
+    stop_bmp_revnum= handle->file->getSbBmpRevnum(hdr_bid);
     cur_bmp_revnum = start_bmp_revnum;
 
     // A: reused blocks during the 1st block reclaim (bmp_revnum: 1)
@@ -809,39 +773,6 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
-static void _fdb_init_file_config(const fdb_config *config,
-                                  FileMgrConfig *fconfig) {
-    fconfig->setBlockSize(config->blocksize);
-    fconfig->setNcacheBlock(config->buffercache_size / config->blocksize);
-    fconfig->setChunkSize(config->chunksize);
-
-    fconfig->addOptions(0x0);
-    fconfig->setSeqtreeOpt(config->seqtree_opt);
-
-    if (config->flags & FDB_OPEN_FLAG_CREATE) {
-        fconfig->addOptions(FILEMGR_CREATE);
-    }
-    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
-        fconfig->addOptions(FILEMGR_READONLY);
-    }
-    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
-        fconfig->addOptions(FILEMGR_SYNC);
-    }
-
-    fconfig->setFlag(0x0);
-    if ((config->durability_opt & FDB_DRB_ODIRECT) &&
-        config->buffercache_size) {
-        fconfig->addFlag(_ARCH_O_DIRECT);
-    }
-
-    fconfig->setPrefetchDuration(config->prefetch_duration);
-    fconfig->setNumWalShards(config->num_wal_partitions);
-    fconfig->setNumBcacheShards(config->num_bcache_partitions);
-    fconfig->setEncryptionKey(config->encryption_key);
-    fconfig->setBlockReusingThreshold(config->block_reusing_threshold);
-    fconfig->setNumKeepingHeaders(config->num_keeping_headers);
-}
-
 fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
                                FdbKvsHandle *handle_out)
 {
@@ -1087,364 +1018,6 @@ fdb_status fdb_doc_free(fdb_doc *doc)
         free(doc->meta);
         free(doc->body);
         free(doc);
-    }
-    return FDB_RESULT_SUCCESS;
-}
-
-INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
-                                        struct wal_item *item)
-{
-    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
-    uint64_t old_offset = 0;
-
-    if (item->action == WAL_ACT_REMOVE) {
-        // For immediate remove, old_offset value is critical
-        // so that we should get an exact value.
-        handle->trie->find(item->header->key,
-                           item->header->keylen,
-                           (void*)&old_offset);
-    } else {
-        handle->trie->findOffset(item->header->key,
-                                 item->header->keylen,
-                                 (void*)&old_offset);
-    }
-    handle->bhandle->flushBuffer();
-    old_offset = _endian_decode(old_offset);
-
-    return old_offset;
-}
-
-// A stale sequence number entry that can be purged from the sequence tree
-// during the WAL flush.
-struct wal_stale_seq_entry {
-    fdb_kvs_id_t kv_id;
-    fdb_seqnum_t seqnum;
-    struct avl_node avl_entry;
-};
-
-// Delta changes in KV store stats during the WAL flush
-struct wal_kvs_delta_stat {
-    fdb_kvs_id_t kv_id;
-    int64_t nlivenodes;
-    int64_t ndocs;
-    int64_t ndeletes;
-    int64_t datasize;
-    int64_t deltasize;
-    struct avl_node avl_entry;
-};
-
-INLINE int _fdb_seq_entry_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
-    (void) aux;
-    struct wal_stale_seq_entry *entry1 = _get_entry(a, struct wal_stale_seq_entry,
-                                                    avl_entry);
-    struct wal_stale_seq_entry *entry2 = _get_entry(b, struct wal_stale_seq_entry,
-                                                    avl_entry);
-    if (entry1->kv_id < entry2->kv_id) {
-        return -1;
-    } else if (entry1->kv_id > entry2->kv_id) {
-        return 1;
-    } else {
-        return _CMP_U64(entry1->seqnum, entry2->seqnum);
-    }
-}
-
-
-// Compare function to sort KVS delta stat entries in the AVL tree during WAL flush
-INLINE int _kvs_delta_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
-    (void) aux;
-    struct wal_kvs_delta_stat *stat1 = _get_entry(a, struct wal_kvs_delta_stat,
-                                                  avl_entry);
-    struct wal_kvs_delta_stat *stat2 = _get_entry(b, struct wal_kvs_delta_stat,
-                                                  avl_entry);
-    if (stat1->kv_id < stat2->kv_id) {
-        return -1;
-    } else if (stat1->kv_id > stat2->kv_id) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
-                                     struct avl_tree *stale_seqnum_list,
-                                     struct avl_tree *kvs_delta_stats)
-{
-    fdb_seqnum_t _seqnum;
-    int64_t nlivenodes;
-    int64_t ndeltanodes;
-    int64_t delta;
-    uint8_t kvid_seqnum[sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t)];
-    struct wal_stale_seq_entry *seq_entry;
-    struct wal_kvs_delta_stat *delta_stat;
-    struct wal_kvs_delta_stat kvs_delta_query;
-
-    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
-    struct avl_node *node = avl_first(stale_seqnum_list);
-    while (node) {
-        seq_entry = _get_entry(node, struct wal_stale_seq_entry, avl_entry);
-        node = avl_next(node);
-        nlivenodes = handle->bhandle->getNLiveNodes();
-        ndeltanodes = handle->bhandle->getNDeltaNodes();
-        _seqnum = _endian_encode(seq_entry->seqnum);
-        if (handle->kvs) {
-            // multi KV instance mode .. HB+trie
-            kvid2buf(sizeof(fdb_kvs_id_t), seq_entry->kv_id, kvid_seqnum);
-            memcpy(kvid_seqnum + sizeof(fdb_kvs_id_t), &_seqnum, sizeof(fdb_seqnum_t));
-            handle->seqtrie->remove((void*)kvid_seqnum,
-                                    sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t));
-        } else {
-            handle->seqtree->remove((void*)&_seqnum);
-        }
-        handle->bhandle->flushBuffer();
-
-        kvs_delta_query.kv_id = seq_entry->kv_id;
-        avl_node *delta_stat_node = avl_search(kvs_delta_stats,
-                                               &kvs_delta_query.avl_entry,
-                                               _kvs_delta_stat_cmp);
-        if (delta_stat_node) {
-            delta_stat = _get_entry(delta_stat_node, struct wal_kvs_delta_stat,
-                                    avl_entry);
-            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
-            delta_stat->nlivenodes += delta;
-            delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
-            delta *= handle->config.blocksize;
-            delta_stat->deltasize += delta;
-        }
-        avl_remove(stale_seqnum_list, &seq_entry->avl_entry);
-        free(seq_entry);
-    }
-}
-
-INLINE void _fdb_wal_flush_kvs_delta_stats(FileMgr *file,
-                                           struct avl_tree *kvs_delta_stats)
-{
-    struct avl_node *node;
-    struct wal_kvs_delta_stat *delta_stat;
-    node = avl_first(kvs_delta_stats);
-    while (node) {
-        delta_stat = _get_entry(node, struct wal_kvs_delta_stat, avl_entry);
-        node = avl_next(node);
-        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
-                              KVS_STAT_DATASIZE, delta_stat->datasize);
-        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
-                              KVS_STAT_NDOCS, delta_stat->ndocs);
-        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
-                              KVS_STAT_NDELETES, delta_stat->ndeletes);
-        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
-                              KVS_STAT_NLIVENODES, delta_stat->nlivenodes);
-        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
-                              KVS_STAT_DELTASIZE, delta_stat->deltasize);
-        avl_remove(kvs_delta_stats, &delta_stat->avl_entry);
-        free(delta_stat);
-    }
-}
-
-INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
-                                      struct wal_item *item,
-                                      struct avl_tree *stale_seqnum_list,
-                                      struct avl_tree *kvs_delta_stats)
-{
-    hbtrie_result hr;
-    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
-    fdb_seqnum_t _seqnum;
-    fdb_kvs_id_t kv_id = 0;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
-    int size_id, size_seq;
-    uint8_t *kvid_seqnum;
-    uint64_t old_offset;
-    int64_t _offset;
-    int64_t delta;
-    struct docio_object _doc;
-    FileMgr *file = handle->dhandle->getFile();
-
-    memset(var_key, 0, handle->config.chunksize);
-    if (handle->kvs) {
-        buf2kvid(handle->config.chunksize, item->header->key, &kv_id);
-    } else {
-        kv_id = 0;
-    }
-
-    struct wal_kvs_delta_stat *kvs_delta_stat;
-    struct wal_kvs_delta_stat kvs_delta_query;
-    kvs_delta_query.kv_id = kv_id;
-    avl_node *delta_stat_node = avl_search(kvs_delta_stats,
-                                           &kvs_delta_query.avl_entry,
-                                           _kvs_delta_stat_cmp);
-    if (delta_stat_node) {
-        kvs_delta_stat = _get_entry(delta_stat_node, struct wal_kvs_delta_stat,
-                                    avl_entry);
-    } else {
-        kvs_delta_stat = (struct wal_kvs_delta_stat *)
-            calloc(1, sizeof(struct wal_kvs_delta_stat));
-        kvs_delta_stat->kv_id = kv_id;
-        avl_insert(kvs_delta_stats, &kvs_delta_stat->avl_entry,
-                   _kvs_delta_stat_cmp);
-    }
-
-    int64_t nlivenodes = handle->bhandle->getNLiveNodes();
-    int64_t ndeltanodes = handle->bhandle->getNDeltaNodes();
-
-    if (item->action == WAL_ACT_INSERT ||
-        item->action == WAL_ACT_LOGICAL_REMOVE) {
-        _offset = _endian_encode(item->offset);
-
-        handle->trie->insert(item->header->key, item->header->keylen,
-                             (void *)&_offset, (void *)&old_offset);
-
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-        old_offset = _endian_decode(old_offset);
-
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            _seqnum = _endian_encode(item->seqnum);
-            if (handle->kvs) {
-                // multi KV instance mode .. HB+trie
-                uint64_t old_offset_local;
-
-                size_id = sizeof(fdb_kvs_id_t);
-                size_seq = sizeof(fdb_seqnum_t);
-                kvid_seqnum = alca(uint8_t, size_id + size_seq);
-                kvid2buf(size_id, kv_id, kvid_seqnum);
-                memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
-                handle->seqtrie->insert(kvid_seqnum, size_id + size_seq,
-                                        (void *)&_offset, (void *)&old_offset_local);
-            } else {
-                handle->seqtree->insert((void *)&_seqnum, (void *)&_offset);
-            }
-            fs = handle->bhandle->flushBuffer();
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-        }
-
-        delta = handle->bhandle->getNLiveNodes() - nlivenodes;
-        kvs_delta_stat->nlivenodes += delta;
-        delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
-        delta *= handle->config.blocksize;
-        kvs_delta_stat->deltasize += delta;
-
-        if (old_offset == BLK_NOT_FOUND) {
-            if (item->action == WAL_ACT_INSERT) {
-                ++kvs_delta_stat->ndocs;
-            } else { // inserted a logical deleted doc into main index
-                ++kvs_delta_stat->ndeletes;
-            }
-            kvs_delta_stat->datasize += item->doc_size;
-            kvs_delta_stat->deltasize += item->doc_size;
-        } else { // update or logical delete
-            // This block is already cached when we call HBTRIE_INSERT.
-            // No additional block access.
-            char dummy_key[FDB_MAX_KEYLEN];
-            _doc.meta = _doc.body = NULL;
-            _doc.key = &dummy_key;
-            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
-                                              &_doc, true);
-            if (_offset < 0) {
-                return (fdb_status) _offset;
-            } else if (_offset == 0) {
-                // Note that this is not an error as old_offset is pointing to
-                // the zero-filled region in a document block.
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            free(_doc.meta);
-            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
-
-            if (!(_doc.length.flag & DOCIO_DELETED)) {//prev doc was not deleted
-                if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
-                    --kvs_delta_stat->ndocs;
-                    ++kvs_delta_stat->ndeletes;
-                } // else no change (prev doc was insert, now just an update)
-            } else { // prev doc in main index was a logically deleted doc
-                if (item->action == WAL_ACT_INSERT) { // now undeleted
-                    ++kvs_delta_stat->ndocs;
-                    --kvs_delta_stat->ndeletes;
-                } // else no change (prev doc was deleted, now re-deleted)
-            }
-
-            delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
-            kvs_delta_stat->datasize += delta;
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
-                kvs_delta_stat->deltasize += delta;
-            } else {
-                kvs_delta_stat->deltasize += (int)item->doc_size;
-            }
-
-            // Avoid duplicates (remove previous sequence number)
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
-                    calloc(1, sizeof(struct wal_stale_seq_entry));
-                entry->kv_id = kv_id;
-                entry->seqnum = _doc.seqnum;
-                avl_insert(stale_seqnum_list, &entry->avl_entry,
-                           _fdb_seq_entry_cmp);
-            }
-        }
-    } else {
-        // Immediate remove
-        old_offset = item->old_offset;
-        hr = handle->trie->remove(item->header->key, item->header->keylen);
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-
-        if (hr == HBTRIE_RESULT_SUCCESS) {
-            // This block is already cached when we call _fdb_wal_get_old_offset
-            // No additional block access should be done.
-            char dummy_key[FDB_MAX_KEYLEN];
-            _doc.meta = _doc.body = NULL;
-            _doc.key = &dummy_key;
-            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
-                                              &_doc, true);
-            if (_offset < 0) {
-                return (fdb_status) _offset;
-            } else if (_offset == 0) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            free(_doc.meta);
-            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
-
-            // Reduce the total number of docs by one
-            --kvs_delta_stat->ndocs;
-            if (_doc.length.flag & DOCIO_DELETED) {//prev deleted doc is dropped
-                --kvs_delta_stat->ndeletes;
-            }
-
-            // Reduce the total datasize by size of previously present doc
-            delta = -(int)_fdb_get_docsize(_doc.length);
-            kvs_delta_stat->datasize += delta;
-            // if multiple wal flushes happen before commit, then it's possible
-            // that this doc deleted was inserted & flushed after last commit
-            // In this case we need to update the deltasize too which tracks
-            // the amount of new data inserted between commits.
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
-                kvs_delta_stat->deltasize += delta;
-            }
-
-            // remove sequence number for the removed doc
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
-                    calloc(1, sizeof(struct wal_stale_seq_entry));
-                entry->kv_id = kv_id;
-                entry->seqnum = _doc.seqnum;
-                avl_insert(stale_seqnum_list, &entry->avl_entry, _fdb_seq_entry_cmp);
-            }
-
-            // Update index size to new size after the remove operation
-            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
-            kvs_delta_stat->nlivenodes += delta;
-
-            // ndeltanodes measures number of new index nodes created due to
-            // this hbtrie_remove() operation
-            delta = (int)handle->bhandle->getNDeltaNodes() - ndeltanodes;
-            delta *= handle->config.blocksize;
-            kvs_delta_stat->deltasize += delta;
-        }
     }
     return FDB_RESULT_SUCCESS;
 }
@@ -1908,50 +1481,6 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
     return handle->file->updateHeader(buf, offset, inc_revnum);
 }
 
-static
-char *_fdb_redirect_header(FileMgr *old_file, uint8_t *buf,
-                           FileMgr *new_file) {
-    uint16_t old_compact_filename_len; // size of existing old_filename in buf
-    uint16_t new_compact_filename_len; // size of existing new_filename in buf
-    uint16_t new_filename_len = new_file->getFileNameLen() + 1;
-    uint16_t new_filename_len_enc = _endian_encode(new_filename_len);
-    uint32_t crc;
-    size_t crc_offset;
-    size_t new_fnamelen_off = ver_get_new_filename_off(old_file->getVersion());
-    size_t new_fname_off = new_fnamelen_off + 4;
-    size_t offset = new_fnamelen_off;
-    char *old_filename;
-    // Read existing DB header's size of newly compacted filename
-    seq_memcpy(&new_compact_filename_len, buf + offset, sizeof(uint16_t),
-               offset);
-    new_compact_filename_len = _endian_decode(new_compact_filename_len);
-
-    // Read existing DB header's size of filename before its compaction
-    seq_memcpy(&old_compact_filename_len, buf + offset, sizeof(uint16_t),
-               offset);
-    old_compact_filename_len = _endian_decode(old_compact_filename_len);
-
-    // Update DB header's size of newly compacted filename to redirected one
-    memcpy(buf + new_fnamelen_off, &new_filename_len_enc, sizeof(uint16_t));
-
-    // Copy over existing DB header's old_filename to its new location
-    old_filename = (char*)buf + offset + new_filename_len;
-    if (new_compact_filename_len != new_filename_len) {
-        memmove(old_filename, buf + offset + new_compact_filename_len,
-                old_compact_filename_len);
-    }
-    // Update the DB header's new_filename to the redirected one
-    memcpy(buf + new_fname_off, new_file->getFileName(), new_filename_len);
-    // Compute the DB header's new crc32 value
-    crc_offset = new_fname_off + new_filename_len + old_compact_filename_len;
-    crc = get_checksum(buf, crc_offset, new_file->getCrcMode());
-    crc = _endian_encode(crc);
-    // Update the DB header's new crc32 value
-    memcpy(buf + crc_offset, &crc, sizeof(crc));
-    // If the DB header indicated an old_filename, return it
-    return old_compact_filename_len ? old_filename : NULL;
-}
-
 static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
     uint64_t marker_offset;
@@ -1981,2274 +1510,6 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
         return fdb_engine->commit(fhandle, opt);
     }
     return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
-}
-
-static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
-                                                 FileMgr *old_file,
-                                                 FileMgr *new_file)
-{
-    // Note: new_file == handle->file
-
-    fdb_txn *earliest_txn;
-    bool wal_flushed = false;
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-    union wal_flush_items flush_items;
-    fdb_status status = FDB_RESULT_SUCCESS;
-    FileMgr *very_old_file;
-
-    handle->bhandle->flushBuffer();
-
-    // sync dirty root nodes
-    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
-
-    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
-                            &dirty_idtree_root, &dirty_seqtree_root, false);
-
-    new_file->getWal()->commit_Wal(new_file->getGlobalTxn(), NULL,
-                                   &handle->log_callback);
-    if (new_file->getWal()->getNumFlushable_Wal()) {
-        // flush wal if not empty
-        new_file->getWal()->flush_Wal((void *)handle,
-                  _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                  _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                  &flush_items);
-        new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
-        wal_flushed = true;
-    } else if (new_file->getWal()->getSize_Wal() == 0) {
-        // empty WAL
-        new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
-    }
-
-    _fdb_dirty_update_finalize(handle, prev_node, new_node,
-                               &dirty_idtree_root, &dirty_seqtree_root, true);
-
-    // Note: Appending KVS header must be done after flushing WAL
-    //       because KVS stats info is updated during WAL flushing.
-    if (handle->kvs) {
-        // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle);
-    }
-
-    handle->file->getStaleData()->gatherRegions(handle,
-                                                handle->file->getHeaderRevnum() + 1,
-                                                handle->file->getHeaderBid(),
-                                                handle->kv_info_offset,
-                                                handle->file->getSeqnum(),
-                                                false );
-    handle->last_hdr_bid = new_file->getNextAllocBlock();
-    if (new_file->getWal()->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
-        earliest_txn = new_file->getWal()->getEarliestTxn_Wal(new_file->getGlobalTxn());
-        if (earliest_txn) {
-            // there exists other transaction that is not committed yet
-            if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
-                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
-            }
-        } else {
-            // there is no other transaction .. now WAL is empty
-            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-        }
-    }
-
-    // update global_txn's previous header BID
-    new_file->getGlobalTxn()->prev_hdr_bid = handle->last_hdr_bid;
-    // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
-
-    SuperblockBase *sb = handle->file->getSb();
-    if (sb) {
-        // sync superblock
-        sb->updateHeader(handle);
-        sb->syncCircular(handle);
-    }
-    status = new_file->commit_FileMgr(
-                              !(handle->config.durability_opt & FDB_DRB_ASYNC),
-                              &handle->log_callback);
-    if (status != FDB_RESULT_SUCCESS) {
-        old_file->mutexUnlock();
-        new_file->mutexUnlock();
-        return status;
-    }
-
-    if (wal_flushed) {
-        new_file->getWal()->releaseFlushedItems_Wal(&flush_items);
-    }
-
-    CompactionManager::getInstance()->switchFile(old_file, new_file,
-                                                 &handle->log_callback);
-    do { // Find all files pointing to old_file and redirect them to new file..
-        very_old_file = old_file->searchStaleLinks();
-        if (very_old_file) {
-            FileMgr::redirectOldFile(very_old_file, new_file,
-                                     _fdb_redirect_header);
-            very_old_file->commit_FileMgr(
-                           !(handle->config.durability_opt & FDB_DRB_ASYNC),
-                           &handle->log_callback);
-            // I/O errors here are not propogated since this is best-effort
-            // Since FileMgr::searchStaleLinks() will have opened the file
-            // we must close it here to ensure decrement of ref counter
-            FileMgr::close(very_old_file, true, very_old_file->getFileName(),
-                           &handle->log_callback);
-        }
-    } while (very_old_file);
-
-    // Migrate the operational statistics to the new_file, because
-    // from this point onward all callers will re-open new_file
-    handle->op_stats = KvsStatOperations::migrateOpStats(old_file, new_file);
-    fdb_assert(handle->op_stats, 0, 0);
-#ifdef _LATENCY_STATS
-    // Migrate latency stats from old file to new file..
-    LatencyStats::migrate(old_file, new_file);
-#endif // _LATENCY_STATS
-
-    // Mark the old file as "remove_pending".
-    // Note that a file deletion will be pended until there is no handle
-    // referring the file.
-    FileMgr::removePending(old_file, new_file, &handle->log_callback);
-    // This mutex was acquired by the caller (i.e., _fdb_compact_file()).
-    old_file->mutexUnlock();
-
-    // After compaction is done, we don't need to maintain
-    // fhandle list in superblock.
-    old_file->fhandleRemove(handle->fhandle);
-
-    // Don't clean up the buffer cache entries for the old file.
-    // They will be cleaned up later.
-    FileMgr::close(old_file, false, handle->filename.c_str(), &handle->log_callback);
-
-    handle->bhandle->resetSubblockInfo();
-
-    new_file->mutexUnlock();
-
-    handle->op_stats->num_compacts++;
-
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_COMPLETE,
-                                     NULL, NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
-                                     handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-    return status;
-}
-
-INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
-{
-    uint64_t a,b;
-    // must ensure that key1 and key2 are pointers to uint64_t values
-    a = deref64(key1);
-    b = deref64(key2);
-
-#ifdef __BIT_CMP
-    return _CMP_U64(a, b);
-
-#else
-    if (a < b) {
-        return -1;
-    } else if (a > b) {
-        return 1;
-    } else {
-        return 0;
-    }
-#endif
-}
-
-static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
-                                     bid_t start_bid,
-                                     bid_t stop_bid,
-                                     FileMgr *new_file,
-                                     HBTrie *new_trie,
-                                     BTree *new_idtree,
-                                     HBTrie *new_seqtrie,
-                                     BTree *new_seqtree,
-                                     BTree *new_staletree,
-                                     DocioHandle *new_dhandle,
-                                     BTreeBlkHandle *new_bhandle)
-{
-    struct timeval tv;
-    timestamp_t cur_timestamp;
-    FdbKvsHandle new_handle;
-    uint32_t blocksize = handle->file->getBlockSize();
-    uint64_t offset; // starting point
-    uint64_t new_offset;
-    uint64_t stop_offset = stop_bid * blocksize; // stopping point
-    uint64_t n_moved_docs = 0;
-    uint64_t filesize = handle->file->getPos();
-    uint64_t doc_scan_limit;
-    uint64_t start_bmp_revnum, stop_bmp_revnum;
-    uint64_t cur_bmp_revnum = (uint64_t)-1;
-    struct _fdb_key_cmp_info cmp_info;
-    fdb_compact_decision decision;
-    ErrLogCallback *log_callback;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
-
-    if (start_bid == BLK_NOT_FOUND || start_bid == stop_bid) {
-        return fs;
-    } else {
-        offset = (start_bid + 1) * blocksize;
-    }
-
-    // TODO: Need to adapt readDoc_Docio to separate false checksum errors.
-    log_callback = handle->dhandle->getLogCallback();
-    handle->dhandle->setLogCallback(NULL);
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    start_bmp_revnum = _fdb_get_bmp_revnum(handle, start_bid);
-    stop_bmp_revnum= _fdb_get_bmp_revnum(handle, stop_bid);
-    cur_bmp_revnum = start_bmp_revnum;
-
-    do {
-        // The fundamental logic is same to that in WAL restore process.
-        // Please refer to comments in _fdb_restore_wal().
-         if (cur_bmp_revnum == stop_bmp_revnum && offset >= stop_offset) {
-             break;
-        }
-        if (cur_bmp_revnum == stop_bmp_revnum) {
-            doc_scan_limit = stop_offset;
-        } else {
-            doc_scan_limit = filesize;
-        }
-
-        if (!handle->dhandle->checkBuffer_Docio(offset / blocksize,
-                                cur_bmp_revnum)) {
-            // not a document block .. move to next block
-        } else {
-            uint64_t offset_original = offset;
-            do {
-                fdb_doc wal_doc;
-                uint8_t deleted;
-                struct docio_object doc;
-                int64_t _offset;
-                memset(&doc, 0, sizeof(doc));
-                _offset = handle->dhandle->readDoc_Docio(offset, &doc, true);
-                if (_offset < 0) {
-                    // Read error
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    if (ver_non_consecutive_doc(handle->file->getVersion())) {
-                        // Since MAGIC_002: should terminate the compaction.
-                        return (fdb_status) _offset;
-                    } else {
-                        // MAGIC_000, 001: due to garbage (allocated but not written)
-                        // block, false alarm should be tolerable.
-                        break;
-                    }
-                }
-                if (_offset == 0 ||
-                    (!doc.key && !(doc.length.flag & DOCIO_TXN_COMMITTED))) {
-                    // No more documents in this block, break and move to the next block
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    break;
-                }
-                // check if the doc is transactional or not, and
-                // also check if the doc contains system info
-                if (doc.length.flag & DOCIO_TXN_DIRTY ||
-                    doc.length.flag & DOCIO_SYSTEM) {
-                    // skip transactional document or system document
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    offset = _offset;
-                    continue;
-                    // do not break.. read next doc
-                }
-                if (doc.length.flag & DOCIO_TXN_COMMITTED) {
-                    // commit mark .. read the previously skipped doc
-                    _offset = handle->dhandle->readDoc_Docio(doc.doc_offset,
-                                                              &doc, true);
-                    if (_offset <= 0) { // doc read error
-                        // Should terminate the compaction
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        return _offset < 0 ? (fdb_status) _offset : FDB_RESULT_KEY_NOT_FOUND;
-                    }
-                }
-
-                // If a rollback was requested on this file, skip
-                // any db items written past the rollback point
-                if (!handle->kvs) {
-                    if (doc.seqnum > handle->seqnum) {
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        offset = _offset;
-                        continue;
-                    }
-                } else {
-                    // check seqnum before insert
-                    fdb_kvs_id_t kv_id;
-                    fdb_seqnum_t kv_seqnum;
-                    buf2kvid(handle->config.chunksize, doc.key, &kv_id);
-
-                    kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
-                    // Only pick up items written before any rollback
-                    if (doc.seqnum > kv_seqnum) {
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        offset = _offset;
-                        continue;
-                    }
-                }
-                deleted = doc.length.flag & DOCIO_DELETED;
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
-                wal_doc.meta = doc.meta;
-                wal_doc.seqnum = doc.seqnum;
-                wal_doc.deleted = deleted;
-                wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
-                // If user has specified a callback for move doc then
-                // the decision on to whether or not the document is moved
-                // into new file will rest completely on the return value
-                // from the callback
-                uint8_t cond = 1;
-                if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                    size_t key_offset;
-                    const char *kvs_name = _fdb_kvs_extract_name_off(handle,
-                                                   wal_doc.key, &key_offset);
-                    wal_doc.keylen -= key_offset;
-                    wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
-                    decision = handle->config.compaction_cb(
-                               handle->fhandle, FDB_CS_MOVE_DOC,
-                               kvs_name, &wal_doc, offset, BLK_NOT_FOUND,
-                               handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
-                    wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
-                    wal_doc.keylen += key_offset;
-                } else {
-                    // compare timestamp
-                    if (!deleted ||
-                        (cur_timestamp < doc.timestamp +
-                         handle->config.purging_interval &&
-                         deleted)) {
-                        // re-write the document to new file when
-                        // 1. the document is not deleted
-                        // 2. the document is logically deleted but
-                        //    its timestamp isn't overdue
-                        decision = FDB_CS_KEEP_DOC;
-                    } else {
-                        decision = FDB_CS_DROP_DOC;
-                    }
-                }
-                if (decision == FDB_CS_KEEP_DOC) {
-                    // Re-Write Document to new_file based on decision above
-                    new_offset = new_dhandle->appendDoc_Docio(&doc, deleted, 0);
-                    if (new_offset == BLK_NOT_FOUND) {
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        return FDB_RESULT_WRITE_FAIL;
-                    }
-                } else {
-                    new_offset = BLK_NOT_FOUND;
-                }
-
-                new_file->getWal()->insert_Wal(new_file->getGlobalTxn(), &cmp_info,
-                                               &wal_doc, new_offset,
-                                               WAL_INS_COMPACT_PHASE1);
-
-                n_moved_docs++;
-                free(doc.key);
-                free(doc.meta);
-                free(doc.body);
-                offset = _offset;
-            } while (offset + sizeof(struct docio_length) < doc_scan_limit);
-
-            // Due to non-consecutive doc blocks, offset value may decrease
-            // and cause an infinite loop. To avoid this issue, we have to
-            // restore the last offset value if offset value is decreased.
-            if (offset < offset_original) {
-                offset = offset_original;
-            }
-        }
-
-        offset = ((offset / blocksize) + 1) * blocksize;
-        if (ver_superblock_support(handle->file->getVersion()) &&
-            offset >= filesize && cur_bmp_revnum < stop_bmp_revnum) {
-            // circular scan
-            offset = blocksize * handle->file->getSb()->getConfig().num_sb;
-            cur_bmp_revnum++;
-        }
-    } while(true);
-
-    // wal flush into new file so all documents are reflected in its main index
-    if (n_moved_docs) {
-        union wal_flush_items flush_items;
-        new_handle = *handle;
-        new_handle.file = new_file;
-        new_handle.trie = new_trie;
-        if (handle->kvs) {
-            new_handle.seqtrie = new_seqtrie;
-        } else {
-            new_handle.seqtree = new_seqtree;
-        }
-        new_handle.staletree = new_staletree;
-        new_handle.dhandle = new_dhandle;
-        new_handle.bhandle = new_bhandle;
-
-        new_file->getWal()->flush_Wal((void*)&new_handle,
-                  _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                  _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                  &flush_items);
-        new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-        new_file->getWal()->releaseFlushedItems_Wal(&flush_items);
-    }
-
-    handle->dhandle->setLogCallback(log_callback);
-    return fs;
-}
-
-static uint64_t _fdb_calculate_throttling_delay(uint64_t n_moved_docs,
-                                                struct timeval tv)
-{
-    uint64_t elapsed_us, delay_us;
-    struct timeval cur_tv, gap;
-
-    if (n_moved_docs == 0) {
-        return 0;
-    }
-
-    gettimeofday(&cur_tv, NULL);
-    gap = _utime_gap(tv, cur_tv);
-    elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
-    // Set writer's delay = 2x of compactor's delay per doc
-    // For example,
-    // 1) if compactor's speed is 10,000 docs/sec,
-    // 2) then the average delay per doc is 100 us.
-    // 3) In this case, we set the writer sleep delay to 200 (= 2*100) us.
-    // To avoid quick fluctuation of writer's delay,
-    // we use the entire average speed of compactor, not an instant speed.
-    delay_us = elapsed_us * 2 / n_moved_docs;
-    if (delay_us > 1000) { // Limit the max delay to 1ms
-        delay_us = 1000;
-    }
-
-    return delay_us;
-}
-
-INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob, size_t max_prob)
-{
-    if (cur_ratio < FDB_COMP_RATIO_MIN) {
-        // writer is slower than the minimum speed
-        // decrease the probability variable
-        if ((*prob) >= FDB_COMP_PROB_UNIT_DEC) {
-            (*prob) -= FDB_COMP_PROB_UNIT_DEC;
-        } else {
-            *prob = 0;
-        }
-    }
-
-    if (cur_ratio > FDB_COMP_RATIO_MAX) {
-        // writer is faster than the maximum speed
-        if (cur_ratio > 200) {
-            // writer is at least twice faster than compactor!
-            // double the probability variable
-            if (*prob == 0) {
-                *prob = FDB_COMP_PROB_UNIT_INC;
-            }
-            (*prob) += (*prob);
-        } else {
-            // increase the probability variable
-            (*prob) += FDB_COMP_PROB_UNIT_INC;
-        }
-
-        if (*prob > max_prob) {
-            *prob = max_prob;
-        }
-    }
-}
-
-INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
-                                       bid_t compactor_curr_bid,
-                                       bid_t *writer_prev_bid,
-                                       bid_t *compactor_prev_bid,
-                                       size_t *prob,
-                                       size_t max_prob)
-{
-    bid_t writer_bid_gap = writer_curr_bid - (*writer_prev_bid);
-    bid_t compactor_bid_gap = compactor_curr_bid - (*compactor_prev_bid);
-
-    if (compactor_bid_gap) {
-        // throughput ratio of writer / compactor (percentage)
-        size_t cur_ratio = writer_bid_gap*100 / compactor_bid_gap;
-        // adjust probability
-        _fdb_adjust_prob(cur_ratio, prob, max_prob);
-    }
-    *writer_prev_bid = writer_curr_bid;
-    *compactor_prev_bid = compactor_curr_bid;
-}
-
-#ifdef _COW_COMPACTION
-// Warning: This api assumes writer cannot access newly compacted file until
-// compaction is complete. If this behavior changes to interleave writer with
-// compactor in new file, this function must be modified!
-static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
-                                          FileMgr *new_file,
-                                          HBTrie *new_trie,
-                                          BTree *new_idtree,
-                                          HBTrie *new_seqtrie,
-                                          BTree *new_seqtree,
-                                          BTree *new_staletree,
-                                          DocioHandle *new_dhandle,
-                                          BTreeBlkHandle *new_bhandle,
-                                          size_t *prob)
-{
-    uint8_t deleted;
-    uint64_t offset, _offset;
-    uint64_t old_offset, new_offset;
-    uint64_t *offset_array;
-    uint64_t src_bid, dst_bid, contiguous_bid;
-    uint64_t clone_len;
-    uint64_t n_moved_docs = 0;
-    uint32_t blocksize;
-    size_t i, c, rv;
-    size_t offset_array_max;
-    hbtrie_result hr;
-    struct docio_object doc, *_doc;
-    HBTrieIterator *it;
-    struct timeval tv;
-    fdb_doc wal_doc;
-    FdbKvsHandle new_handle;
-    bid_t compactor_curr_bid, writer_curr_bid;
-    bid_t compactor_prev_bid, writer_prev_bid;
-    struct _fdb_key_cmp_info cmp_info;
-    bool locked = false;
-
-    timestamp_t cur_timestamp;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    blocksize = handle->file->getConfig()->getBlockSize();
-
-    compactor_prev_bid = 0;
-    writer_prev_bid = handle->file->getPos() /
-                      handle->file->getConfig()->getBlockSize();
-
-    // Init AIO buffer, callback, event instances.
-    struct async_io_handle *aio_handle_ptr = NULL;
-    struct async_io_handle aio_handle;
-    aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->getConfig()->getBlockSize();
-    aio_handle.fops_handle = handle->file->getFopsHandle();
-    if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
-                                         &aio_handle)== FDB_RESULT_SUCCESS) {
-        aio_handle_ptr = &aio_handle;
-    }
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
-                                     0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    new_handle = *handle;
-    new_handle.file = new_file;
-    new_handle.trie = new_trie;
-    if (handle->kvs) {
-        new_handle.seqtrie = new_seqtrie;
-    } else {
-        new_handle.seqtree = new_seqtree;
-    }
-    new_handle.staletree = new_staletree;
-    new_handle.dhandle = new_dhandle;
-    new_handle.bhandle = new_bhandle;
-
-    _doc = (struct docio_object *)
-        calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
-    offset_array_max = FDB_COMP_BATCHSIZE / sizeof(uint64_t);
-    offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
-
-    c = old_offset = new_offset = 0;
-
-    it = new HBTrieIterator();
-    hr = it->init(handle->trie, NULL, 0);
-
-    while( hr == HBTRIE_RESULT_SUCCESS ) {
-
-        it->nextValueOnly((void*)&offset);
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            free(_doc);
-            delete it;
-            free(offset_array);
-            return fs;
-        }
-        offset = _endian_decode(offset);
-
-        if ( hr == HBTRIE_RESULT_SUCCESS ) {
-            // add to offset array
-            offset_array[c] = offset;
-            c++;
-        }
-
-        // if array exceeds the threshold, OR
-        // there's no next item (hr == HBTRIE_RESULT_FAIL),
-        // sort and move the documents in the array
-        if (c >= offset_array_max ||
-            (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
-            // quick sort
-            qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
-
-            size_t num_batch_reads =
-            handle->dhandle->batchReadDocs_Docio(&offset_array[0],
-                    _doc, c, FDB_COMP_MOVE_UNIT,
-                    (size_t) (-1), // We are not reading the value portion
-                    aio_handle_ptr, true);
-            if (num_batch_reads == (size_t) -1 || num_batch_reads != c) {
-                fs = FDB_RESULT_COMPACTION_FAIL;
-                break;
-            }
-            src_bid = offset_array[0] / blocksize;
-            contiguous_bid = src_bid;
-            clone_len = 0;
-            new_dhandle->reset_Docio();
-            dst_bid = new_file->getPos() / blocksize;
-            if (new_file->getPos() % blocksize) {
-                dst_bid = dst_bid + 1; // adjust to start of next block
-            } // else This means destination file position is already
-              // at a block boundary, no need to adjust to next block start
-
-            // 1) read all document key, meta in offset_array, and
-            // 2) flush WAL periodically
-            for (i = 0; i < c; ++i) {
-                uint64_t _bid;
-                fdb_compact_decision decision;
-                doc = _doc[i];
-                // === read docs from the old file ===
-                offset = offset_array[i];
-                _bid = offset / blocksize;
-                _offset = offset + _fdb_get_docsize(doc.length);
-                deleted = doc.length.flag & DOCIO_DELETED;
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
-                wal_doc.seqnum = doc.seqnum;
-
-                wal_doc.deleted = deleted;
-                // If user has specified a callback for move doc then
-                // the decision on to whether or not the document is moved
-                // into new file will rest completely on the return value
-                // from the callback
-                uint8_t cond = 1;
-                if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                    size_t key_offset;
-                    const char *kvs_name = _fdb_kvs_extract_name_off(handle,
-                                                     wal_doc.key, &key_offset);
-                    wal_doc.keylen -= key_offset;
-                    wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
-                    decision = handle->config.compaction_cb(
-                               handle->fhandle, FDB_CS_MOVE_DOC,
-                               kvs_name, &wal_doc, _offset, BLK_NOT_FOUND,
-                               handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
-                    wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
-                    wal_doc.keylen += key_offset;
-                } else {
-                    // compare timestamp
-                    // 1. the document is not deleted
-                    // 2. the document is logically deleted but
-                    //    its timestamp isn't overdue
-                    if (!deleted ||
-                        (cur_timestamp < doc.timestamp +
-                                     handle->config.purging_interval &&
-                        deleted)) {
-                        decision = FDB_CS_KEEP_DOC;
-                    } else {
-                        decision = FDB_CS_DROP_DOC;
-                    }
-                }
-
-                if (decision == FDB_CS_KEEP_DOC) { // Clone doc to new file
-                    if (_bid - contiguous_bid > 1) {
-                        // Non-Contiguous copy range hit!
-                        // Perform file range copy over existing blocks
-                        fs = FileMgr::copyFileRange(handle->file, new_file,
-                                                    src_bid, dst_bid,
-                                                    1 + clone_len);
-                        if (fs != FDB_RESULT_SUCCESS) {
-                            break;
-                        }
-
-                        dst_bid = dst_bid + 1 + clone_len;
-
-                        // reset start block id, contiguous bid & len for
-                        src_bid = _bid; // .. next round of file range copy
-                        contiguous_bid = src_bid;
-                        clone_len = 0;
-                    } else if (_bid == contiguous_bid + 1) {
-                        contiguous_bid = _bid; // next contiguous block
-                        ++clone_len;
-                    } // else the document is from the same block as previous
-
-                    // compute document's offset in new_file
-                    new_offset = (dst_bid + clone_len) * blocksize
-                               + (offset % blocksize);
-
-                    // Adjust contiguous_bid & clone_len if doc spans 1+ blocks
-                    if (_offset / blocksize > offset / blocksize) {
-                        uint64_t more_blocks = _offset / blocksize
-                                             - offset / blocksize;
-                        contiguous_bid = _offset / blocksize;
-                        clone_len += more_blocks;
-                    }
-
-                    old_offset = offset;
-                    wal_doc.offset = new_offset;
-                    wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
-
-                    new_file->getWal()->insert_Wal(new_file->getGlobalTxn(), &cmp_info,
-                                                   &wal_doc, new_offset,
-                                                   WAL_INS_COMPACT_PHASE1);
-                    ++n_moved_docs;
-                } // if non-deleted or deleted-but-not-yet-purged doc check
-                free(doc.key);
-                free(doc.meta);
-
-                cond = 1;
-                if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
-                    handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_BATCH_MOVE, NULL, NULL,
-                                                 old_offset, new_offset,
-                                                 handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
-                }
-            } // repeat until no more offset in the offset_array
-
-            // copy out the last set of contiguous blocks
-            fs = FileMgr::copyFileRange(handle->file, new_file, src_bid,
-                                        dst_bid, 1 + clone_len);
-            if (fs != FDB_RESULT_SUCCESS) {
-                break;
-            }
-            // === flush WAL entries by compactor ===
-            if (new_file->getWal()->getNumFlushable_Wal() > 0) {
-                uint64_t delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
-                // We intentionally try to slow down the normal writer if
-                // the compactor can't catch up with the writer. This is a
-                // short-term approach and we plan to address this issue without
-                // sacrificing the writer's performance soon.
-                rv = (size_t)random(100);
-                if (rv < *prob) {
-                    // Set the sleep time for the normal writer
-                    // according to the current speed of compactor
-                    handle->file->setThrottlingDelay(delay_us);
-                    locked = true;
-                } else {
-                    locked = false;
-                }
-                union wal_flush_items flush_items;
-                new_file->getWal()->flushByCompactor_Wal((void*)&new_handle,
-                                       _fdb_wal_flush_func,
-                                       _fdb_wal_get_old_offset,
-                                       _fdb_wal_flush_seq_purge,
-                                       _fdb_wal_flush_kvs_delta_stats,
-                                       &flush_items);
-                new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-                new_file->getWal()->releaseFlushedItems_Wal(&flush_items);
-                if (locked) {
-                    handle->file->setThrottlingDelay(0);
-                }
-
-                cond = 1;
-                if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
-                    handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_FLUSH_WAL, NULL, NULL,
-                                                 old_offset, new_offset,
-                                                 handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
-                }
-            }
-
-            writer_curr_bid = handle->file->getPos() /
-                              handle->file->getConfig()->getBlockSize();
-            compactor_curr_bid = new_file->getPos() /
-                                 new_file->getConfig()->getBlockSize();
-            _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
-                    &writer_prev_bid, &compactor_prev_bid,
-                    prob, handle->config.max_writer_lock_prob);
-
-            // If the rollback operation is issued, abort the compaction task.
-            if (handle->file->isRollbackOn()) {
-                fs = FDB_RESULT_FAIL_BY_ROLLBACK;
-                break;
-            }
-            if (handle->file->isCompactionCancellationRequested()) {
-                fs = FDB_RESULT_COMPACTION_CANCELLATION;
-                break;
-            }
-
-            c = 0; // reset offset_array
-        } // end of if (array exceeded threshold || no more docs in trie)
-        if (fs == FDB_RESULT_FAIL_BY_ROLLBACK ||
-            fs == FDB_RESULT_COMPACTION_CANCELLATION) {
-            break;
-        }
-    } // end of while (hr != HBTRIE_RESULT_FAIL) (forall items in trie)
-
-    free(_doc);
-    delete it;
-    free(offset_array);
-
-    cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, NULL, old_offset, new_offset,
-                                     handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    return fs;
-}
-#endif // _COW_COMPACTION
-
-static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
-                                         FileMgr *new_file,
-                                         HBTrie *new_trie,
-                                         BTree *new_idtree,
-                                         HBTrie *new_seqtrie,
-                                         BTree *new_seqtree,
-                                         BTree *new_staletree,
-                                         DocioHandle *new_dhandle,
-                                         BTreeBlkHandle *new_bhandle,
-                                         size_t *prob,
-                                         bool clone_docs)
-{
-    uint8_t deleted;
-    uint64_t window_size;
-    uint64_t offset;
-    uint64_t old_offset, new_offset;
-    uint64_t *offset_array;
-    uint64_t n_moved_docs;
-    size_t i, j, c, count, rv;
-    size_t offset_array_max;
-    hbtrie_result hr;
-    struct docio_object *doc;
-    HBTrieIterator *it;
-    struct timeval tv;
-    struct _fdb_key_cmp_info cmp_info;
-    fdb_doc wal_doc;
-    FdbKvsHandle new_handle;
-    timestamp_t cur_timestamp;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-
-    bid_t compactor_curr_bid, writer_curr_bid;
-    bid_t compactor_prev_bid, writer_prev_bid;
-    bool locked = false;
-
-#ifdef _COW_COMPACTION
-    if (clone_docs) {
-        if (!FileMgr::isCowSupported(handle->file, new_file)) {
-            return FDB_RESULT_COMPACTION_FAIL;
-        }
-        return _fdb_compact_clone_docs(handle, new_file, new_trie, new_idtree,
-                                       new_seqtrie, new_seqtree, new_staletree,
-                                       new_dhandle, new_bhandle, prob);
-    }
-#else
-    (void)clone_docs;
-#endif // _COW_COMPACTION
-
-    compactor_prev_bid = 0;
-    writer_prev_bid = handle->file->getPos() /
-                      handle->file->getConfig()->getBlockSize();
-
-    // Init AIO buffer, callback, event instances.
-    struct async_io_handle *aio_handle_ptr = NULL;
-    struct async_io_handle aio_handle;
-    aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->getConfig()->getBlockSize();
-    aio_handle.fops_handle = handle->file->getFopsHandle();
-    if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
-                                         &aio_handle) == FDB_RESULT_SUCCESS) {
-        aio_handle_ptr = &aio_handle;
-    }
-
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
-                                     0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    new_handle = *handle;
-    new_handle.file = new_file;
-    new_handle.trie = new_trie;
-    if (handle->kvs) {
-        new_handle.seqtrie = new_seqtrie;
-    } else {
-        new_handle.seqtree = new_seqtree;
-    }
-    new_handle.staletree = new_staletree;
-    new_handle.dhandle = new_dhandle;
-    new_handle.bhandle = new_bhandle;
-
-    // 1/10 of the block cache size or
-    // if block cache is disabled, set to the minimum size
-    window_size = handle->config.buffercache_size / 10;
-    if (window_size < FDB_COMP_BUF_MINSIZE) {
-        window_size = FDB_COMP_BUF_MINSIZE;
-    } else if (window_size > FDB_COMP_BUF_MAXSIZE) {
-        window_size = FDB_COMP_BUF_MAXSIZE;
-    }
-    fdb_file_info db_info;
-    if (fdb_get_file_info(handle->fhandle, &db_info) == FDB_RESULT_SUCCESS) {
-        uint64_t doc_offset_mem = db_info.doc_count * sizeof(uint64_t);
-        if (doc_offset_mem < window_size) {
-            // Offsets of all the docs can be sorted with the buffer whose size
-            // is num_of_docs * sizeof(offset)
-            window_size = doc_offset_mem < FDB_COMP_BUF_MINSIZE ?
-                FDB_COMP_BUF_MINSIZE : doc_offset_mem;
-        }
-    }
-
-    offset_array_max = window_size / sizeof(uint64_t);
-    offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
-
-    doc = (struct docio_object *)
-        calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
-    c = count = n_moved_docs = old_offset = new_offset = 0;
-
-    it = new HBTrieIterator();
-    hr = it->init(handle->trie, NULL, 0);
-
-    while( hr == HBTRIE_RESULT_SUCCESS ) {
-
-        hr = it->nextValueOnly((void*)&offset);
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            break;
-        }
-        offset = _endian_decode(offset);
-
-        if ( hr == HBTRIE_RESULT_SUCCESS ) {
-            // add to offset array
-            offset_array[c] = offset;
-            c++;
-        }
-
-        // if array exceeds the threshold, OR
-        // there's no next item (hr == HBTRIE_RESULT_FAIL),
-        // sort and move the documents in the array
-        if (c > offset_array_max ||
-            (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
-            // Sort offsets to minimize random accesses.
-            qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
-
-            // 1) read all documents in offset_array, and
-            // 2) move them into the new file.
-            // 3) flush WAL periodically
-            i = 0;
-            do {
-                // === read docs from the old file ===
-                size_t start_idx = i;
-                size_t num_batch_reads =
-                    handle->dhandle->batchReadDocs_Docio(&offset_array[start_idx],
-                                          doc, c - start_idx,
-                                          FDB_COMP_MOVE_UNIT, FDB_COMP_BATCHSIZE,
-                                          aio_handle_ptr, false);
-                if (num_batch_reads == (size_t) -1) {
-                    fs = FDB_RESULT_COMPACTION_FAIL;
-                    break;
-                }
-                i += num_batch_reads;
-
-                // === write docs into the new file ===
-                for (j=0; j<num_batch_reads; ++j) {
-                    fdb_compact_decision decision;
-                    if (!doc[j].key) {
-                        continue;
-                    }
-
-                    deleted = doc[j].length.flag & DOCIO_DELETED;
-                    wal_doc.keylen = doc[j].length.keylen;
-                    wal_doc.metalen = doc[j].length.metalen;
-                    wal_doc.bodylen = doc[j].length.bodylen;
-                    wal_doc.key = doc[j].key;
-                    wal_doc.seqnum = doc[j].seqnum;
-                    wal_doc.deleted = deleted;
-                    wal_doc.meta = doc[j].meta;
-
-                    // If user has specified a callback for move doc then
-                    // the decision on to whether or not the document is moved
-                    // into new file will rest completely on the return value
-                    // from the callback
-                    uint8_t cond = 1;
-                    if (handle->config.compaction_cb &&
-                        handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                        size_t key_offset;
-                        const char *kvs_name = _fdb_kvs_extract_name_off(handle,
-                                                      wal_doc.key, &key_offset);
-                        wal_doc.keylen -= key_offset;
-                        wal_doc.key = (void *)((uint8_t*)wal_doc.key
-                                    + key_offset);
-                        handle->handle_busy.compare_exchange_strong(cond, 0);
-                        decision = handle->config.compaction_cb(
-                                   handle->fhandle, FDB_CS_MOVE_DOC,
-                                   kvs_name, &wal_doc,
-                                   offset_array[start_idx + j],
-                                   BLK_NOT_FOUND,
-                                   handle->config.compaction_cb_ctx);
-                        cond = 0;
-                        handle->handle_busy.compare_exchange_strong(cond, 1);
-                        wal_doc.key = (void *)((uint8_t*)wal_doc.key
-                                    - key_offset);
-                        wal_doc.keylen += key_offset;
-                    } else {
-                        // compare timestamp
-                        if (!deleted ||
-                            (cur_timestamp < doc[j].timestamp +
-                             handle->config.purging_interval &&
-                             deleted)) {
-                            // re-write the document to new file when
-                            // 1. the document is not deleted
-                            // 2. the document is logically deleted but
-                            //    its timestamp isn't overdue
-                            decision = FDB_CS_KEEP_DOC;
-                        } else {
-                            decision = FDB_CS_DROP_DOC;
-                        }
-                    }
-                    if (decision == FDB_CS_KEEP_DOC) {
-                        new_offset = new_dhandle->appendDoc_Docio(&doc[j],
-                                                      deleted, 0);
-                        old_offset = offset_array[start_idx + j];
-
-                        wal_doc.body = doc[j].body;
-                        wal_doc.size_ondisk= _fdb_get_docsize(doc[j].length);
-                        wal_doc.offset = new_offset;
-
-                        new_file->getWal()->insert_Wal(new_file->getGlobalTxn(),
-                                                       &cmp_info, &wal_doc,
-                                                       new_offset,
-                                                       WAL_INS_COMPACT_PHASE1);
-                        n_moved_docs++;
-                    }
-                    free(doc[j].key);
-                    free(doc[j].meta);
-                    free(doc[j].body);
-                    doc[j].key = doc[j].meta = doc[j].body = NULL;
-                }
-
-                cond = 1;
-                if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
-                    handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_BATCH_MOVE, NULL, NULL,
-                                                 old_offset, new_offset,
-                                                 handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
-                }
-
-                // === flush WAL entries by compactor ===
-                if (new_file->getWal()->getNumFlushable_Wal() > 0) {
-                    uint64_t delay_us;
-                    delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
-
-                    // Note that we don't need to grab a lock on the new file
-                    // during the compaction because the new file is only accessed
-                    // by the compactor.
-                    // However, we intentionally try to slow down the normal writer if
-                    // the compactor can't catch up with the writer. This is a
-                    // short-term approach and we plan to address this issue without
-                    // sacrificing the writer's performance soon.
-                    rv = (size_t)random(100);
-                    if (rv < *prob) {
-                        // Set the sleep time for the normal writer
-                        // according to the current speed of compactor
-                        handle->file->setThrottlingDelay(delay_us);
-                        locked = true;
-                    } else {
-                        locked = false;
-                    }
-                    union wal_flush_items flush_items;
-                    new_file->getWal()->flushByCompactor_Wal((void*)&new_handle,
-                                           _fdb_wal_flush_func,
-                                           _fdb_wal_get_old_offset,
-                                           _fdb_wal_flush_seq_purge,
-                                           _fdb_wal_flush_kvs_delta_stats,
-                                           &flush_items);
-                    new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-                    new_file->getWal()->releaseFlushedItems_Wal(&flush_items);
-                    if (locked) {
-                        handle->file->setThrottlingDelay(0);
-                    }
-
-                    cond = 1;
-                    if (handle->config.compaction_cb &&
-                        handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-                        handle->handle_busy.compare_exchange_strong(cond, 0);
-                        handle->config.compaction_cb(handle->fhandle,
-                                                     FDB_CS_FLUSH_WAL, NULL,
-                                                     NULL,
-                                                     old_offset, new_offset,
-                                                     handle->
-                                                     config.compaction_cb_ctx);
-                        cond = 0;
-                        handle->handle_busy.compare_exchange_strong(cond, 1);
-                    }
-                }
-
-                writer_curr_bid = handle->file->getPos() /
-                                  handle->file->getConfig()->getBlockSize();
-                compactor_curr_bid = new_file->getPos()
-                                   / new_file->getConfig()->getBlockSize();
-                _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
-                                           &writer_prev_bid,
-                                           &compactor_prev_bid,
-                                           prob,
-                                           handle->config.max_writer_lock_prob);
-
-                // If the rollback operation is issued, abort the compaction task.
-                if (handle->file->isRollbackOn()) {
-                    fs = FDB_RESULT_FAIL_BY_ROLLBACK;
-                    break;
-                }
-                if (handle->file->isCompactionCancellationRequested()) {
-                    fs = FDB_RESULT_COMPACTION_CANCELLATION;
-                    break;
-                }
-
-                // repeat until no more offset in the offset_array
-            } while (i < c);
-            // reset offset_array
-            c = 0;
-        }
-        if (fs != FDB_RESULT_SUCCESS) {
-            break;
-        }
-    }
-
-    delete it;
-    free(offset_array);
-    free(doc);
-
-    if (aio_handle_ptr) {
-        handle->file->getOps()->aio_destroy(handle->file->getFopsHandle(),
-                                            aio_handle_ptr);
-    }
-
-    cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, NULL, old_offset, new_offset,
-                                     handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    return fs;
-}
-
-static fdb_status
-_fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
-                                   FileMgr *new_file,
-                                   HBTrie *new_trie,
-                                   BTree *new_idtree,
-                                   HBTrie *new_seqtrie,
-                                   BTree *new_seqtree,
-                                   BTree *new_staletree,
-                                   DocioHandle *new_dhandle,
-                                   BTreeBlkHandle *new_bhandle,
-                                   bid_t marker_bid,
-                                   bid_t last_hdr_bid,
-                                   fdb_seqnum_t last_seq,
-                                   size_t *prob,
-                                   bool clone_docs)
-{
-    size_t header_len = 0;
-    bid_t old_hdr_bid = 0;
-    fdb_seqnum_t old_seqnum = 0;
-    filemgr_header_revnum_t old_hdr_revnum = 0;
-    filemgr_header_revnum_t last_hdr_revnum, marker_revnum;
-    filemgr_header_revnum_t last_wal_hdr_revnum;
-    ErrLogCallback *log_callback = &rhandle->log_callback;
-    uint64_t version = 0;
-    fdb_status fs;
-
-    last_hdr_revnum = _fdb_get_header_revnum(rhandle, last_hdr_bid);
-    marker_revnum = _fdb_get_header_revnum(rhandle, marker_bid);
-    if (last_hdr_revnum == 0 || marker_revnum == 0){
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
-    if (last_hdr_revnum < marker_revnum) {
-        return FDB_RESULT_NO_DB_INSTANCE;
-    } else if (last_hdr_bid == marker_bid) {
-        // compact_upto marker is the same as the latest commit header.
-        return _fdb_compact_move_docs(rhandle, new_file, new_trie, new_idtree,
-                                      new_seqtrie, new_seqtree, new_staletree,
-                                      new_dhandle, new_bhandle, prob, clone_docs);
-    }
-
-    old_hdr_bid = last_hdr_bid;
-    old_seqnum = last_seq;
-    old_hdr_revnum = last_hdr_revnum;
-
-    while (marker_revnum < old_hdr_revnum) {
-        old_hdr_bid = rhandle->file->fetchPrevHeader(old_hdr_bid, NULL,
-                                                     &header_len, &old_seqnum,
-                                                     &old_hdr_revnum, NULL,
-                                                     &version, NULL,
-                                                     log_callback);
-        if (!header_len) { // LCOV_EXCL_START
-            return FDB_RESULT_READ_FAIL;
-        } // LCOV_EXCL_STOP
-
-        if (rhandle->config.block_reusing_threshold > 0 &&
-            rhandle->config.block_reusing_threshold < 100) {
-            // block reuse is enabled
-            SuperblockBase *sb = rhandle->file->getSb();
-            uint64_t sb_min_live_revnum = 0;
-            if (sb) {
-                sb_min_live_revnum = sb->getMinLiveHdrRevnum();
-            }
-            if (old_hdr_revnum < sb_min_live_revnum) {
-                // gone past the last live header
-                return FDB_RESULT_NO_DB_INSTANCE;
-            }
-        } else {
-            // block reuse is disabled
-            if (old_hdr_bid < marker_bid) {
-                // gone past the snapshot marker
-                return FDB_RESULT_NO_DB_INSTANCE;
-            }
-        }
-    }
-
-    // First, move all the docs belonging to a given marker to the new file.
-    FdbKvsHandle handle, new_handle;
-    struct snap_handle shandle;
-    KvsInfo kvs;
-    fdb_kvs_config kvs_config = rhandle->kvs_config;
-    fdb_config config = rhandle->config;
-    FileMgr *file = rhandle->file;
-    bid_t last_wal_hdr_bid;
-
-    memset(&shandle, 0, sizeof(struct snap_handle));
-    // Setup a temporary handle to look like a snapshot of the old_file
-    // at the compaction marker.
-    handle.last_hdr_bid = old_hdr_bid; // Fast rewind on open
-    handle.max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
-    handle.shandle = &shandle;
-    handle.fhandle = rhandle->fhandle;
-    handle.handle_busy = 0;
-    if (rhandle->kvs) {
-        handle.file = file;
-        handle.initRootHandle();
-    }
-    handle.log_callback = *log_callback;
-    handle.config = config;
-    handle.kvs_config = kvs_config;
-    handle.cur_header_revnum = old_hdr_revnum;
-
-    config.flags |= FDB_OPEN_FLAG_RDONLY;
-    // do not perform compaction for snapshot
-    config.compaction_mode = FDB_COMPACTION_MANUAL;
-    if (rhandle->kvs) {
-        // sub-handle in multi KV instance mode
-        fs = _fdb_kvs_open(NULL,
-                           &config, &kvs_config, file,
-                           file->getFileName(),
-                           NULL,
-                           &handle);
-    } else {
-        fs = FdbEngine::getInstance()->openFdb(&handle, file->getFileName(),
-                                               FDB_AFILENAME, &config);
-    }
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
-
-    // Set the old_file's sequence numbers into the header of a new_file
-    // so they gets migrated correctly for the fdb_set_file_header below.
-    new_file->setSeqnum(old_seqnum);
-    if (rhandle->kvs) {
-        // Copy the old file's sequence numbers to the new file.
-        fdb_kvs_header_read(new_file->getKVHeader_UNLOCKED(), handle.dhandle,
-                            handle.kv_info_offset, version, true);
-        // Reset KV stats as they are updated while moving documents below.
-        fdb_kvs_header_reset_all_stats(new_file);
-    }
-
-    // Move all docs from old file to new file
-    fs = _fdb_compact_move_docs(&handle, new_file, new_trie, new_idtree,
-                                new_seqtrie, new_seqtree, new_staletree,
-                                new_dhandle, new_bhandle, prob, clone_docs);
-    if (fs != FDB_RESULT_SUCCESS) {
-        handle.bhandle->flushBuffer();
-        _fdb_close(&handle);
-        return fs;
-    }
-
-    // Restore docs between [last WAL flush header] ~ [compact_upto marker]
-    last_wal_hdr_bid = handle.last_wal_flush_hdr_bid;
-    if (last_wal_hdr_bid == BLK_NOT_FOUND) {
-        // WAL has not been flushed ever
-        last_wal_hdr_bid = 0; // scan from the beginning
-        last_wal_hdr_revnum = 0;
-    } else {
-        last_wal_hdr_revnum = _fdb_get_header_revnum(rhandle, last_wal_hdr_bid);
-    }
-
-    if (last_wal_hdr_revnum < old_hdr_revnum) {
-        fs = _fdb_move_wal_docs(&handle,
-                                last_wal_hdr_bid,
-                                old_hdr_bid,
-                                new_file, new_trie, new_idtree,
-                                new_seqtrie, new_seqtree, new_staletree,
-                                new_dhandle,
-                                new_bhandle);
-        if (fs != FDB_RESULT_SUCCESS) {
-            handle.bhandle->flushBuffer();
-            _fdb_close(&handle);
-            return fs;
-        }
-    }
-
-    // Note that WAL commit and flush are already done in fdb_compact_move_docs() AND
-    // fdb_move_wal_docs().
-    new_file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
-
-    // Initialize a KVS handle for a new file.
-    new_handle = handle;
-    new_handle.file = new_file;
-    new_handle.dhandle = new_dhandle;
-    new_handle.bhandle = new_bhandle;
-    new_handle.trie = new_trie;
-    new_handle.kv_info_offset = BLK_NOT_FOUND;
-
-    // Note: Appending KVS header must be done after flushing WAL
-    //       because KVS stats info is updated during WAL flushing.
-    if (new_handle.kvs) {
-        // multi KV instance mode .. append up-to-date KV header
-        new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
-        new_handle.seqtrie = new_seqtrie;
-    } else {
-        new_handle.seqtree = new_seqtree;
-    }
-    new_handle.staletree = new_staletree;
-
-    new_handle.last_hdr_bid = new_handle.file->getNextAllocBlock();
-    new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid; // WAL was flushed
-    new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
-
-    // Commit a new file.
-    fs = new_handle.file->commit_FileMgr(false, // asynchronous commit is ok
-                                         log_callback);
-
-    handle.bhandle->flushBuffer();
-    new_handle.bhandle->resetSubblockInfo();
-
-    handle.shandle = NULL;
-    _fdb_close(&handle);
-    return fs;
-}
-
-#ifdef _COW_COMPACTION
-// WARNING: caller must ensure n_buf > 0!
-INLINE void _fdb_clone_batched_delta(FdbKvsHandle *handle,
-                                     FdbKvsHandle *new_handle,
-                                     struct docio_object *doc,
-                                     uint64_t *old_offset_array,
-                                     uint64_t n_buf,
-                                     bool got_lock,
-                                     size_t *prob,
-                                     uint64_t delay_us)
-
-{
-    uint64_t i;
-    uint64_t doc_offset = 0;
-    FileMgr *file = handle->file;
-    FileMgr *new_file = new_handle->file;
-    uint64_t src_bid, dst_bid, contiguous_bid;
-    uint64_t clone_len;
-    uint32_t blocksize = handle->file->getBlockSize();
-    struct _fdb_key_cmp_info cmp_info;
-    bool locked = false;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    clone_len = 0;
-    src_bid = old_offset_array[0] / blocksize;
-    contiguous_bid = src_bid;
-    dst_bid = new_file->getPos() / blocksize;
-    if (new_file->getPos() % blocksize) {
-        dst_bid = dst_bid + 1; // adjust to start of next block
-    } // else This means destination file position is already
-     // at a block boundary, no need to adjust to next block start
-    for (i=0; i<n_buf; ++i) {
-        uint64_t _bid;
-        fdb_doc wal_doc;
-        uint64_t offset = old_offset_array[i];
-        uint64_t end_offset = offset + _fdb_get_docsize(doc[i].length);
-        _bid = offset / blocksize;
-        if (_bid - contiguous_bid > 1) {
-            // Non-Contiguous copy range hit!
-            // Perform file range copy over existing blocks
-            // IF AND ONLY IF block is evicted to disk!.....
-            fs = FileMgr::copyFileRange(file, new_file, src_bid, dst_bid,
-                                        1 + clone_len);
-            if (fs != FDB_RESULT_SUCCESS) {
-                break;
-            }
-            new_handle->dhandle->reset_Docio();
-            dst_bid = dst_bid + 1 + clone_len;
-
-            // reset start block id, contiguous bid & len for
-            src_bid = _bid; // .. next round of file range copy
-            contiguous_bid = src_bid;
-            clone_len = 0;
-        } else if (_bid == contiguous_bid + 1) {
-            contiguous_bid = _bid; // next contiguous block
-            ++clone_len;
-        } // else the document is from the same block as previous
-
-        // compute document's offset in new_file
-        doc_offset = (dst_bid + clone_len) * blocksize
-                   + (offset % blocksize);
-
-        // Adjust contiguous_bid & clone_len if doc spans 1+ blocks
-        if (end_offset / blocksize > offset / blocksize) {
-            contiguous_bid = end_offset / blocksize;
-            clone_len += end_offset / blocksize - offset / blocksize;
-        }
-        // insert into the new file's WAL
-        wal_doc.keylen = doc[i].length.keylen;
-        wal_doc.bodylen = doc[i].length.bodylen;
-        wal_doc.key = doc[i].key;
-        wal_doc.seqnum = doc[i].seqnum;
-        wal_doc.deleted = doc[i].length.flag & DOCIO_DELETED;
-        wal_doc.metalen = doc[i].length.metalen;
-        wal_doc.meta = doc[i].meta;
-        wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        uint8_t cond = 1;
-        if (handle->config.compaction_cb &&
-            handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-            if (locked) {
-                handle->file->mutexUnlock();
-            }
-            size_t key_offset;
-            const char *kvs_name = _fdb_kvs_extract_name_off(handle,
-                                                 wal_doc.key, &key_offset);
-            wal_doc.keylen -= key_offset;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            handle->config.compaction_cb(handle->fhandle, FDB_CS_MOVE_DOC,
-                                         kvs_name, &wal_doc,
-                                         old_offset_array[i],
-                                         doc_offset,
-                                         handle->config.compaction_cb_ctx);
-            cond = 0;
-            handle->handle_busy.compare_exchange_strong(cond, 1);
-            wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
-            wal_doc.keylen += key_offset;
-            if (locked) {
-                handle->file->mutexLock();
-            }
-        }
-
-        new_file->getWal()->insert_Wal(new_file->getGlobalTxn(), &cmp_info,
-                                       &wal_doc, doc_offset,
-                                       WAL_INS_COMPACT_PHASE2);
-
-        // free
-        free(doc[i].key);
-        free(doc[i].meta);
-        free(doc[i].body);
-    }
-
-    // copy out the last set of contiguous blocks
-    FileMgr::copyFileRange(file, new_file, src_bid, dst_bid, 1 + clone_len);
-    new_handle->dhandle->reset_Docio();
-
-    if (!got_lock) {
-        // We intentionally try to slow down the normal writer if
-        // the compactor can't catch up with the writer. This is a
-        // short-term approach and we plan to address this issue without
-        // sacrificing the writer's performance soon.
-        size_t rv = (size_t)random(100);
-        if (rv < *prob && delay_us) {
-            // Set the sleep time for the normal writer
-            // according to the current speed of compactor.
-            handle->file->setThrottlingDelay(delay_us);
-            locked = true;
-        }
-    }
-
-    // WAL flush
-    union wal_flush_items flush_items;
-    new_handle->file->getWal()->commit_Wal(new_handle->file->getGlobalTxn(),
-                                           NULL, &handle->log_callback);
-    new_handle->file->getWal()->flush_Wal((void*)new_handle,
-                                      _fdb_wal_flush_func,
-                                      _fdb_wal_get_old_offset,
-                                      _fdb_wal_flush_seq_purge,
-                                      _fdb_wal_flush_kvs_delta_stats,
-                                      &flush_items);
-    new_handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-    new_handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
-
-    if (locked) {
-        handle->file->setThrottlingDelay(0);
-    }
-
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-        uint64_t array_idx = i > 0 ? i - 1 : 0;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(
-            handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
-            old_offset_array[array_idx], doc_offset,
-            handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-}
-#endif // _COW_COMPACTION
-
-INLINE void _fdb_append_batched_delta(FdbKvsHandle *handle,
-                                      FdbKvsHandle *new_handle,
-                                      struct docio_object *doc,
-                                      uint64_t *old_offset_array,
-                                      uint64_t n_buf,
-                                      bool clone_docs,
-                                      bool got_lock,
-                                      size_t *prob,
-                                      uint64_t delay_us)
-{
-    uint64_t i;
-    uint64_t doc_offset = 0;
-    bool locked = false;
-    struct timeval tv;
-    struct _fdb_key_cmp_info cmp_info;
-    timestamp_t cur_timestamp;
-
-#ifdef _COW_COMPACTION
-    if (clone_docs) {
-        // Copy on write is a file-system / disk optimization, so it can't be
-        // invoked if the blocks of the old-file have not been synced to disk
-        bool flushed_blocks = (!got_lock || // blocks before committed DB header
-                !handle->file->getConfig()->getNcacheBlock()); // buffer cache is disabled
-        if (flushed_blocks &&
-            FileMgr::isCowSupported(handle->file, new_handle->file)) {
-            _fdb_clone_batched_delta(handle, new_handle, doc,
-                                     old_offset_array, n_buf, got_lock, prob, delay_us);
-            return; // TODO: return status from function above
-        }
-    }
-#endif // _COW_COMPACTION
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp  = tv.tv_sec;
-    for (i=0; i<n_buf; ++i) {
-        bool deleted = doc[i].length.flag & DOCIO_DELETED;
-        fdb_compact_decision decision;
-        fdb_doc wal_doc;
-        wal_doc.keylen = doc[i].length.keylen;
-        wal_doc.bodylen = doc[i].length.bodylen;
-        wal_doc.key = doc[i].key;
-        wal_doc.seqnum = doc[i].seqnum;
-        wal_doc.deleted = deleted;
-        wal_doc.metalen = doc[i].length.metalen;
-        wal_doc.meta = doc[i].meta;
-        wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        uint8_t cond = 1;
-        if (handle->config.compaction_cb &&
-            handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-            if (got_lock) {
-                handle->file->mutexUnlock();
-            }
-            size_t key_offset;
-            const char *kvs_name = _fdb_kvs_extract_name_off(handle,
-                                                wal_doc.key, &key_offset);
-            wal_doc.keylen -= key_offset;
-            wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            decision = handle->config.compaction_cb(
-                       handle->fhandle, FDB_CS_MOVE_DOC,
-                       kvs_name, &wal_doc, old_offset_array[i],
-                       BLK_NOT_FOUND, handle->config.compaction_cb_ctx);
-            cond = 0;
-            handle->handle_busy.compare_exchange_strong(cond, 1);
-            wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
-            wal_doc.keylen += key_offset;
-            if (got_lock) {
-                handle->file->mutexLock();
-            }
-        } else {
-            bool deleted = doc[i].length.flag & DOCIO_DELETED;
-            if (!deleted || (cur_timestamp < doc[i].timestamp +
-                             handle->config.purging_interval &&
-                             deleted)) {
-                decision = FDB_CS_KEEP_DOC;
-            } else {
-                decision = FDB_CS_DROP_DOC;
-            }
-        }
-        if (decision == FDB_CS_KEEP_DOC) {
-            // append into the new file
-            doc_offset = new_handle->dhandle->appendDoc_Docio(&doc[i],
-                                        doc[i].length.flag & DOCIO_DELETED, 0);
-        } else {
-            doc_offset = BLK_NOT_FOUND;
-        }
-        // insert into the new file's WAL
-        new_handle->file->getWal()->insert_Wal(new_handle->file->getGlobalTxn(),
-                                               &cmp_info, &wal_doc, doc_offset,
-                                               WAL_INS_COMPACT_PHASE2);
-
-        // free
-        free(doc[i].key);
-        free(doc[i].meta);
-        free(doc[i].body);
-    }
-
-    if (!got_lock) {
-        // We intentionally try to slow down the normal writer if
-        // the compactor can't catch up with the writer. This is a
-        // short-term approach and we plan to address this issue without
-        // sacrificing the writer's performance soon.
-        size_t rv = (size_t)random(100);
-        if (rv < *prob && delay_us) {
-            // Set the sleep time for the normal writer
-            // according to the current speed of compactor.
-            handle->file->setThrottlingDelay(delay_us);
-            locked = true;
-        }
-    }
-
-    // WAL flush
-    union wal_flush_items flush_items;
-    new_handle->file->getWal()->commit_Wal(new_handle->file->getGlobalTxn(), NULL,
-                                           &handle->log_callback);
-    new_handle->file->getWal()->flush_Wal((void*)new_handle,
-                                          _fdb_wal_flush_func,
-                                          _fdb_wal_get_old_offset,
-                                          _fdb_wal_flush_seq_purge,
-                                          _fdb_wal_flush_kvs_delta_stats,
-                                          &flush_items);
-    new_handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_PENDING);
-    new_handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
-
-    if (locked) {
-        handle->file->setThrottlingDelay(0);
-    }
-
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(
-            handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
-            old_offset_array[i-1], doc_offset,
-            handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-}
-
-static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
-                                          FileMgr *new_file,
-                                          HBTrie *new_trie,
-                                          BTree *new_idtree,
-                                          HBTrie *new_seqtrie,
-                                          BTree *new_seqtree,
-                                          BTree *new_staletree,
-                                          DocioHandle *new_dhandle,
-                                          BTreeBlkHandle *new_bhandle,
-                                          bid_t begin_hdr, bid_t end_hdr,
-                                          bool compact_upto,
-                                          bool clone_docs,
-                                          bool got_lock,
-                                          bool last_loop,
-                                          size_t *prob)
-{
-    uint64_t offset, offset_end;
-    uint64_t old_offset, new_offset;
-    uint64_t sum_docsize, n_moved_docs;
-    uint64_t *old_offset_array;
-    uint64_t file_limit = end_hdr * handle->file->getBlockSize();
-    uint64_t doc_scan_limit;
-    uint64_t start_bmp_revnum, stop_bmp_revnum;
-    uint64_t cur_bmp_revnum = (uint64_t)-1;
-    size_t c;
-    size_t blocksize = handle->file->getConfig()->getBlockSize();
-    struct timeval tv;
-    struct docio_object *doc;
-    FdbKvsHandle new_handle;
-    timestamp_t cur_timestamp;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    ErrLogCallback *log_callback;
-    uint8_t *hdr_buf = alca(uint8_t, blocksize);
-
-    bid_t compactor_bid_prev, writer_bid_prev;
-    bid_t compactor_curr_bid, writer_curr_bid;
-    bool distance_updated = false;
-
-    uint8_t cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
-                                     0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    // Temporarily disable log callback function
-    log_callback = handle->dhandle->getLogCallback();
-    handle->dhandle->setLogCallback(NULL);
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
-    (void)cur_timestamp;
-
-    new_handle = *handle;
-    new_handle.file = new_file;
-    new_handle.trie = new_trie;
-    if (handle->kvs) {
-        new_handle.seqtrie = new_seqtrie;
-    } else {
-        new_handle.seqtree = new_seqtree;
-    }
-    new_handle.staletree = new_staletree;
-    new_handle.dhandle = new_dhandle;
-    new_handle.bhandle = new_bhandle;
-    new_handle.kv_info_offset = BLK_NOT_FOUND;
-
-    doc = (struct docio_object *)
-          malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
-    old_offset_array = (uint64_t*)malloc(sizeof(uint64_t) * FDB_COMP_BATCHSIZE);
-    c = old_offset = new_offset = sum_docsize = n_moved_docs = 0;
-    offset = (begin_hdr+1) * blocksize;
-    offset_end = (end_hdr+1) * blocksize;
-
-    compactor_bid_prev = offset / blocksize;
-    writer_bid_prev = (handle->file->getPos() / blocksize);
-
-    start_bmp_revnum = _fdb_get_bmp_revnum(handle, begin_hdr);
-    if (last_loop) {
-        // if last loop, 'end_hdr' may not be a header block .. just linear scan
-        stop_bmp_revnum = start_bmp_revnum;
-    } else {
-        stop_bmp_revnum= _fdb_get_bmp_revnum(handle, end_hdr);
-    }
-    cur_bmp_revnum = start_bmp_revnum;
-    if (stop_bmp_revnum < start_bmp_revnum) {
-        // this can happen at the end of delta moving
-        // (since end_hdr is just a non-existing file position)
-        stop_bmp_revnum = start_bmp_revnum;
-    }
-
-    do {
-        // Please refer to comments in _fdb_restore_wal().
-        // The fundamental logic is similar to that in WAL restore process,
-        // but scanning is limited to 'end_hdr', not the current file size.
-        if (cur_bmp_revnum == stop_bmp_revnum && offset >= offset_end) {
-            break;
-        }
-        if (cur_bmp_revnum == stop_bmp_revnum) {
-            doc_scan_limit = offset_end;
-        } else {
-            doc_scan_limit = file_limit;
-        }
-
-        if (!handle->dhandle->checkBuffer_Docio(offset / blocksize,
-                                cur_bmp_revnum)) {
-            if (compact_upto &&
-                FileMgr::isCommitHeader(handle->dhandle->getReadBuffer(),
-                                        blocksize)) {
-                // Read the KV sequence numbers from the old file's commit header
-                // and copy them into the new_file.
-                size_t len = 0;
-                uint64_t version;
-                fdb_seqnum_t seqnum = 0;
-                uint64_t local_bmp_revnum;
-
-                fs = handle->file->fetchHeader(offset / blocksize,
-                                               hdr_buf, &len, &seqnum,
-                                               NULL, NULL, &version,
-                                               &local_bmp_revnum, NULL);
-                if (fs != FDB_RESULT_SUCCESS) {
-                    // Invalid and corrupted header.
-                    free(doc);
-                    free(old_offset_array);
-                    fdb_log(log_callback, fs,
-                            "A commit header with block id (%" _F64 ") in the file '%s'"
-                            " seems corrupted!",
-                            offset / blocksize, handle->file->getFileName());
-                    return fs;
-                }
-
-                if (local_bmp_revnum != cur_bmp_revnum) {
-                    // different version of superblock BMP revnum
-                    // we have to ignore this header to preserve the
-                    // order of header sequence.
-                    goto move_delta_next_loop;
-                }
-
-                new_file->setSeqnum(seqnum);
-                if (new_handle.kvs) {
-                    uint64_t dummy64;
-                    uint64_t kv_info_offset;
-                    char *compacted_filename = NULL;
-                    fdb_fetch_header(version, hdr_buf, &dummy64, &dummy64,
-                                     &dummy64, &dummy64, &dummy64, &dummy64,
-                                     &dummy64, &dummy64,
-                                     &kv_info_offset, &dummy64,
-                                     &compacted_filename, NULL);
-
-                    fdb_kvs_header_read(new_file->getKVHeader_UNLOCKED(), handle->dhandle,
-                                        kv_info_offset, version, true);
-                }
-
-                // As this block is a commit header, flush the WAL and write
-                // the commit header to the new file.
-                if (c) {
-                    uint64_t delay_us;
-                    delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
-                    // TODO: return error code from this function...
-                    _fdb_append_batched_delta(handle, &new_handle, doc,
-                                              old_offset_array, c, clone_docs,
-                                              got_lock, prob, delay_us);
-                    c = sum_docsize = 0;
-                }
-                handle->bhandle->flushBuffer();
-
-                if (new_handle.kvs) {
-                    // multi KV instance mode .. append up-to-date KV header
-                    new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
-                }
-
-                // Note: calling fdb_gather_stale_blocks() MUST be called BEFORE
-                // calling FileMgr::getNextAllocBlock(), because the system doc for
-                // stale block info should be written BEFORE 'new_handle.last_hdr_bid'.
-                new_handle.file->getStaleData()->gatherRegions(&new_handle,
-                                                    new_file->getHeaderRevnum() + 1,
-                                                    new_handle.last_hdr_bid,
-                                                    new_handle.kv_info_offset,
-                                                    new_file->getSeqnum(),
-                                                    false );
-                new_handle.last_hdr_bid = new_file->getNextAllocBlock();
-                new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
-                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
-                // If synchrouns commit is enabled, then disable it temporarily for each
-                // commit header as synchronous commit is not required in the new file
-                // during the compaction.
-                fs = new_file->commit_FileMgr(false, log_callback);
-                if (fs != FDB_RESULT_SUCCESS) {
-                    free(doc);
-                    free(old_offset_array);
-                    fdb_log(log_callback, fs,
-                            "Commit failure on a new file '%s' during the compaction!",
-                            new_file->getFileName());
-                    return fs;
-                }
-                new_handle.bhandle->resetSubblockInfo();
-            }
-
-        } else {
-            bool first_doc_in_block = true;
-            uint64_t offset_original = offset;
-            ErrLogCallback *original_cb;
-            ErrLogCallback dummy_cb;
-
-            original_cb = handle->dhandle->getLogCallback();
-            dummy_cb.setCallback(fdb_dummy_log_callback);
-            dummy_cb.setCtxData(NULL);
-
-            do {
-                int64_t _offset;
-                uint64_t doc_offset;
-                memset(&doc[c], 0, sizeof(struct docio_object));
-
-                if (first_doc_in_block) {
-                    // if we read this doc block first time (offset 0),
-                    // checksum error should be tolerable.
-                    handle->dhandle->setLogCallback(&dummy_cb);
-                } else {
-                    handle->dhandle->setLogCallback(original_cb);
-                }
-
-                _offset = handle->dhandle->readDoc_Docio(offset, &doc[c], true);
-                if (_offset < 0) {
-                    // Read error
-
-                    // NOTE: during the delta phase of compact_upto(),
-                    // following case can happen:
-                    // (this is also explained in _fdb_restore_wal())
-
-                    // Writer handles W1 and W2
-                    // W1: write docs consecutively in BID 101, 102, 4, 5
-                    // W2: write docs consecutively in BID 103, 104, 6, 7
-
-                    // Note that consecutive doc blocks are linked using doc block's
-                    // meta section.
-
-                    // In this case, after we scan blocks 101 and 102, then jump to
-                    // BID 4 following the linked list. But we should not miss BID
-                    // 103 and 104, so we remember the last offset (i.e.,
-                    // offset_original), BID 102 in this case. After we read BID
-                    // 4 and 5, the linked list ends. Then we return back to BID 102,
-                    // and start to scan from BID 103.
-
-                    // However, after scanning BID 103, 104, 6, and 7, then we try
-                    // to read BID 105, but BID 105 is not a document block. So
-                    // the cursor moves to the first block in the bitmap in a
-                    // circular manner, BID 4 in this case. But BID 4 is an
-                    // intermediate block of the series of consecutive doc blocks
-                    // (101, 102, 4, 5), so reading a doc from offset 0 of BID 4
-                    // will cause checksum error.
-
-                    // Hence, we need to tolerate this kinds of doc read errors.
-
-                    // Note that BID 4, 5, 6, 7 are already read, so just ignoring
-                    // those doc blocks will not cause any problem.
-
-                    if (ver_non_consecutive_doc(handle->file->getVersion()) &&
-                        !first_doc_in_block) {
-                        // Since MAGIC_002: should terminate the compaction.
-                        for (size_t i = 0; i <= c; ++i) {
-                            free(doc[i].key);
-                            free(doc[i].meta);
-                            free(doc[i].body);
-                        }
-                        free(doc);
-                        free(old_offset_array);
-                        return (fdb_status) offset;
-                    } else {
-                        // MAGIC_000, 001: due to garbage (allocated but not written)
-                        // block, false alarm should be tolerable.
-                        break;
-                    }
-                } else if (_offset == 0) { // Reach zero-filled sub-block and skip it
-                    break;
-                }
-
-                if ((uint64_t)_offset < offset) {
-                    // due to circular reuse, cursor moves to the front of the file.
-                    // remember the last offset before moving the cursor.
-                    offset_original = offset;
-                }
-
-                first_doc_in_block = false;
-
-                if (doc[c].key || (doc[c].length.flag & DOCIO_TXN_COMMITTED)) {
-                    // check if the doc is transactional or not, and
-                    // also check if the doc contains system info
-                    if (!(doc[c].length.flag & DOCIO_TXN_DIRTY) &&
-                        !(doc[c].length.flag & DOCIO_SYSTEM)) {
-                        if (doc[c].length.flag & DOCIO_TXN_COMMITTED) {
-                            // commit mark .. read doc offset
-                            doc_offset = doc[c].doc_offset;
-                            // read the previously skipped doc
-                            _offset = handle->dhandle->readDoc_Docio(doc_offset,
-                                                     &doc[c], true);
-                            if (_offset <= 0) { // doc read error
-                                // Should terminate the compaction
-                                for (size_t i = 0; i <= c; ++i) {
-                                    free(doc[i].key);
-                                    free(doc[i].meta);
-                                    free(doc[i].body);
-                                }
-                                free(doc);
-                                free(old_offset_array);
-                                return _offset < 0 ?
-                                    (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
-                            }
-                        }
-
-                        old_offset_array[c] = offset;
-                        sum_docsize += _fdb_get_docsize(doc[c].length);
-                        c++;
-                        n_moved_docs++;
-                        offset = _offset;
-
-                        if (sum_docsize >= FDB_COMP_MOVE_UNIT ||
-                            c >= FDB_COMP_BATCHSIZE) {
-
-                            uint64_t delay_us;
-                            delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
-
-                            // append batched docs & flush WAL
-                            // TODO: return error code from this function
-                            _fdb_append_batched_delta(handle, &new_handle, doc,
-                                                      old_offset_array, c, clone_docs,
-                                                      got_lock, prob, delay_us);
-                            c = sum_docsize = 0;
-                            writer_curr_bid = handle->file->getPos() / blocksize;
-                            compactor_curr_bid = offset / blocksize;
-                            _fdb_update_block_distance(
-                                writer_curr_bid, compactor_curr_bid,
-                                &writer_bid_prev, &compactor_bid_prev,
-                                prob, handle->config.max_writer_lock_prob);
-                            distance_updated = true;
-                        }
-
-                    } else {
-                        // dirty transaction doc OR system doc
-                        free(doc[c].key);
-                        free(doc[c].meta);
-                        free(doc[c].body);
-                        offset = _offset;
-                        // do not break.. read next doc
-                    }
-                } else {
-                    // not a normal document
-                    free(doc[c].key);
-                    free(doc[c].meta);
-                    free(doc[c].body);
-                    offset = _offset;
-                    break;
-                }
-
-                // If the rollback operation is issued, abort the compaction task.
-                if (handle->file->isRollbackOn()) {
-                    fs = FDB_RESULT_FAIL_BY_ROLLBACK;
-                    break;
-                }
-                if (handle->file->isCompactionCancellationRequested()) {
-                    fs = FDB_RESULT_COMPACTION_CANCELLATION;
-                    break;
-                }
-
-            } while (offset + sizeof(struct docio_length) < doc_scan_limit);
-
-            if (fs == FDB_RESULT_FAIL_BY_ROLLBACK ||
-                fs == FDB_RESULT_COMPACTION_CANCELLATION) {
-                // abort compaction
-                for (size_t i = 0; i < c; ++i) {
-                    free(doc[i].key);
-                    free(doc[i].meta);
-                    free(doc[i].body);
-                }
-                free(doc);
-                free(old_offset_array);
-                return fs;
-            }
-
-            // Due to non-consecutive doc blocks, offset value may decrease
-            // and cause an infinite loop. To avoid this issue, we have to
-            // restore the last offset value if offset value is decreased.
-            if (offset < offset_original) {
-                offset = offset_original;
-            }
-        }
-
-move_delta_next_loop:
-        offset = ((offset / blocksize) + 1) * blocksize;
-        if (ver_superblock_support(handle->file->getVersion()) &&
-            offset >= file_limit && cur_bmp_revnum < stop_bmp_revnum) {
-            // circular scan
-            offset = blocksize * handle->file->getSb()->getConfig().num_sb;
-            cur_bmp_revnum++;
-        }
-    } while (true);
-
-    // final append & WAL flush
-    if (c) {
-        uint64_t delay_us;
-        delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
-
-        _fdb_append_batched_delta(handle, &new_handle, doc,
-                                  old_offset_array, c, clone_docs, got_lock,
-                                  prob, delay_us);
-        if (!distance_updated) {
-            // Probability was not updated since the amount of delta was not big
-            // enough. We need to update it at least once for each iteration.
-            writer_curr_bid = handle->file->getPos() / blocksize;
-            compactor_curr_bid = offset / blocksize;
-            _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
-                                       &writer_bid_prev, &compactor_bid_prev,
-                                       prob, handle->config.max_writer_lock_prob);
-        }
-    }
-
-    cond = 1;
-    if (handle->config.compaction_cb &&
-        handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, NULL, old_offset, new_offset,
-                                     handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
-    }
-
-    handle->dhandle->setLogCallback(log_callback);
-
-    free(doc);
-    free(old_offset_array);
-
-    return fs;
-}
-
-
-static int64_t _fdb_doc_move(void *dbhandle,
-                             void *void_new_dhandle,
-                             struct wal_item *item,
-                             fdb_doc *fdoc)
-{
-    uint8_t deleted;
-    uint64_t new_offset;
-    int64_t _offset;
-    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle*>(dbhandle);
-    DocioHandle *new_dhandle = reinterpret_cast<DocioHandle*>(void_new_dhandle);
-    struct docio_object doc;
-
-    // read doc from old file
-    doc.key = NULL;
-    doc.meta = NULL;
-    doc.body = NULL;
-    _offset = handle->dhandle->readDoc_Docio(item->offset, &doc, true);
-    if (_offset <= 0) {
-        return _offset;
-    }
-
-    // append doc into new file
-    deleted = doc.length.flag & DOCIO_DELETED;
-    fdoc->keylen = doc.length.keylen;
-    fdoc->metalen = doc.length.metalen;
-    fdoc->bodylen = doc.length.bodylen;
-    fdoc->key = doc.key;
-    fdoc->seqnum = doc.seqnum;
-
-    fdoc->meta = doc.meta;
-    fdoc->body = doc.body;
-    fdoc->size_ondisk= _fdb_get_docsize(doc.length);
-    fdoc->deleted = deleted;
-
-    new_offset = new_dhandle->appendDoc_Docio(&doc, deleted, 1);
-    return new_offset;
-}
-
-fdb_status _fdb_compact_file_checks(FdbKvsHandle *handle,
-                                    const char *new_filename)
-{
-    // First of all, update the handle for the case
-    // that compaction by other thread is already done
-    // (REMOVED_PENDING status).
-    fdb_check_file_reopen(handle, NULL);
-    fdb_sync_db_header(handle);
-
-    // if the file is already compacted by other thread
-    if (handle->file->getFileStatus() != FILE_NORMAL ||
-        !handle->file->getNewFileName().empty()) {
-        // update handle and return
-        fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
-
-        return FDB_RESULT_COMPACTION_FAIL;
-    }
-
-    if (handle->kvs) {
-        if (handle->kvs->getKvsType() == KVS_SUB) {
-            // deny compaction on sub handle
-            return FDB_RESULT_INVALID_HANDLE;
-        }
-    }
-
-    // invalid filename
-    if (!new_filename) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    if (strlen(new_filename) > FDB_MAX_FILENAME_LEN - 8) {
-        return FDB_RESULT_TOO_LONG_FILENAME;
-    }
-    if (!strcmp(new_filename, handle->file->getFileName())) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    if (handle->file->isRollbackOn()) {
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
-
-    return FDB_RESULT_SUCCESS;
-}
-
-static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
-                                     FileMgr *new_file,
-                                     bool cleanup_cache,
-                                     bool got_lock,
-                                     BTreeBlkHandle *new_bhandle,
-                                     DocioHandle *new_dhandle,
-                                     HBTrie *new_trie,
-                                     HBTrie *new_seqtrie,
-                                     BTree *new_seqtree,
-                                     BTree *new_staletree)
-{
-    FileMgr::setCompactionState(new_file, NULL, FILE_REMOVED_PENDING);
-    if (got_lock) {
-        new_file->mutexUnlock();
-    }
-    new_file->fhandleRemove(handle->fhandle);
-    FileMgr::close(new_file, cleanup_cache, new_file->getFileName(),
-                   &handle->log_callback);
-    // Free all the resources allocated in this function.
-    delete new_bhandle;
-    delete new_dhandle;
-    delete new_trie;
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (handle->kvs) {
-            delete new_seqtrie;
-        } else {
-            delete new_seqtree;
-        }
-    }
-    delete new_staletree;
 }
 
 static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
@@ -4373,7 +1634,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     handle->staletree = new_staletree;
 
     // set filemgr configuration
-    _fdb_init_file_config(&handle->config, &fconfig);
+    FdbEngine::initFileConfig(&handle->config, &fconfig);
     fconfig.addOptions(FILEMGR_CREATE);
 
     // open same file again, so the root kv handle can be redirected to this
@@ -4402,540 +1663,26 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status _fdb_compact_file(FdbKvsHandle *handle,
-                             FileMgr *new_file,
-                             BTreeBlkHandle *new_bhandle,
-                             DocioHandle *new_dhandle,
-                             HBTrie *new_trie,
-                             HBTrie *new_seqtrie,
-                             BTree *new_seqtree,
-                             BTree *new_staletree,
-                             bid_t marker_bid,
-                             bool clone_docs);
-
-fdb_status fdb_compact_file(fdb_file_handle *fhandle,
-                            const char *new_filename,
-                            bool in_place_compaction,
-                            bid_t marker_bid,
-                            bool clone_docs,
-                            const fdb_encryption_key *new_encryption_key)
-{
-    FileMgr *new_file;
-    FileMgrConfig fconfig;
-    BTreeBlkHandle *new_bhandle;
-    DocioHandle *new_dhandle;
-    HBTrie *new_trie = NULL;
-    BTree *new_seqtree = NULL, *old_seqtree;
-    BTree *new_staletree = NULL;
-    HBTrie *new_seqtrie = NULL;
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-    fdb_status status;
-    LATENCY_STAT_START();
-
-    // prevent update to the target file
-    handle->file->mutexLock();
-
-    status = _fdb_compact_file_checks(handle, new_filename);
-    if (status != FDB_RESULT_SUCCESS) {
-        handle->file->mutexUnlock();
-        return status;
-    }
-
-    // sync handle
-    fdb_sync_db_header(handle);
-
-    // set filemgr configuration
-    _fdb_init_file_config(&handle->config, &fconfig);
-    fconfig.addOptions(FILEMGR_CREATE);
-    fconfig.addOptions(FILEMGR_EXCL_CREATE); // fail if file already exists
-    if (new_encryption_key) {
-        fconfig.setEncryptionKey(*new_encryption_key);
-    }
-
-    // open new file
-    filemgr_open_result result = FileMgr::open(std::string(new_filename),
-                                               handle->fileops,
-                                               &fconfig,
-                                               &handle->log_callback);
-    if (result.rv != FDB_RESULT_SUCCESS) {
-        handle->file->mutexUnlock();
-        return (fdb_status) result.rv;
-    }
-
-    new_file = result.file;
-
-    if (new_file == NULL) {
-        handle->file->mutexUnlock();
-        return FDB_RESULT_OPEN_FAIL;
-    }
-
-    new_file->fhandleAdd(handle->fhandle);
-
-    new_file->setInPlaceCompaction(in_place_compaction);
-    // prevent update to the new_file
-    new_file->mutexLock();
-
-    // create new hb-trie and related handles
-    new_bhandle = new BTreeBlkHandle(new_file, new_file->getBlockSize());
-    new_bhandle->setLogCallback(&handle->log_callback);
-
-    new_dhandle = new DocioHandle(new_file,
-                                  handle->config.compress_document_body,
-                                  &handle->log_callback);
-
-    new_trie = new HBTrie(handle->trie->getChunkSize(),
-                          handle->trie->getValueLen(),
-                          new_file->getBlockSize(), BLK_NOT_FOUND,
-                          new_bhandle, (void*)new_dhandle, _fdb_readkey_wrap);
-
-    new_trie->setLeafCmp(_fdb_custom_cmp_wrap);
-    // set aux
-    new_trie->setFlag(handle->trie->getFlag());
-    new_trie->setLeafHeightLimit(handle->trie->getLeafHeightLimit());
-    new_trie->setMapFunction(handle->trie->getMapFunction());
-
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        // if we use sequence number tree
-        if (handle->kvs) { // multi KV instance mode
-            new_seqtrie = new HBTrie(sizeof(fdb_kvs_id_t),
-                                     OFFSET_SIZE, new_file->getBlockSize(),
-                                     BLK_NOT_FOUND, new_bhandle,
-                                     (void *)new_dhandle, _fdb_readseq_wrap);
-
-        } else {
-            old_seqtree = handle->seqtree;
-            new_seqtree = new BTree(new_bhandle, old_seqtree->getKVOps(),
-                                    old_seqtree->getBlkSize(), old_seqtree->getKSize(),
-                                    old_seqtree->getVSize(), 0x0, NULL);
-        }
-    }
-
-    // stale-block tree
-    if (ver_staletree_support(ver_get_latest_magic())) {
-        BTreeKVOps *stale_kv_ops;
-        if (handle->staletree) {
-            stale_kv_ops = handle->staletree->getKVOps();
-        } else {
-            // this happens when the old file's version is older than MAGIC_002.
-            stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
-        }
-
-        new_staletree = new BTree(new_bhandle, stale_kv_ops, handle->config.blocksize,
-                                  sizeof(filemgr_header_revnum_t), OFFSET_SIZE,
-                                  0x0, NULL);
-    } else {
-        new_staletree = NULL;
-    }
-
-    status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
-                               new_trie, new_seqtrie, new_seqtree, new_staletree,
-                               marker_bid, clone_docs);
-    LATENCY_STAT_END(fhandle->getRootHandle()->file, FDB_LATENCY_COMPACTS);
-    return status;
-}
-
-fdb_status _fdb_compact_file(FdbKvsHandle *handle,
-                             FileMgr *new_file,
-                             BTreeBlkHandle *new_bhandle,
-                             DocioHandle *new_dhandle,
-                             HBTrie *new_trie,
-                             HBTrie *new_seqtrie,
-                             BTree *new_seqtree,
-                             BTree *new_staletree,
-                             bid_t marker_bid,
-                             bool clone_docs)
-{
-    union wal_flush_items flush_items;
-    FileMgr *old_file;
-    BTree *new_idtree = NULL;
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-    fdb_seqnum_t seqnum;
-    uint64_t new_file_kv_info_offset = BLK_NOT_FOUND;
-    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
-    SuperblockBase *sb = handle->file->getSb();
-
-    // Copy the old file's seqnum to the new file.
-    // (KV instances' seq numbers will be copied along with the KV header)
-    // Note that the sequence numbers and KV header data in the new file will be
-    // corrected in _fdb_compact_move_docs_upto_marker() for compact_upto case
-    // (i.e., marker_bid != -1).
-    seqnum = handle->file->getSeqnum();
-    new_file->setSeqnum(seqnum);
-    if (handle->kvs) {
-        // multi KV instance mode .. copy KV header data to new file
-        fdb_kvs_header_copy(handle, new_file, new_dhandle,
-                            &new_file_kv_info_offset, true);
-    }
-
-    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
-                            &dirty_idtree_root, &dirty_seqtree_root, false);
-
-    // flush WAL and set DB header
-    handle->file->getWal()->commit_Wal(handle->file->getGlobalTxn(), NULL,
-                                       &handle->log_callback);
-    handle->file->getWal()->flush_Wal((void*)handle,
-                                      _fdb_wal_flush_func,
-                                      _fdb_wal_get_old_offset,
-                                      _fdb_wal_flush_seq_purge,
-                                      _fdb_wal_flush_kvs_delta_stats,
-                                      &flush_items);
-    handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
-
-    _fdb_dirty_update_finalize(handle, prev_node, new_node,
-                               &dirty_idtree_root, &dirty_seqtree_root, true);
-
-    // mark name of new file in old file
-    FileMgr::setCompactionState(handle->file, new_file, FILE_COMPACT_OLD);
-
-    // Note: Appending KVS header must be done after flushing WAL
-    //       because KVS stats info is updated during WAL flushing.
-    if (handle->kvs) {
-        // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle);
-    }
-
-    if (sb) {
-        sb->returnReusableBlocks(handle);
-    }
-
-    // last header should be appended at the end of the file
-    handle->last_hdr_bid = handle->file->getNextAllocBlock();
-    handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
-
-    // we should flush 'new_bhandle' too, since it now contains a dirty block
-    // for the new root node.
-    handle->bhandle->flushBuffer();
-    new_bhandle->flushBuffer();
-
-    // Commit the current file handle to record the compaction filename
-    fdb_status fs = handle->file->commit_FileMgr(
-                    !(handle->config.durability_opt & FDB_DRB_ASYNC),
-                    &handle->log_callback);
-    handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
-    if (fs != FDB_RESULT_SUCCESS) {
-        FileMgr::setCompactionState(handle->file, NULL, FILE_NORMAL);
-        handle->file->mutexUnlock();
-        new_file->mutexUnlock();
-        _fdb_cleanup_compact_err(handle, new_file, true, true, new_bhandle,
-                                 new_dhandle, new_trie, new_seqtrie,
-                                 new_seqtree, new_staletree);
-        return fs;
-    }
-
-    handle->bhandle->resetSubblockInfo();
-    if (sb) {
-        // sync superblock
-        sb->updateHeader(handle);
-        sb->syncCircular(handle);
-    }
-
-    // Mark new file as newly compacted
-    new_file->updateFileStatus(FILE_COMPACT_NEW, NULL);
-
-    // Acquire cur_hdr's block ID within this lock, ensuring the correct
-    // last_hdr_bid is recorded. This addresses MB-20040, where continuous
-    // commits caused _fdb_compact_move_docs (which invokes fdb_get_file_info)
-    // to move the last_hdr_bid (with fdb_sync_db_header), causing compaction
-    // to skip moving some of the delta items from the old_file to the new_file.
-    bid_t cur_hdr = handle->last_hdr_bid;
-    bid_t last_hdr = 0;
-
-    handle->file->mutexUnlock();
-    new_file->mutexUnlock();
-
-    // now compactor & another writer can be interleaved
-    // probability variable for blocking writer thread
-    // value range: 0 (do not block writer) to 100 (always block writer)
-    size_t prob = 0;
-
-    if (marker_bid != BLK_NOT_FOUND) {
-        fs = _fdb_compact_move_docs_upto_marker(
-                handle, new_file, new_trie, new_idtree, new_seqtrie,
-                new_seqtree, new_staletree, new_dhandle, new_bhandle,
-                marker_bid, handle->last_hdr_bid, seqnum, &prob, clone_docs);
-        cur_hdr = marker_bid; // Move delta documents from the compaction marker.
-    } else {
-        fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
-                                    new_seqtrie, new_seqtree, new_staletree,
-                                    new_dhandle, new_bhandle, &prob, clone_docs);
-    }
-
-    if (fs != FDB_RESULT_SUCCESS) {
-        FileMgr::setCompactionState(handle->file, NULL, FILE_NORMAL);
-
-        new_bhandle->resetSubblockInfo();
-        _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
-                                 new_dhandle, new_trie, new_seqtrie,
-                                 new_seqtree, new_staletree);
-
-        return fs;
-    }
-
-    // The first phase is done. Now move delta documents.
-    bool escape = false;
-    bool compact_upto = false;
-    if (marker_bid != (bid_t) -1) {
-        compact_upto = true;
-    }
-
-    if (!prob) {
-        // If the current probability is zero after the first phase of compaction,
-        // then start the second phase of compaction with 20% of probability to allow
-        // compaciton to catch up with the writer in case their throughputs remains
-        // the same approximately during the entire compaction period. Otherwise,
-        // the compaction might not be able to catch up and run forever.
-        prob = 20;
-    }
-
-    bool file_switched = false; // bg flusher file
-
-    // It is guaranteed that new delta updates during the compaction are not written
-    // in reused blocks, but are appended at the end of file. This minimizes code
-    // changes in delta migration routine.
-    do {
-        last_hdr = cur_hdr;
-        // get up-to-date header BID of the old file
-        fdb_sync_db_header(handle);
-        cur_hdr = handle->last_hdr_bid;
-
-        bool got_lock = false;
-        if (last_hdr == cur_hdr) {
-            // All *committed* delta documents are synchronized.
-            // However, there can be uncommitted documents written after the
-            // latest commit. They also should be moved.
-            // But at this time, we should grab the old file's lock to prevent
-            // any additional updates on it.
-            // Also stop flushing blocks from old file in favor of new file
-            if (!file_switched) {
-                BgFlusher *bgf = BgFlusher::getBgfInstance();
-                if (bgf) {
-                    bgf->switchFile_BgFlusher(handle->file, new_file,
-                                              &handle->log_callback);
-                }
-                file_switched = true;
-            }
-            handle->file->mutexLock();
-            got_lock = true;
-
-            bid_t last_bid = handle->file->getNextAllocBlock() - 1;
-            if (cur_hdr < last_bid) {
-                // move delta one more time
-                cur_hdr = last_bid;
-                escape = true;
-            } else {
-                break;
-            }
-        }
-
-        fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
-                                     new_seqtrie, new_seqtree, new_staletree,
-                                     new_dhandle, new_bhandle, last_hdr, cur_hdr,
-                                     compact_upto, clone_docs, got_lock, escape, &prob);
-        if (fs != FDB_RESULT_SUCCESS) {
-            FileMgr::setCompactionState(handle->file, NULL, FILE_NORMAL);
-
-            if (got_lock) {
-                handle->file->mutexUnlock();
-            }
-            new_bhandle->resetSubblockInfo();
-            _fdb_cleanup_compact_err(handle, new_file, true, false,
-                                     new_bhandle, new_dhandle, new_trie,
-                                     new_seqtrie, new_seqtree, new_staletree);
-
-            // failure in compaction means switch back to old file
-            if (file_switched) {
-                BgFlusher *bgf = BgFlusher::getBgfInstance();
-                if (bgf) {
-                    bgf->switchFile_BgFlusher(new_file, handle->file,
-                                              &handle->log_callback);
-                }
-            }
-
-            return fs;
-        }
-
-        if (escape) {
-            break;
-        }
-    } while (last_hdr < cur_hdr);
-
-    new_file->mutexLock();
-
-    // As we moved uncommitted non-transactional WAL items,
-    // commit & flush those items. Now WAL contains only uncommitted
-    // transactional items (or empty), so it is ready to migrate ongoing
-    // transactions.
-    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
-                            &dirty_idtree_root, &dirty_seqtree_root, false);
-
-    handle->file->getWal()->commit_Wal(handle->file->getGlobalTxn(), NULL,
-                                       &handle->log_callback);
-    handle->file->getWal()->flush_Wal((void*)handle,
-                                      _fdb_wal_flush_func,
-                                      _fdb_wal_get_old_offset,
-                                      _fdb_wal_flush_seq_purge,
-                                      _fdb_wal_flush_kvs_delta_stats,
-                                      &flush_items);
-    handle->bhandle->flushBuffer();
-
-    _fdb_dirty_update_finalize(handle, prev_node, new_node,
-                               &dirty_idtree_root, &dirty_seqtree_root, true);
-
-    handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
-
-    // copy old file's seqnum to new file (do this again due to delta)
-    seqnum = handle->file->getSeqnum();
-    new_file->setSeqnum(seqnum);
-    if (handle->kvs) {
-        // copy seqnums of non-default KV stores
-        fdb_kvs_header_copy(handle, new_file, new_dhandle, NULL, false);
-    }
-
-    // migrate uncommitted transactional items to new file
-    Wal::migrateUncommittedTxns_Wal((void*)handle, (void*)new_dhandle,
-                                    handle->file, new_file, _fdb_doc_move);
-
-    // last commit of the old file
-    // (we must do this due to potential dirty WAL flush
-    //  during the last loop of delta move; new index root node
-    //  should be stored in the DB header).
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
-    if (sb) {
-        // sync superblock
-        sb->updateHeader(handle);
-        sb->syncCircular(handle);
-    }
-    fs = handle->file->commit_FileMgr(false, &handle->log_callback);
-    if (fs != FDB_RESULT_SUCCESS) {
-        FileMgr::setCompactionState(handle->file, NULL, FILE_NORMAL);
-        handle->file->mutexUnlock();
-        new_file->mutexUnlock();
-        new_bhandle->resetSubblockInfo();
-        _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
-                                 new_dhandle, new_trie, new_seqtrie,
-                                 new_seqtree, new_staletree);
-        if (file_switched) {
-            BgFlusher *bgf = BgFlusher::getBgfInstance();
-            if (bgf) {
-                bgf->switchFile_BgFlusher(new_file, handle->file,
-                                          &handle->log_callback);
-            }
-        }
-        return fs;
-    }
-
-    // reset last_wal_flush_hdr_bid
-    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
-
-    old_file = handle->file;
-    handle->file = new_file;
-    handle->kv_info_offset = new_file_kv_info_offset;
-
-    delete handle->bhandle;
-    handle->bhandle = new_bhandle;
-
-    delete handle->dhandle;
-    handle->dhandle = new_dhandle;
-
-    delete handle->trie;
-    handle->trie = new_trie;
-
-    handle->config.encryption_key = new_file->getEncryption()->key;
-
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (handle->kvs) {
-            delete handle->seqtrie;
-            handle->seqtrie = new_seqtrie;
-        } else {
-            delete handle->seqtree;
-            handle->seqtree = new_seqtree;
-        }
-    }
-
-    // we don't need to free 'kv_ops'
-    // as it is re-used by'new_staletree'.
-    delete handle->staletree;
-    handle->staletree = new_staletree;
-
-    new_file->updateFileStatus(FILE_NORMAL, old_file->getFileName());
-
-    // Atomically perform
-    // 1) commit new file
-    // 2) set remove pending flag of the old file
-    // 3) close the old file
-    // Note that both old_file's lock and new_file's lock are still acquired.
-    return _fdb_commit_and_remove_pending(handle, old_file, new_file);
-}
-
-static fdb_status _fdb_compact(fdb_file_handle *fhandle,
-                               const char *new_filename,
-                               fdb_snapshot_marker_t marker,
-                               bool clone_docs,
-                               const fdb_encryption_key *new_encryption_key)
-{
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-    bool in_place_compaction = false;
-    std::string filename_str(handle->file->getFileName());
-    std::string nextfile;
-    fdb_status fs;
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
-        // manual compaction
-        if (!new_filename) { // In-place compaction.
-            in_place_compaction = true;
-            nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
-            new_filename = nextfile.c_str();
-        }
-        fs = fdb_compact_file(fhandle, new_filename, in_place_compaction,
-                              (bid_t)marker, clone_docs, new_encryption_key);
-    } else { // auto compaction mode.
-        bool ret;
-        // set compaction flag
-        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
-                                                                     true);
-        if (!ret) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            // the file is already being compacted by other thread
-            return FDB_RESULT_FILE_IS_BUSY;
-        }
-        // get next filename
-        nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
-        fs = fdb_compact_file(fhandle, nextfile.c_str(), in_place_compaction,
-                              (bid_t)marker, clone_docs, new_encryption_key);
-        // clear compaction flag
-        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
-                                                                     false);
-        (void)ret;
-    }
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return fs;
-}
-
 LIBFDB_API
 fdb_status fdb_compact(fdb_file_handle *fhandle,
                        const char *new_filename)
 {
-    return _fdb_compact(fhandle, new_filename, BLK_NOT_FOUND, false, NULL);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, new_filename, BLK_NOT_FOUND, false, NULL);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_compact_with_cow(fdb_file_handle *fhandle,
                                 const char *new_filename)
 {
-    return _fdb_compact(fhandle, new_filename, BLK_NOT_FOUND, true, NULL);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, new_filename, BLK_NOT_FOUND, true, NULL);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -4943,7 +1690,11 @@ fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
                             const char *new_filename,
                             fdb_snapshot_marker_t marker)
 {
-    return _fdb_compact(fhandle, new_filename, marker, false, NULL);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, new_filename, marker, false, NULL);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -4951,14 +1702,22 @@ fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
                                   const char *new_filename,
                                   fdb_snapshot_marker_t marker)
 {
-    return _fdb_compact(fhandle, new_filename, marker, true, NULL);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, new_filename, marker, true, NULL);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_rekey(fdb_file_handle *fhandle,
                      fdb_encryption_key new_key)
 {
-    return _fdb_compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -5228,7 +1987,7 @@ fdb_status fdb_destroy(const char *fname,
         return status;
     }
 
-    _fdb_init_file_config(&config, &fconfig);
+    FdbEngine::initFileConfig(&config, &fconfig);
 
     FileMgr::mutexOpenlock(&fconfig);
 
@@ -5565,7 +2324,6 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     fdb_check_file_reopen(handle, &fMgrStatus);
     fdb_sync_db_header(handle);
 
-
     SuperblockBase *sb = handle->file->getSb();
     uint64_t sb_min_live_revnum = 0;
     if (sb) {
@@ -5871,6 +2629,39 @@ fdb_status FdbEngine::destroyInstance() {
     return FDB_RESULT_SUCCESS;
 }
 
+void FdbEngine::initFileConfig(const fdb_config *config,
+                               FileMgrConfig *fconfig) {
+    fconfig->setBlockSize(config->blocksize);
+    fconfig->setNcacheBlock(config->buffercache_size / config->blocksize);
+    fconfig->setChunkSize(config->chunksize);
+
+    fconfig->addOptions(0x0);
+    fconfig->setSeqtreeOpt(config->seqtree_opt);
+
+    if (config->flags & FDB_OPEN_FLAG_CREATE) {
+        fconfig->addOptions(FILEMGR_CREATE);
+    }
+    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
+        fconfig->addOptions(FILEMGR_READONLY);
+    }
+    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
+        fconfig->addOptions(FILEMGR_SYNC);
+    }
+
+    fconfig->setFlag(0x0);
+    if ((config->durability_opt & FDB_DRB_ODIRECT) &&
+        config->buffercache_size) {
+        fconfig->addFlag(_ARCH_O_DIRECT);
+    }
+
+    fconfig->setPrefetchDuration(config->prefetch_duration);
+    fconfig->setNumWalShards(config->num_wal_partitions);
+    fconfig->setNumBcacheShards(config->num_bcache_partitions);
+    fconfig->setEncryptionKey(config->encryption_key);
+    fconfig->setBlockReusingThreshold(config->block_reusing_threshold);
+    fconfig->setNumKeepingHeaders(config->num_keeping_headers);
+}
+
 fdb_status FdbEngine::openFile(FdbFileHandle **ptr_fhandle,
                                const char *filename,
                                fdb_config &config) {
@@ -6016,7 +2807,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
-    _fdb_init_file_config(config, &fconfig);
+    FdbEngine::initFileConfig(config, &fconfig);
 
     if (filename_mode == FDB_VFILENAME) {
         actual_filename =
@@ -7317,11 +4108,11 @@ fdb_set_start:
                                     &dirty_idtree_root, &dirty_seqtree_root, true);
 
             wr = file->getWal()->flush_Wal((void *)handle,
-                                      _fdb_wal_flush_func,
-                                      _fdb_wal_get_old_offset,
-                                      _fdb_wal_flush_seq_purge,
-                                      _fdb_wal_flush_kvs_delta_stats,
-                                      &flush_items);
+                                           WalFlushCallbacks::flushItem,
+                                           WalFlushCallbacks::getOldOffset,
+                                           WalFlushCallbacks::purgeSeqTreeEntry,
+                                           WalFlushCallbacks::updateKvsDeltaStats,
+                                           &flush_items);
 
             if (wr != FDB_RESULT_SUCCESS) {
                 handle->bhandle->clearDirtyUpdate();
@@ -7510,9 +4301,11 @@ fdb_commit_start:
                                 &dirty_idtree_root, &dirty_seqtree_root, false);
 
         wr = handle->file->getWal()->flush_Wal((void *)handle,
-                       _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                       _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                       &flush_items);
+                                               WalFlushCallbacks::flushItem,
+                                               WalFlushCallbacks::getOldOffset,
+                                               WalFlushCallbacks::purgeSeqTreeEntry,
+                                               WalFlushCallbacks::updateKvsDeltaStats,
+                                               &flush_items);
 
         if (wr != FDB_RESULT_SUCCESS) {
             handle->bhandle->clearDirtyUpdate();
@@ -7572,7 +4365,7 @@ fdb_commit_start:
                                         (txn)?(txn):(handle->file->getGlobalTxn()));
         if (earliest_txn) {
             filemgr_header_revnum_t last_revnum;
-            last_revnum = _fdb_get_header_revnum(handle, handle->last_wal_flush_hdr_bid);
+            last_revnum = handle->file->getHeaderRevnum(handle->last_wal_flush_hdr_bid);
             // there exists other transaction that is not committed yet
             if (last_revnum < earliest_txn->prev_revnum) {
                 handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
@@ -8020,7 +4813,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     return fs;
 }
 
-fdb_status FdbEngine::rollbackAll(fdb_file_handle *fhandle,
+fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
                                   fdb_snapshot_marker_t marker)
 {
 #ifdef _MEMPOOL
@@ -8154,6 +4947,418 @@ fdb_status FdbEngine::rollbackAll(fdb_file_handle *fhandle,
     }
 
     return fs;
+}
+
+fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
+                              const char *new_filename,
+                              fdb_snapshot_marker_t marker,
+                              bool clone_docs,
+                              const fdb_encryption_key *new_encryption_key)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+    bool in_place_compaction = false;
+    std::string filename_str(handle->file->getFileName());
+    std::string nextfile;
+    fdb_status fs;
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
+        // manual compaction
+        if (!new_filename) { // In-place compaction.
+            in_place_compaction = true;
+            nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
+            new_filename = nextfile.c_str();
+        }
+        fs = Compaction::compactFile(fhandle, new_filename, in_place_compaction,
+                                     (bid_t)marker, clone_docs, new_encryption_key);
+    } else { // auto compaction mode.
+        bool ret;
+        // set compaction flag
+        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
+                                                                     true);
+        if (!ret) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            // the file is already being compacted by other thread
+            return FDB_RESULT_FILE_IS_BUSY;
+        }
+        // get next filename
+        nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
+        fs = Compaction::compactFile(fhandle, nextfile.c_str(), in_place_compaction,
+                                     (bid_t)marker, clone_docs, new_encryption_key);
+        // clear compaction flag
+        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
+                                                                     false);
+        (void)ret;
+    }
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return fs;
+}
+
+// Delta changes in KV store stats during the WAL flush
+struct wal_kvs_delta_stat {
+    fdb_kvs_id_t kv_id;
+    int64_t nlivenodes;
+    int64_t ndocs;
+    int64_t ndeletes;
+    int64_t datasize;
+    int64_t deltasize;
+    struct avl_node avl_entry;
+};
+
+// Compare function to sort KVS delta stat entries in the AVL tree during WAL flush
+INLINE int _kvs_delta_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    (void) aux;
+    struct wal_kvs_delta_stat *stat1 = _get_entry(a, struct wal_kvs_delta_stat,
+                                                  avl_entry);
+    struct wal_kvs_delta_stat *stat2 = _get_entry(b, struct wal_kvs_delta_stat,
+                                                  avl_entry);
+    if (stat1->kv_id < stat2->kv_id) {
+        return -1;
+    } else if (stat1->kv_id > stat2->kv_id) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// A stale sequence number entry that can be purged from the sequence tree
+// during the WAL flush.
+struct wal_stale_seq_entry {
+    fdb_kvs_id_t kv_id;
+    fdb_seqnum_t seqnum;
+    struct avl_node avl_entry;
+};
+
+INLINE int _fdb_seq_entry_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    (void) aux;
+    struct wal_stale_seq_entry *entry1 = _get_entry(a, struct wal_stale_seq_entry,
+                                                    avl_entry);
+    struct wal_stale_seq_entry *entry2 = _get_entry(b, struct wal_stale_seq_entry,
+                                                    avl_entry);
+    if (entry1->kv_id < entry2->kv_id) {
+        return -1;
+    } else if (entry1->kv_id > entry2->kv_id) {
+        return 1;
+    } else {
+        return _CMP_U64(entry1->seqnum, entry2->seqnum);
+    }
+}
+
+fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
+                                        struct wal_item *item,
+                                        struct avl_tree *stale_seqnum_list,
+                                        struct avl_tree *kvs_delta_stats)
+{
+    hbtrie_result hr;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
+    fdb_seqnum_t _seqnum;
+    fdb_kvs_id_t kv_id = 0;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
+    int size_id, size_seq;
+    uint8_t *kvid_seqnum;
+    uint64_t old_offset;
+    int64_t _offset;
+    int64_t delta;
+    struct docio_object _doc;
+    FileMgr *file = handle->dhandle->getFile();
+
+    memset(var_key, 0, handle->config.chunksize);
+    if (handle->kvs) {
+        buf2kvid(handle->config.chunksize, item->header->key, &kv_id);
+    } else {
+        kv_id = 0;
+    }
+
+    struct wal_kvs_delta_stat *kvs_delta_stat;
+    struct wal_kvs_delta_stat kvs_delta_query;
+    kvs_delta_query.kv_id = kv_id;
+    avl_node *delta_stat_node = avl_search(kvs_delta_stats,
+                                           &kvs_delta_query.avl_entry,
+                                           _kvs_delta_stat_cmp);
+    if (delta_stat_node) {
+        kvs_delta_stat = _get_entry(delta_stat_node, struct wal_kvs_delta_stat,
+                                    avl_entry);
+    } else {
+        kvs_delta_stat = (struct wal_kvs_delta_stat *)
+            calloc(1, sizeof(struct wal_kvs_delta_stat));
+        kvs_delta_stat->kv_id = kv_id;
+        avl_insert(kvs_delta_stats, &kvs_delta_stat->avl_entry,
+                   _kvs_delta_stat_cmp);
+    }
+
+    int64_t nlivenodes = handle->bhandle->getNLiveNodes();
+    int64_t ndeltanodes = handle->bhandle->getNDeltaNodes();
+
+    if (item->action == WAL_ACT_INSERT ||
+        item->action == WAL_ACT_LOGICAL_REMOVE) {
+        _offset = _endian_encode(item->offset);
+
+        handle->trie->insert(item->header->key, item->header->keylen,
+                             (void *)&_offset, (void *)&old_offset);
+
+        fs = handle->bhandle->flushBuffer();
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+        old_offset = _endian_decode(old_offset);
+
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            _seqnum = _endian_encode(item->seqnum);
+            if (handle->kvs) {
+                // multi KV instance mode .. HB+trie
+                uint64_t old_offset_local;
+
+                size_id = sizeof(fdb_kvs_id_t);
+                size_seq = sizeof(fdb_seqnum_t);
+                kvid_seqnum = alca(uint8_t, size_id + size_seq);
+                kvid2buf(size_id, kv_id, kvid_seqnum);
+                memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
+                handle->seqtrie->insert(kvid_seqnum, size_id + size_seq,
+                                        (void *)&_offset, (void *)&old_offset_local);
+            } else {
+                handle->seqtree->insert((void *)&_seqnum, (void *)&_offset);
+            }
+            fs = handle->bhandle->flushBuffer();
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+        }
+
+        delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+        kvs_delta_stat->nlivenodes += delta;
+        delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
+        delta *= handle->config.blocksize;
+        kvs_delta_stat->deltasize += delta;
+
+        if (old_offset == BLK_NOT_FOUND) {
+            if (item->action == WAL_ACT_INSERT) {
+                ++kvs_delta_stat->ndocs;
+            } else { // inserted a logical deleted doc into main index
+                ++kvs_delta_stat->ndeletes;
+            }
+            kvs_delta_stat->datasize += item->doc_size;
+            kvs_delta_stat->deltasize += item->doc_size;
+        } else { // update or logical delete
+            // This block is already cached when we call HBTRIE_INSERT.
+            // No additional block access.
+            char dummy_key[FDB_MAX_KEYLEN];
+            _doc.meta = _doc.body = NULL;
+            _doc.key = &dummy_key;
+            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
+                                              &_doc, true);
+            if (_offset < 0) {
+                return (fdb_status) _offset;
+            } else if (_offset == 0) {
+                // Note that this is not an error as old_offset is pointing to
+                // the zero-filled region in a document block.
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+            free(_doc.meta);
+            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
+
+            if (!(_doc.length.flag & DOCIO_DELETED)) {//prev doc was not deleted
+                if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
+                    --kvs_delta_stat->ndocs;
+                    ++kvs_delta_stat->ndeletes;
+                } // else no change (prev doc was insert, now just an update)
+            } else { // prev doc in main index was a logically deleted doc
+                if (item->action == WAL_ACT_INSERT) { // now undeleted
+                    ++kvs_delta_stat->ndocs;
+                    --kvs_delta_stat->ndeletes;
+                } // else no change (prev doc was deleted, now re-deleted)
+            }
+
+            delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
+            kvs_delta_stat->datasize += delta;
+            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+                kvs_delta_stat->deltasize += delta;
+            } else {
+                kvs_delta_stat->deltasize += (int)item->doc_size;
+            }
+
+            // Avoid duplicates (remove previous sequence number)
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
+                    calloc(1, sizeof(struct wal_stale_seq_entry));
+                entry->kv_id = kv_id;
+                entry->seqnum = _doc.seqnum;
+                avl_insert(stale_seqnum_list, &entry->avl_entry,
+                           _fdb_seq_entry_cmp);
+            }
+        }
+    } else {
+        // Immediate remove
+        old_offset = item->old_offset;
+        hr = handle->trie->remove(item->header->key, item->header->keylen);
+        fs = handle->bhandle->flushBuffer();
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            // This block is already cached when we call _fdb_wal_get_old_offset
+            // No additional block access should be done.
+            char dummy_key[FDB_MAX_KEYLEN];
+            _doc.meta = _doc.body = NULL;
+            _doc.key = &dummy_key;
+            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
+                                              &_doc, true);
+            if (_offset < 0) {
+                return (fdb_status) _offset;
+            } else if (_offset == 0) {
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+            free(_doc.meta);
+            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
+
+            // Reduce the total number of docs by one
+            --kvs_delta_stat->ndocs;
+            if (_doc.length.flag & DOCIO_DELETED) {//prev deleted doc is dropped
+                --kvs_delta_stat->ndeletes;
+            }
+
+            // Reduce the total datasize by size of previously present doc
+            delta = -(int)_fdb_get_docsize(_doc.length);
+            kvs_delta_stat->datasize += delta;
+            // if multiple wal flushes happen before commit, then it's possible
+            // that this doc deleted was inserted & flushed after last commit
+            // In this case we need to update the deltasize too which tracks
+            // the amount of new data inserted between commits.
+            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+                kvs_delta_stat->deltasize += delta;
+            }
+
+            // remove sequence number for the removed doc
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
+                    calloc(1, sizeof(struct wal_stale_seq_entry));
+                entry->kv_id = kv_id;
+                entry->seqnum = _doc.seqnum;
+                avl_insert(stale_seqnum_list, &entry->avl_entry, _fdb_seq_entry_cmp);
+            }
+
+            // Update index size to new size after the remove operation
+            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+            kvs_delta_stat->nlivenodes += delta;
+
+            // ndeltanodes measures number of new index nodes created due to
+            // this hbtrie_remove() operation
+            delta = (int)handle->bhandle->getNDeltaNodes() - ndeltanodes;
+            delta *= handle->config.blocksize;
+            kvs_delta_stat->deltasize += delta;
+        }
+    }
+    return FDB_RESULT_SUCCESS;
+}
+
+uint64_t WalFlushCallbacks::getOldOffset(void *dbhandle,
+                                         struct wal_item *item)
+{
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
+    uint64_t old_offset = 0;
+
+    if (item->action == WAL_ACT_REMOVE) {
+        // For immediate remove, old_offset value is critical
+        // so that we should get an exact value.
+        handle->trie->find(item->header->key,
+                           item->header->keylen,
+                           (void*)&old_offset);
+    } else {
+        handle->trie->findOffset(item->header->key,
+                                 item->header->keylen,
+                                 (void*)&old_offset);
+    }
+    handle->bhandle->flushBuffer();
+    old_offset = _endian_decode(old_offset);
+
+    return old_offset;
+}
+
+void WalFlushCallbacks::purgeSeqTreeEntry(void *dbhandle,
+                                          struct avl_tree *stale_seqnum_list,
+                                          struct avl_tree *kvs_delta_stats)
+{
+    fdb_seqnum_t _seqnum;
+    int64_t nlivenodes;
+    int64_t ndeltanodes;
+    int64_t delta;
+    uint8_t kvid_seqnum[sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t)];
+    struct wal_stale_seq_entry *seq_entry;
+    struct wal_kvs_delta_stat *delta_stat;
+    struct wal_kvs_delta_stat kvs_delta_query;
+
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
+    struct avl_node *node = avl_first(stale_seqnum_list);
+    while (node) {
+        seq_entry = _get_entry(node, struct wal_stale_seq_entry, avl_entry);
+        node = avl_next(node);
+        nlivenodes = handle->bhandle->getNLiveNodes();
+        ndeltanodes = handle->bhandle->getNDeltaNodes();
+        _seqnum = _endian_encode(seq_entry->seqnum);
+        if (handle->kvs) {
+            // multi KV instance mode .. HB+trie
+            kvid2buf(sizeof(fdb_kvs_id_t), seq_entry->kv_id, kvid_seqnum);
+            memcpy(kvid_seqnum + sizeof(fdb_kvs_id_t), &_seqnum, sizeof(fdb_seqnum_t));
+            handle->seqtrie->remove((void*)kvid_seqnum,
+                                    sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t));
+        } else {
+            handle->seqtree->remove((void*)&_seqnum);
+        }
+        handle->bhandle->flushBuffer();
+
+        kvs_delta_query.kv_id = seq_entry->kv_id;
+        avl_node *delta_stat_node = avl_search(kvs_delta_stats,
+                                               &kvs_delta_query.avl_entry,
+                                               _kvs_delta_stat_cmp);
+        if (delta_stat_node) {
+            delta_stat = _get_entry(delta_stat_node, struct wal_kvs_delta_stat,
+                                    avl_entry);
+            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+            delta_stat->nlivenodes += delta;
+            delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
+            delta *= handle->config.blocksize;
+            delta_stat->deltasize += delta;
+        }
+        avl_remove(stale_seqnum_list, &seq_entry->avl_entry);
+        free(seq_entry);
+    }
+}
+
+void WalFlushCallbacks::updateKvsDeltaStats(FileMgr *file,
+                                            struct avl_tree *kvs_delta_stats)
+{
+    struct avl_node *node;
+    struct wal_kvs_delta_stat *delta_stat;
+    node = avl_first(kvs_delta_stats);
+    while (node) {
+        delta_stat = _get_entry(node, struct wal_kvs_delta_stat, avl_entry);
+        node = avl_next(node);
+        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
+                              KVS_STAT_DATASIZE, delta_stat->datasize);
+        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
+                              KVS_STAT_NDOCS, delta_stat->ndocs);
+        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
+                              KVS_STAT_NDELETES, delta_stat->ndeletes);
+        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
+                              KVS_STAT_NLIVENODES, delta_stat->nlivenodes);
+        file->getKvsStatOps()->statUpdateAttr(delta_stat->kv_id,
+                              KVS_STAT_DELTASIZE, delta_stat->deltasize);
+        avl_remove(kvs_delta_stats, &delta_stat->avl_entry);
+        free(delta_stat);
+    }
 }
 
 void _fdb_dump_handle(FdbKvsHandle *h) {

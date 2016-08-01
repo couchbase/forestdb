@@ -2001,6 +2001,14 @@ fdb_status fdb_changes_since(FdbKvsHandle *handle,
                              fdb_changes_callback_fn callback,
                              void *ctx)
 {
+    return FdbIterator::changesSince(handle, since, opt, callback, ctx);
+}
+
+fdb_status FdbIterator::changesSince(fdb_kvs_handle *handle,
+                                     fdb_seqnum_t since,
+                                     fdb_iterator_opt_t opt,
+                                     fdb_changes_callback_fn callback,
+                                     void *ctx) {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }

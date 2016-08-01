@@ -124,6 +124,24 @@ public:
     /* To close & delete an iterator */
     static fdb_status destroyIterator(fdb_iterator *iterator);
 
+    /**
+     * Iterate through the changes since sequence number `since` with a provided
+     * callback function.
+     *
+     * @param handle Pointer to ForestDB KV store instance.
+     * @param since The sequence number to start iterating from.
+     * @param opt Iterator option.
+     * @param callback The callback function used to iterate over all changes.
+     * @param ctx Client context (passed to the callback).
+     * @return FDB_RESULT_SUCCESS on success, FDB_RESULT_CANCELLED if cancelled
+     *         by caller through callback.
+     */
+    static fdb_status changesSince(fdb_kvs_handle *handle,
+                                   fdb_seqnum_t since,
+                                   fdb_iterator_opt_t opt,
+                                   fdb_changes_callback_fn callback,
+                                   void *ctx);
+
     /* Moves the iterator to specified key */
     fdb_status seek(const void *seek_key, const size_t seek_keylen,
                     const fdb_iterator_seek_opt_t seek_pref);

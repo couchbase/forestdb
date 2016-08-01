@@ -35,6 +35,12 @@ extern "C" {
 /* If non-NULL, callback invoked when handling a fatal error. */
 extern fdb_fatal_error_callback fatal_error_callback;
 
+// TODO: Need to move these functions to (static) member functions of classes
+
+int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux);
+
+void fdb_dummy_log_callback(int err_code, const char *err_msg, void *ctx_data);
+
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id);
 void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf);
 void buf2buf(size_t chunksize_src, void *buf_src,

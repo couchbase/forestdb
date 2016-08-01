@@ -11,6 +11,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/btree_fast_str_kv.cc
     ${PROJECT_SOURCE_DIR}/src/btreeblock.cc
     ${PROJECT_SOURCE_DIR}/src/checksum.cc
+    ${PROJECT_SOURCE_DIR}/src/compaction.cc
     ${PROJECT_SOURCE_DIR}/src/compactor.cc
     ${PROJECT_SOURCE_DIR}/src/configuration.cc
     ${PROJECT_SOURCE_DIR}/src/docio.cc

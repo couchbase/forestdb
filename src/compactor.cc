@@ -36,6 +36,7 @@
 #endif
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "fdb_internal.h"
 #include "filemgr.h"
 #include "avltree.h"
@@ -44,6 +45,7 @@
 #include "filemgr_ops.h"
 #include "configuration.h"
 #include "internal_types.h"
+#include "compaction.h"
 #include "compactor.h"
 #include "wal.h"
 #include "memleak.h"
@@ -323,8 +325,8 @@ void CompactorThread::run() {
 
                 if (fs == FDB_RESULT_SUCCESS) {
                     std::string new_filename = manager->getNextFileName(file_name);
-                    fdb_compact_file(fhandle, new_filename.c_str(), false, (bid_t) -1,
-                                     false, NULL);
+                    Compaction::compactFile(fhandle, new_filename.c_str(), false,
+                                            (bid_t) -1, false, NULL);
                     fdb_close(fhandle);
 
                     manager->cptLock.lock();

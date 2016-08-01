@@ -546,6 +546,23 @@ uint64_t FileMgr::getSbBmpRevnum() {
     }
 }
 
+uint64_t FileMgr::getSbBmpRevnum(bid_t bid) {
+    uint8_t *buf = alca(uint8_t, getBlockSize());
+    uint64_t version, bmp_revnum = 0;
+    size_t header_len;
+    fdb_seqnum_t seqnum;
+    filemgr_header_revnum_t revnum;
+    fdb_status fs;
+
+    fs = fetchHeader(bid, buf, &header_len,
+                     &seqnum, &revnum, NULL, &version, &bmp_revnum,
+                     NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
+    return bmp_revnum;
+}
+
 fdb_status FileMgr::readHeader(ErrLogCallback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
@@ -1202,6 +1219,22 @@ filemgr_header_revnum_t FileMgr::getHeaderRevnum() {
     ret = fMgrHeader.revnum;
     releaseSpinLock();
     return ret;
+}
+
+filemgr_header_revnum_t FileMgr::getHeaderRevnum(bid_t bid) {
+    uint8_t *buf = alca(uint8_t, getBlockSize());
+    uint64_t version;
+    size_t header_len;
+    fdb_seqnum_t seqnum;
+    filemgr_header_revnum_t revnum = 0;
+    fdb_status fs;
+
+    fs = fetchHeader(bid, buf, &header_len, &seqnum, &revnum,
+                     NULL, &version, NULL, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
+    return revnum;
 }
 
 // 'filemgr_get_seqnum', 'filemgr_set_seqnum',

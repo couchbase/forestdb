@@ -26,6 +26,29 @@
 #include "kvs_handle.h"
 
 /**
+ * Class that defines the list of callback functions invoked for each WAL item
+ * during the WAL flush
+ */
+class WalFlushCallbacks {
+public:
+    static fdb_status flushItem(void *dbhandle,
+                                struct wal_item *item,
+                                struct avl_tree *stale_seqnum_list,
+                                struct avl_tree *kvs_delta_stats);
+
+    static uint64_t getOldOffset(void *dbhandle,
+                                 struct wal_item *item);
+
+    static void purgeSeqTreeEntry(void *dbhandle,
+                                  struct avl_tree *stale_seqnum_list,
+                                  struct avl_tree *kvs_delta_stats);
+
+    static void updateKvsDeltaStats(FileMgr *file,
+                                    struct avl_tree *kvs_delta_stats);
+
+};
+
+/**
  * ForestDB engine that implements all the public APIs defined in ForestDB's
  * public header.
  */
@@ -73,6 +96,15 @@ public:
     static bool validateFdbConfig(fdb_config &config) {
         return validate_fdb_config(&config);
     }
+
+    /**
+     * Init a file manager config using a given ForestDB config
+     *
+     * @param config ForestDB config
+     * @param fconfig File manager config
+     */
+    static void initFileConfig(const fdb_config *config,
+                               FileMgrConfig *fconfig);
 
     /**
      * Open a ForestDB file.
@@ -322,7 +354,7 @@ public:
      *                                 if sequence number tree is not enabled
      *         Any other error from fdb_open may be returned
      */
-    fdb_status rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
+    fdb_status rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t rollback_seqnum);
 
     /**
      * Rollback all the KV stores in a file to a specified point represented by
@@ -334,8 +366,39 @@ public:
      *         FDB_RESULT_HANDLE_BUSY if there are multiple kv stores used whose
      *                                handles have not yet been closed
      */
-    fdb_status rollbackAll(fdb_file_handle *fhandle,
+    fdb_status rollbackAll(FdbFileHandle *fhandle,
                            fdb_snapshot_marker_t marker);
+
+    /**
+     * Compact the current file and create a new compacted file.
+     * Note that a new file name passed to this API will be ignored if the compaction
+     * mode of the handle is auto-compaction (i.e., FDB_COMPACTION_AUTO). In the auto
+     * compaction mode, the name of a new compacted file will be automatically generated
+     * by increasing its current file revision number.
+     *
+     * If a new file name is not given (i.e., NULL is passed) in a manual compaction
+     * mode, then a new file name will be automatically created by appending
+     * a file revision number to the original file name. Also note that if a given
+     * ForestDB file is currently being compacted by the compaction daemon, then
+     * FDB_RESULT_FILE_IS_BUSY is returned to the caller.
+     *
+     * @param fhandle Pointer to ForestDB file handle
+     * @param new_filename Name of a new compacted file
+     * @param marker Snapshot marker retrieved from fdb_get_all_snap_markers() API,
+     *        indicating the stale data up to a given snapshot marker will be
+     *        retained in the new file.
+     * @param clone_docs Flag indicating if the compaction can be done through the
+     *         block-level COW support from the host OS. Currently, Btrfs
+     *         supports the block-level COW for compaction.
+     * @param new_encryption_key Key with which to encrypt the new compacted file.
+     *        To remove encryption, set the key's algorithm to FDB_ENCRYPTION_NONE.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status compact(FdbFileHandle *fhandle,
+                       const char *new_filename,
+                       fdb_snapshot_marker_t marker,
+                       bool clone_docs,
+                       const fdb_encryption_key *new_encryption_key);
 
 private:
 
