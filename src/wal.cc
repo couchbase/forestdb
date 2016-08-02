@@ -2135,15 +2135,22 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
                 _shandle->num_prev_snaps);
         // Decrement ref counts on all the previous shared snapshots..
         int num_prev_snaps = shandle->num_prev_snaps;
-        for (int idx = 0; idx < num_prev_snaps; ++idx) {
-            struct list_elem *snap_elem = list_prev(&_shandle->snaplist_elem);
-            _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
-            fdb_assert(_shandle->ref_cnt_kvs, _shandle->ref_cnt_kvs, 1);
-            _shandle->ref_cnt_kvs--;
+        // To keep ThreadSanitizer Happy, we must not even attempt to
+        // read the list_prev for an element outside the snapshot range
+        struct list_elem *snap_elem = &_shandle->snaplist_elem;
+        for (int i = 0;; ++i) {
+            if (i < num_prev_snaps) {
+                snap_elem = list_prev(&_shandle->snaplist_elem);
+                fdb_assert(_shandle->ref_cnt_kvs, _shandle->ref_cnt_kvs, 1);
+                _shandle->ref_cnt_kvs--;
+                _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+            } else { // Only 1 snapshot or the Last valid shared snapshot handle
+                _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                fdb_assert(_shandle->ref_cnt_kvs, _shandle->ref_cnt_kvs, 1);
+                _shandle->ref_cnt_kvs--;
+                break;
+            }
         }
-        // Decrement ref count on current handle so it may be removed
-        fdb_assert(shandle->ref_cnt_kvs, shandle->ref_cnt_kvs, 1);
-        shandle->ref_cnt_kvs--;
         return fs;
     } // ELSE persisted or un-shared snapshot ...
     if (!(--shandle->ref_cnt_kvs)) {
