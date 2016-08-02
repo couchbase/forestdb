@@ -910,14 +910,19 @@ void test_readers_writers_with_handle_pool(int nhandles,
     TEST_RESULT(test_title.c_str());
 }
 
+struct compact_args {
+    std::string cur_filename;
+    std::string new_filename;
+};
+
 void *compact_thread(void *args) {
-    const char *filename = static_cast<const char*>(args);
+    struct compact_args *ca = static_cast<struct compact_args *>(args);
     fdb_config config = fdb_get_default_config();
     fdb_file_handle *dbfile;
     fdb_status status = FDB_RESULT_SUCCESS;
-    status = fdb_open(&dbfile, filename, &config);
+    status = fdb_open(&dbfile, ca->cur_filename.c_str(), &config);
     fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-    status = fdb_compact(dbfile, NULL);
+    status = fdb_compact(dbfile, ca->new_filename.c_str());
     fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
     status = fdb_close(dbfile);
     fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
@@ -958,13 +963,16 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
 
     thread_t tid(0);
     void *ret;
+    int revId = 0;
+
+    struct compact_args args;
 
     for (int i = 0; i < itemCountPerStore; ++i) {
         for (int j = 0; j < numKvStores; ++j) {
             fhp->getResourceAtIndex(j, &dbfile, &db);
 
             sprintf(keybuf, "key_%d_%d", i, j);
-            sprintf(keybuf, "body_%d_%d", i, j);
+            sprintf(bodybuf, "body_%d_%d", i, j);
 
             status = fdb_set_kv(db,
                                 (void*)keybuf, strlen(keybuf) + 1,
@@ -979,7 +987,14 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
             if (tid) {
                 thread_join(tid, &ret);
             }
-            thread_create(&tid, compact_thread, (void*)filenames.at(0).c_str());
+
+            if (revId) {
+                args.cur_filename = filenames.at(0) + "." + std::to_string(revId);
+            } else {
+                args.cur_filename = filenames.at(0);
+            }
+            args.new_filename = filenames.at(0) + "." + std::to_string(++revId);
+            thread_create(&tid, compact_thread, &args);
         }
 
         status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
