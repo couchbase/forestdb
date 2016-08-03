@@ -3917,6 +3917,7 @@ struct cb_snapshot_args {
     fdb_kvs_handle *handle;
     int ndocs;
     int nupdates;
+    int niterations;
 };
 
 static void _snapshot_check(fdb_kvs_handle *handle, int ndocs, int nupdates)
@@ -4002,21 +4003,23 @@ static fdb_compact_decision cb_snapshot(fdb_file_handle *fhandle,
     struct cb_snapshot_args *args = (struct cb_snapshot_args *)ctx;
     TEST_INIT();
 
-    TEST_CHK(!kv_name);
-    if (status == FDB_CS_BEGIN) {
-        // first verification
-        _snapshot_check(args->handle, args->ndocs, args->nupdates);
-        // update half docs
-        _snapshot_update_docs(fhandle, args);
-        // second verification
-        _snapshot_check(args->handle, args->ndocs, args->nupdates);
-    } else { // if (status == FDB_CS_END)
-        // first verification
-        _snapshot_check(args->handle, args->ndocs, args->nupdates);
-        // update half docs
-        _snapshot_update_docs(fhandle, args);
-        // second verification
-        _snapshot_check(args->handle, args->ndocs, args->nupdates);
+    if (--args->niterations >= 0) {
+        TEST_CHK(!kv_name);
+        if (status == FDB_CS_BEGIN) {
+            // first verification
+            _snapshot_check(args->handle, args->ndocs, args->nupdates);
+            // update half docs
+            _snapshot_update_docs(fhandle, args);
+            // second verification
+            _snapshot_check(args->handle, args->ndocs, args->nupdates);
+        } else { // if (status == FDB_CS_END)
+            // first verification
+            _snapshot_check(args->handle, args->ndocs, args->nupdates);
+            // update half docs
+            _snapshot_update_docs(fhandle, args);
+            // second verification
+            _snapshot_check(args->handle, args->ndocs, args->nupdates);
+        }
     }
     return 0;
 }
@@ -4065,11 +4068,12 @@ void snapshot_concurrent_compaction_test()
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         if ((i+1)%commit_term == 0) {
             s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-	    TEST_CHK(s == FDB_RESULT_SUCCESS);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
         }
     }
     cb_args.ndocs = n;
     cb_args.nupdates = 2;
+    cb_args.niterations = 10;
 
     _snapshot_check(db, cb_args.ndocs, cb_args.nupdates);
 
