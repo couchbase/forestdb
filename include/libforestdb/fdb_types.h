@@ -581,6 +581,11 @@ typedef struct {
      * Custom file operations
      */
     fdb_filemgr_ops_t* custom_file_ops;
+    /**
+     * Number of global background I/O threads used across all forestdb instances
+     * Default value is 50% the number of cores
+     */
+    size_t num_background_threads;
 
 } fdb_config;
 

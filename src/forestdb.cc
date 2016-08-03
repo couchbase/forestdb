@@ -36,6 +36,7 @@
 #include "btree_kv.h"
 #include "btree_var_kv_ops.h"
 #include "docio.h"
+#include "executorpool.h"
 #include "btreeblock.h"
 #include "common.h"
 #include "wal.h"
@@ -2351,6 +2352,7 @@ fdb_status FdbEngine::init(fdb_config *config) {
 
             compactor_config c_config;
             bgflusher_config bgf_config;
+            threadpool_config thrd_config;
             FileMgrConfig f_config;
 
             // Initialize file manager configs and global block cache
@@ -2378,6 +2380,8 @@ fdb_status FdbEngine::init(fdb_config *config) {
             // Initialize HBtrie's memory pool
             HBTrie::initMemoryPool(get_num_cores(), _config.buffercache_size);
 
+            thrd_config.num_threads = _config.num_background_threads;
+            ExecutorPool::initExPool(thrd_config);
             tmp = new FdbEngine(_config);
             instance.store(tmp);
         }
@@ -2405,6 +2409,7 @@ fdb_status FdbEngine::destroyInstance() {
         }
         CompactionManager::destroyInstance();
         BgFlusher::destroyBgFlusher();
+        ExecutorPool::shutdown();
         fdb_status ret = FileMgr::shutdown();
         if (ret == FDB_RESULT_SUCCESS) {
             // Shutdown HBtrie's memory pool

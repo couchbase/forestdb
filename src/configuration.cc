@@ -94,6 +94,12 @@ fdb_config get_default_config(void) {
     // 4 daemon compactor threads by default
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
     fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
+    if (num_cores/2 > FDB_EXPOOL_NUM_THREADS &&
+        num_cores/2 < FDB_EXPOOL_MAX_THREADS) {
+        fconfig.num_background_threads = num_cores / 2;
+    } else {
+        fconfig.num_background_threads = FDB_EXPOOL_NUM_THREADS;
+    }
     // Block reusing threshold, 65% by default (i.e., almost 3x space amplification)
     fconfig.block_reusing_threshold = 65;
     // Keep at most 5 recent committed database snapshots
@@ -240,6 +246,13 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (fconfig->num_keeping_headers == 0) {
         // num_keeping_headers should be greater than zero
+        return false;
+    }
+    if (fconfig->num_background_threads > FDB_EXPOOL_MAX_THREADS) {
+        fdb_log(NULL, FDB_RESULT_INVALID_ARGS,
+                "Config Error: Num background threads (%" _F64 ") greater than "
+                "allowed value (%d)!\n",
+                (uint64_t)fconfig->num_background_threads, FDB_EXPOOL_MAX_THREADS);
         return false;
     }
 

@@ -21,10 +21,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <chrono>
+
 #if defined(__APPLE__)
 #include <mach/mach_time.h>
 #endif
 
+extern "C" hrtime_t gethrtime(void)
+{
+    auto now = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+}
+
+extern "C" hrtime_t gethrtime_period(void)
+{
+    std::chrono::nanoseconds ns = std::chrono::high_resolution_clock::duration(1);
+    return ns.count();
+}
 #if defined(WIN32) || defined(_WIN32)
 
 #ifndef _PLATFORM_LIB_AVAILABLE

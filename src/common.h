@@ -56,6 +56,7 @@
     memcpy(dest, src, size); \
     offset_var += size
 
+typedef uint64_t hrtime_t;
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND (UINT64_C(0xffffffffffffffff))
 

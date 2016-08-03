@@ -26,6 +26,16 @@
 #endif
 #include <time.h>
 
+#ifndef hrtime_t
+#include <stdint.h>
+  typedef uint64_t hrtime_t;
+#endif //ifndef hrtime_t
+
+#ifndef _PLATFORM_LIB_AVAILABLE
+extern "C" hrtime_t gethrtime(void);
+extern "C" hrtime_t gethrtime_period(void);
+#endif
+
 typedef  long int ts_nsec;
 ts_nsec get_monotonic_ts();
 ts_nsec ts_diff(ts_nsec start, ts_nsec end);

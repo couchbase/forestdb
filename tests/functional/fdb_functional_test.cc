@@ -408,6 +408,11 @@ void config_test()
     TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
 
     fconfig = fdb_get_default_config();
+    fconfig.num_background_threads = 129;
+    status = fdb_open(&dbfile, "./func_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
+
+    fconfig = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
     for (i = nfiles; i; --i) {
         sprintf(fname, "func_test%d", i);

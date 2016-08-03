@@ -18,6 +18,8 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/encryption.cc
     ${PROJECT_SOURCE_DIR}/src/encryption_aes.cc
     ${PROJECT_SOURCE_DIR}/src/encryption_bogus.cc
+    ${PROJECT_SOURCE_DIR}/src/executorpool.cc
+    ${PROJECT_SOURCE_DIR}/src/executorthread.cc
     ${PROJECT_SOURCE_DIR}/src/fdb_errors.cc
     ${PROJECT_SOURCE_DIR}/src/filemgr.cc
     ${PROJECT_SOURCE_DIR}/src/file_handle.cc
@@ -32,6 +34,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/memory_pool.cc
     ${PROJECT_SOURCE_DIR}/src/staleblock.cc
     ${PROJECT_SOURCE_DIR}/src/superblock.cc
+    ${PROJECT_SOURCE_DIR}/src/taskqueue.cc
     ${PROJECT_SOURCE_DIR}/src/transaction.cc
     ${PROJECT_SOURCE_DIR}/src/version.cc
     ${PROJECT_SOURCE_DIR}/src/wal.cc)

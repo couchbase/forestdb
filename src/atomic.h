@@ -28,6 +28,137 @@
 #include <string.h>
 
 #include <atomic>
+#include <mutex>
+
+template <typename T>
+void atomic_setIfBigger(std::atomic<T> &obj, const T &newValue) {
+    T oldValue = obj.load();
+    while (newValue > oldValue) {
+        if (obj.compare_exchange_strong(oldValue, newValue)) {
+            break;
+        }
+        oldValue = obj.load();
+    }
+}
+
+template <typename T>
+void atomic_setIfLess(std::atomic<T> &obj, const T &newValue) {
+    T oldValue = obj.load();
+    while (newValue < oldValue) {
+        if (obj.compare_exchange_strong(oldValue, newValue)) {
+            break;
+        }
+        oldValue = obj.load();
+    }
+}
+
+
+template <class T> class RCPtr;
+template <class S> class SingleThreadedRCPtr;
+
+/**
+ * A reference counted value (used by RCPtr and SingleThreadedRCPtr).
+ */
+class RCValue {
+public:
+    RCValue() : _rc_refcount(0) {}
+    RCValue(const RCValue &) : _rc_refcount(0) {}
+    ~RCValue() {}
+private:
+    template <class MyTT> friend class RCPtr;
+    template <class MySS> friend class SingleThreadedRCPtr;
+    int _rc_incref() const {
+        return ++_rc_refcount;
+    }
+
+    int _rc_decref() const {
+        return --_rc_refcount;
+    }
+
+    mutable std::atomic<int> _rc_refcount;
+};
+
+/**
+ * Single-threaded reference counted pointer.
+ * "Single-threaded" means that the reference counted pointer should be accessed
+ * by only one thread at any time or accesses to the reference counted pointer
+ * by multiple threads should be synchronized by the external lock.
+ */
+template <class T>
+class SingleThreadedRCPtr {
+public:
+    SingleThreadedRCPtr(T *init = NULL) : value(init) {
+        if (init != NULL) {
+            static_cast<RCValue*>(value)->_rc_incref();
+        }
+    }
+
+    SingleThreadedRCPtr(const SingleThreadedRCPtr<T> &other) : value(other.gimme()) {}
+
+    ~SingleThreadedRCPtr() {
+        if (value && static_cast<RCValue *>(value)->_rc_decref() == 0) {
+            delete value;
+        }
+    }
+
+    void reset(T *newValue = NULL) {
+        if (newValue != NULL) {
+            static_cast<RCValue *>(newValue)->_rc_incref();
+        }
+        swap(newValue);
+    }
+
+    void reset(const SingleThreadedRCPtr<T> &other) {
+        swap(other.gimme());
+    }
+
+    // safe for the lifetime of this instance
+    T *get() const {
+        return value;
+    }
+
+    SingleThreadedRCPtr<T> & operator =(const SingleThreadedRCPtr<T> &other) {
+        reset(other);
+        return *this;
+    }
+
+    T &operator *() const {
+        return *value;
+    }
+
+    T *operator ->() const {
+        return value;
+    }
+
+    bool operator! () const {
+        return !value;
+    }
+
+    operator bool () const {
+        return (bool)value;
+    }
+
+private:
+    T *gimme() const {
+        if (value) {
+            static_cast<RCValue *>(value)->_rc_incref();
+        }
+        return value;
+    }
+
+    void swap(T *newValue) {
+        T *old = value;
+        value = newValue;
+        if (old != NULL && static_cast<RCValue *>(old)->_rc_decref() == 0) {
+            delete old;
+        }
+    }
+
+    T *value;
+};
+
+typedef std::lock_guard<std::mutex> LockHolder;
+typedef std::unique_lock<std::mutex> UniqueLock;
 
 #ifdef __cplusplus
 extern "C" {
