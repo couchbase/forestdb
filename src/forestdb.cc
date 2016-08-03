@@ -5657,8 +5657,7 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
     }
     new_handle.staletree = new_staletree;
 
-    new_handle.last_hdr_bid = new_handle.file->getPos() /
-                              new_handle.file->getBlockSize();
+    new_handle.last_hdr_bid = new_handle.file->getNextAllocBlock();
     new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid; // WAL was flushed
     new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
 
@@ -6882,8 +6881,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     }
 
     // last header should be appended at the end of the file
-    handle->last_hdr_bid = handle->file->getPos() /
-                                             handle->file->getBlockSize();
+    handle->last_hdr_bid = handle->file->getNextAllocBlock();
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
 
@@ -6914,14 +6912,20 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
         sb->syncCircular(handle);
     }
 
+    // Acquire cur_hdr's block ID within this lock, ensuring the correct
+    // last_hdr_bid is recorded. This addresses MB-20040, where continuous
+    // commits caused _fdb_compact_move_docs (which invokes fdb_get_file_info)
+    // to move the last_hdr_bid (with fdb_sync_db_header), causing compaction
+    // to skip moving some of the delta items from the old_file to the new_file.
+    bid_t cur_hdr = handle->last_hdr_bid;
+    bid_t last_hdr = 0;
+
     // Mark new file as newly compacted
     new_file->updateFileStatus(FILE_COMPACT_NEW);
     handle->file->mutexUnlock();
     new_file->mutexUnlock();
 
     // now compactor & another writer can be interleaved
-    bid_t last_hdr = 0;
-    bid_t cur_hdr = 0;
     // probability variable for blocking writer thread
     // value range: 0 (do not block writer) to 100 (always block writer)
     size_t prob = 0;
@@ -6936,7 +6940,6 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
         fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
                                     new_seqtrie, new_seqtree, new_staletree,
                                     new_dhandle, new_bhandle, &prob, clone_docs);
-        cur_hdr = handle->last_hdr_bid;
     }
 
     if (fs != FDB_RESULT_SUCCESS) {
@@ -6997,7 +7000,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
             got_lock = true;
 
             bid_t last_bid;
-            last_bid = (handle->file->getPos() / handle->config.blocksize) - 1;
+            last_bid = handle->file->getNextAllocBlock() - 1;
             if (cur_hdr < last_bid) {
                 // move delta one more time
                 cur_hdr = last_bid;
