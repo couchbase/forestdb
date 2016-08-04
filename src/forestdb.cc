@@ -2252,17 +2252,14 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
-    if (compacted_filename) {
-        handle->file->updateFileLinkage(nullptr, compacted_filename);
-    }
-
     if (prev_filename) {
         if (!handle->shandle &&
             strcmp(prev_filename, handle->file->getFileName())) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
-            if (handle->file->updateFileLinkage(prev_filename, nullptr)) {
+            if (handle->file->updateFileStatus(handle->file->getFileStatus(),
+                                               prev_filename)) {
                 // Open the old file with read-only mode.
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
@@ -6921,7 +6918,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     bid_t last_hdr = 0;
 
     // Mark new file as newly compacted
-    new_file->updateFileStatus(FILE_COMPACT_NEW);
+    new_file->updateFileStatus(FILE_COMPACT_NEW, NULL);
     handle->file->mutexUnlock();
     new_file->mutexUnlock();
 
@@ -7140,12 +7137,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     delete handle->staletree;
     handle->staletree = new_staletree;
 
-    // Update new_file's links
-    new_file->updateFileLinkage(old_file->getFileName(), nullptr);
-    // Update new_file's status
-    new_file->updateFileStatus(FILE_NORMAL);
-    // Update old_file's links
-    old_file->updateFileLinkage(nullptr, new_file->getFileName());
+    new_file->updateFileStatus(FILE_NORMAL, old_file->getFileName());
 
     // Atomically perform
     // 1) commit new file

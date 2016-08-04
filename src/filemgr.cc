@@ -1758,7 +1758,7 @@ void FileMgr::removeFile(FileMgr *file,
     FileMgrMap::get()->removeEntry(file->fileName);
     spin_unlock(&fileMgrOpenlock);
 
-    FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->newFileName);
+    FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->getNewFileName());
 
     if (!lazyFileDeletionEnabled ||
         (new_file && new_file->inPlaceCompaction)) {
@@ -2547,16 +2547,10 @@ fdb_status FileMgr::copyFileRange(FileMgr *src_file,
     return FDB_RESULT_SUCCESS;
 }
 
-void FileMgr::updateFileStatus(file_status_t status) {
-    acquireSpinLock();
-    fMgrStatus = status;
-    releaseSpinLock();
-}
-
-bool FileMgr::updateFileLinkage(const char *old_filename,
-                                const char *new_filename) {
+bool FileMgr::updateFileStatus(file_status_t status, const char *old_filename) {
     bool ret = true;
     acquireSpinLock();
+    fMgrStatus = status;
     if (old_filename) {
         if (oldFileName.empty()) {
             oldFileName = std::string(old_filename);
@@ -2564,9 +2558,6 @@ bool FileMgr::updateFileLinkage(const char *old_filename,
             ret = false;
             fdb_assert(refCount.load(), refCount.load(), 0);
         }
-    }
-    if (new_filename) {
-        newFileName = std::string(new_filename);
     }
     releaseSpinLock();
     return ret;
@@ -2658,7 +2649,7 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
 
     FileMgr *newFile = FileMgrMap::get()->fetchEntry(very_old_file->newFileName);
 
-    if (very_old_file->accessHeader()->size == 0 || !newFile ) {
+    if (very_old_file->accessHeader()->size == 0 || !newFile) {
         spin_unlock(&very_old_file->fMgrLock);
         return NULL;
     }
@@ -2716,16 +2707,13 @@ void FileMgr::removePending(FileMgr *old_file,
 
         spin_unlock(&old_file->fMgrLock);
 
-        // Update new_file's oldFileName
-        spin_lock(&new_file->fMgrLock);
-        new_file->oldFileName = std::string(old_file->getFileName());
-        spin_unlock(&new_file->fMgrLock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
         spin_unlock(&old_file->fMgrLock);
 
-        FileMgr *new_file = FileMgrMap::get()->fetchEntry(old_file->newFileName);
+        FileMgr *new_file = FileMgrMap::get()->fetchEntry(
+                                                old_file->getNewFileName());
 
         if (!lazyFileDeletionEnabled ||
             (new_file && new_file->inPlaceCompaction)) {

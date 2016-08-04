@@ -782,15 +782,14 @@ public:
 
     fdb_status sync_FileMgr(bool sync_option, ErrLogCallback *log_callback);
 
-    void updateFileStatus(file_status_t status);
-
     /**
-     * Updates the oldFileName and newFileName of the current instance,
-     * with the arguments (non-null) provided.
+     * Updates the file status and oldFileName of the FileMgr instance,
+     * with the arguments provided.
      *
-     * Returns false if oldFileName has already been set.
+     * Returns false if argument:old_filename is non-null but oldFileName
+     * has already been set.
      */
-    bool updateFileLinkage(const char *old_filename, const char *new_filename);
+    bool updateFileStatus(file_status_t status, const char *old_filename);
 
     bool isRollbackOn();
 
