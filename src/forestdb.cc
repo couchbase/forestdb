@@ -736,7 +736,7 @@ fdb_status fdb_init(fdb_config *config)
         bgf_config.num_threads = 0; //_config.num_bgflusher_threads;
         BgFlusher::createBgFlusher(&bgf_config);
 
-        // Initialize breakpad
+        // Initialize breakpad only if breakpad_minidump_dir is not NULL
         _dbg_handle_crashes(config->breakpad_minidump_dir);
 
         // Initialize HBtrie's memory pool

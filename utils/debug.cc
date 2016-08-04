@@ -162,9 +162,13 @@ fdb_status _dbg_install_handler() { return FDB_RESULT_SUCCESS; }
 
 fdb_status _dbg_handle_crashes(const char *pathname)
 {
-    minidump_dir = pathname;
-    _dbg_init_altstack(); // one time stack install
-    return _dbg_install_handler();
+    if (pathname) {
+        minidump_dir = pathname;
+        _dbg_init_altstack(); // one time stack install
+        return _dbg_install_handler();
+    } else {
+        return FDB_RESULT_SUCCESS;
+    }
 }
 
 void fdb_assert_die(const char* expression, const char* file, int line,
