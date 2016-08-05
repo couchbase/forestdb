@@ -400,6 +400,143 @@ public:
                        bool clone_docs,
                        const fdb_encryption_key *new_encryption_key);
 
+    /**
+     * Cancel the compaction task if it is running currently.
+     *
+     * @param fhandle Pointer to ForestDB file handle
+     * @return FDB_RESULT_SUCCESS on successful cancellation.
+     */
+
+    fdb_status cancelCompaction(FdbFileHandle *fhandle);
+
+    /**
+     * Set the daemon compaction interval for a given file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param interval Daemon compaction intervel to be set for a given file
+     * @return FDB_RESULT_SUCCESS on successful compaction interval change.
+     */
+    fdb_status setDaemonCompactionInterval(FdbFileHandle *fhandle,
+                                           size_t interval);
+
+    /**
+     * Change the database file's encryption, by compacting it while writing
+     * with a new key.
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param new_key Key with which to encrypt the new file. To remove encryption,
+     * set the key's algorithm to FDB_ENCRYPTION_NONE.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status reKey(FdbFileHandle *fhandle,
+                     fdb_encryption_key new_key);
+
+    /**
+     * Return the overall buffer cache space actively used by all ForestDB files.
+     * Note that this does not include space in WAL, hash tables and other
+     * in-memory data structures allocated by ForestDB api
+     *
+     * @return Size of buffer cache currently used.
+     */
+    size_t getBufferCacheUsed();
+
+    /**
+     * Return the overall disk space actively used by a ForestDB file.
+     * Note that this doesn't include the disk space used by stale btree nodes
+     * and docs.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @return Disk space actively used by a ForestDB file.
+     */
+    size_t estimateSpaceUsed(FdbFileHandle *fhandle);
+
+    /**
+     * Return the overall disk space actively used by all snapshots starting from
+     * a given snapshot marker.
+     * Note that this doesn't include the disk space used by stale btree nodes
+     * and docs.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param marker Snapshot marker returned by fdb_get_all_snap_markers()
+     * @return Disk space actively used by all snapshots starting from a given
+     *         snapshot marker. fdb_log used internally to log errors.
+     *
+     */
+    size_t estimateSpaceUsedFrom(FdbFileHandle *fhandle,
+                                 fdb_snapshot_marker_t marker);
+
+    /**
+     * Return the information about a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param info Pointer to ForestDB File Info instance.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getFileInfo(FdbFileHandle *fhandle, fdb_file_info *info);
+
+    /**
+     * Return the information about a ForestDB KV store instance.
+     *
+     * @param handle Pointer to ForestDB KV store handle.
+     * @param info Pointer to KV Store Info instance.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info);
+
+    /**
+     * Return the information about operational counters in a ForestDB KV store.
+     *
+     * @param handle Pointer to ForestDB KV store handle.
+     * @param info Pointer to KV Store Ops Info instance.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info);
+
+    /**
+     * Return the latency information about various forestdb api calls
+     *
+     * @param fhandle Pointer to ForestDB file handle
+     * @param stats Pointer to a latency_stats instance
+     * @param type Type of latency stat to be retrieved
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getLatencyStats(FdbFileHandle *fhandle,
+                               fdb_latency_stat *stats,
+                               fdb_latency_stat_type type);
+
+    /**
+     * Returns a histogram of latencies for various forestdb api calls
+     * (Works with Couchbase Server Build only)
+     *
+     * @param fhandle Pointer to ForestDB file handle
+     * @param stats Char pointer to stats (need to be freed from heap
+     *              by client on SUCCESS)
+     * @param stats_length Pointer to the length of the buffer pointed to by the
+     *                     stats pointer
+     * @param type Type of latency stat to be retrieved
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getLatencyHistogram(FdbFileHandle *fhandle,
+                                   char **stats,
+                                   size_t *stats_length,
+                                   fdb_latency_stat_type type);
+
+    /**
+     * Get the current sequence number of a ForestDB KV store instance.
+     *
+     * @param handle Pointer to ForestDB KV store handle.
+     * @param seqnum Pointer to the variable that sequence number will be returned.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum);
+
+    /**
+     * Return the name of the latency stat
+     *
+     * @param type The type of the latency stat to be named.
+     * @return const char pointer to the stat name. This must not be freed.
+     */
+    static const char * getLatencyStatName(fdb_latency_stat_type type);
+
 private:
 
     /**

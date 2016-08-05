@@ -1715,7 +1715,7 @@ fdb_status fdb_rekey(fdb_file_handle *fhandle,
 {
     FdbEngine *fdb_engine = FdbEngine::getInstance();
     if (fdb_engine) {
-        return fdb_engine->compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
+        return fdb_engine->reKey(fhandle, new_key);
     }
     return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
@@ -1822,18 +1822,11 @@ LIBFDB_API
 fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
                                               size_t interval)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->setDaemonCompactionInterval(fhandle, interval);
     }
-
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-
-    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        return CompactionManager::getInstance()->setCompactionInterval(handle->file,
-                                                                       interval);
-    } else {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -2017,26 +2010,14 @@ fdb_status fdb_destroy(const char *fname,
 
 LIBFDB_API
 fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
-                                 fdb_latency_stat *stat,
+                                 fdb_latency_stat *stats,
                                  fdb_latency_stat_type type)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getLatencyStats(fhandle, stats, type);
     }
-
-    if (!stat || type >= FDB_LATENCY_NUM_STATS) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    if (!fhandle->getRootHandle()->file) {
-        return FDB_RESULT_FILE_NOT_OPEN;
-    }
-
-#ifdef _LATENCY_STATS
-    LatencyStats::get(fhandle->getRootHandle()->file, type, stat);
-#endif // _LATENCY_STATS
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -2045,238 +2026,49 @@ fdb_status fdb_get_latency_histogram(fdb_file_handle *fhandle,
                                      size_t *stats_length,
                                      fdb_latency_stat_type type)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getLatencyHistogram(fhandle, stats, stats_length, type);
     }
-
-    if (!stats || type >= FDB_LATENCY_NUM_STATS) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    if (!fhandle->getRootHandle()->file){
-        return FDB_RESULT_FILE_NOT_OPEN;
-    }
-
-#if defined(_LATENCY_STATS) && defined(_PLATFORM_LIB_AVAILABLE)
-    LatencyStats::getHistogram(fhandle->getRootHandle()->file, type,
-                               stats, stats_length);
-#else
-    *stats = nullptr;
-    *stats_length = 0;
-#endif
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 const char *fdb_latency_stat_name(fdb_latency_stat_type type)
 {
-    return FileMgr::getLatencyStatName(type);
+    return FdbEngine::getLatencyStatName(type);
 }
 
 // roughly estimate the space occupied db handle HANDLE
 LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 {
-    size_t ret = 0;
-    size_t datasize;
-    size_t nlivenodes;
-    FdbKvsHandle *handle = NULL;
-    FileMgr *file;
-
-    if (!fhandle) {
-        return 0;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->estimateSpaceUsed(fhandle);
     }
-
-    handle = fhandle->getRootHandle();
-
-    fdb_check_file_reopen(handle, NULL);
-    fdb_sync_db_header(handle);
-
-    file = handle->file;
-
-    datasize = file->getKvsStatOps()->statGetSum(KVS_STAT_DATASIZE);
-    nlivenodes = file->getKvsStatOps()->statGetSum(KVS_STAT_NLIVENODES);
-
-    ret = datasize;
-    ret += nlivenodes * handle->config.blocksize;
-    ret += handle->file->getWal()->getDataSize_Wal();
-
-    return ret;
+    return 0;
 }
 
 LIBFDB_API
 size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
                                     fdb_snapshot_marker_t marker)
 {
-    uint64_t deltasize;
-    size_t ret = 0;
-    FdbKvsHandle *handle;
-    FileMgr *file;
-    bid_t hdr_bid = BLK_NOT_FOUND, prev_bid;
-    size_t header_len;
-    uint8_t header_buf[FDB_BLOCKSIZE];
-    bid_t trie_root_bid = BLK_NOT_FOUND;
-    bid_t seq_root_bid = BLK_NOT_FOUND;
-    bid_t stale_root_bid = BLK_NOT_FOUND;
-    uint64_t ndocs;
-    uint64_t ndeletes;
-    uint64_t nlivenodes;
-    uint64_t datasize;
-    uint64_t last_wal_flush_hdr_bid;
-    uint64_t kv_info_offset;
-    uint64_t header_flags;
-    uint64_t version;
-    char *compacted_filename;
-    fdb_seqnum_t seqnum;
-    file_status_t fMgrStatus;
-    fdb_status status;
-
-    if (!fhandle || !marker) {
-        return 0;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->estimateSpaceUsedFrom(fhandle, marker);
     }
-    handle = fhandle->getRootHandle();
-    if (!handle->file) {
-        fdb_log(&handle->log_callback, FDB_RESULT_FILE_NOT_OPEN,
-                "File not open.");
-        return 0;
-    }
-
-    fdb_check_file_reopen(handle, &fMgrStatus);
-    fdb_sync_db_header(handle);
-
-    // Start loading from current header
-    file = handle->file;
-    header_len = handle->file->accessHeader()->size;
-
-    // Reverse scan the file only summing up the delta.....
-    while (marker <= hdr_bid) {
-        if (hdr_bid == BLK_NOT_FOUND) {
-            hdr_bid = handle->last_hdr_bid;
-            status = file->fetchHeader(hdr_bid, header_buf, &header_len, NULL,
-                                       NULL, &deltasize, &version, NULL,
-                                       &handle->log_callback);
-        } else {
-            prev_bid = file->fetchPrevHeader(hdr_bid, header_buf, &header_len,
-                                             &seqnum, NULL, &deltasize, &version,
-                                             NULL, &handle->log_callback);
-            hdr_bid = prev_bid;
-        }
-        if (status != FDB_RESULT_SUCCESS) {
-            fdb_log(&handle->log_callback, status,
-                    "Failure to fetch DB header.");
-            return 0;
-        }
-        if (header_len == 0) {
-            status = FDB_RESULT_KV_STORE_NOT_FOUND; // can't work without header
-            fdb_log(&handle->log_callback, status, "Failure to find DB header.");
-            return 0;
-        }
-
-        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
-                         &stale_root_bid, &ndocs, &ndeletes, &nlivenodes, &datasize,
-                         &last_wal_flush_hdr_bid, &kv_info_offset,
-                         &header_flags, &compacted_filename, NULL);
-        if (marker == hdr_bid) { // for the oldest header, sum up full values
-            ret += datasize;
-            ret += nlivenodes * handle->config.blocksize;
-            break;
-        } else { // for headers upto oldest header, sum up only deltas..
-            ret += deltasize; // root kv store or single kv instance mode
-            if (kv_info_offset != BLK_NOT_FOUND) { // Multi kv instance mode..
-                int64_t doc_offset;
-                struct docio_object doc;
-                memset(&doc, 0, sizeof(struct docio_object));
-                doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset,
-                                            &doc, true);
-                if (doc_offset <= 0) {
-                    fdb_log(&handle->log_callback, (fdb_status) doc_offset,
-                            "Read failure estimate_space_used.");
-                    return 0;
-                }
-                ret += _kvs_stat_get_sum_attr(doc.body, version,
-                                              KVS_STAT_DELTASIZE);
-
-                free_docio_object(&doc, true, true, true);
-            }
-        }
-    }
-
-    return ret;
+    return 0;
 }
 
 LIBFDB_API
 fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 {
-    uint64_t ndocs, ndeletes;
-    FdbKvsHandle *handle;
-
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getFileInfo(fhandle, info);
     }
-
-    if (!info) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    handle = fhandle->getRootHandle();
-
-    fdb_check_file_reopen(handle, NULL);
-    fdb_sync_db_header(handle);
-
-    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        // compaction daemon mode
-        info->filename = handle->filename.c_str();
-    } else {
-        info->filename = handle->file->getFileName();
-    }
-
-    if (handle->shandle) {
-        // handle for snapshot
-    } else {
-        info->new_filename = NULL;
-    }
-
-    // Note that doc_count includes the number of WAL entries, which might
-    // incur an incorrect estimation. However, after the WAL flush, the doc
-    // counter becomes consistent. We plan to devise a new way of tracking
-    // the number of docs in a database instance.
-    size_t wal_docs = handle->file->getWal()->getNumDocs_Wal();
-    size_t wal_deletes = handle->file->getWal()->getNumDeletes_Wal();
-    size_t wal_n_inserts = wal_docs - wal_deletes;
-
-    ndocs = handle->file->getKvsStatOps()->statGetSum(KVS_STAT_NDOCS);
-
-    if (ndocs + wal_n_inserts < wal_deletes) {
-        info->doc_count = 0;
-    } else {
-        if (ndocs) {
-            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
-        } else {
-            info->doc_count = wal_n_inserts;
-        }
-    }
-
-    ndeletes = handle->file->getKvsStatOps()->statGetSum(KVS_STAT_NDELETES);
-    if (ndeletes) { // not accurate since some ndeletes may be wal_deletes
-        info->deleted_count = ndeletes + wal_deletes;
-    } else { // this is accurate since it reflects only wal_ndeletes
-        info->deleted_count = wal_deletes;
-    }
-
-    info->space_used = fdb_estimate_space_used(fhandle);
-    info->file_size = handle->file->getPos();
-
-    // Get the number of KV store instances in a given ForestDB file.
-    KvsHeader *kv_header = handle->file->getKVHeader_UNLOCKED();
-    size_t num = 1; // default KV store.
-    if (kv_header) {
-        spin_lock(&kv_header->lock);
-        num += kv_header->num_kv_stores;
-        spin_unlock(&kv_header->lock);
-    }
-    info->num_kv_stores = num;
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -2461,33 +2253,21 @@ fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
 
 LIBFDB_API
 size_t fdb_get_buffer_cache_used() {
-    return (size_t) FileMgr::getBcacheUsedSpace();
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getBufferCacheUsed();
+    }
+    return 0;
 }
 
 LIBFDB_API
 fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->cancelCompaction(fhandle);
     }
-
-    FdbKvsHandle *super_handle = fhandle->getRootHandle();
-
-    super_handle->file->mutexLock();
-    super_handle->file->setCancelCompaction(true);
-
-    // TODO: Find a better way of cacncelling the ongoing compaction task.
-    unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fMgrStatus = super_handle->file->getFileStatus();
-    while (fMgrStatus == FILE_COMPACT_OLD) {
-        super_handle->file->mutexUnlock();
-        decaying_usleep(&sleep_time, 1000000);
-        super_handle->file->mutexLock();
-        fMgrStatus = super_handle->file->getFileStatus();
-    }
-    super_handle->file->setCancelCompaction(false);
-    super_handle->file->mutexUnlock();
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -5002,6 +4782,319 @@ fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
     return fs;
+}
+
+fdb_status FdbEngine::cancelCompaction(FdbFileHandle *fhandle)
+{
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    FdbKvsHandle *super_handle = fhandle->getRootHandle();
+
+    super_handle->file->mutexLock();
+    super_handle->file->setCancelCompaction(true);
+
+    // TODO: Find a better way of cacncelling the ongoing compaction task.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fMgrStatus = super_handle->file->getFileStatus();
+    while (fMgrStatus == FILE_COMPACT_OLD) {
+        super_handle->file->mutexUnlock();
+        decaying_usleep(&sleep_time, 1000000);
+        super_handle->file->mutexLock();
+        fMgrStatus = super_handle->file->getFileStatus();
+    }
+    super_handle->file->setCancelCompaction(false);
+    super_handle->file->mutexUnlock();
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::setDaemonCompactionInterval(FdbFileHandle *fhandle,
+                                                  size_t interval)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+
+    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+        return CompactionManager::getInstance()->setCompactionInterval(handle->file,
+                                                                       interval);
+    } else {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+}
+
+fdb_status FdbEngine::reKey(FdbFileHandle *fhandle,
+                            fdb_encryption_key new_key)
+{
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+size_t FdbEngine::getBufferCacheUsed() {
+    return (size_t) FileMgr::getBcacheUsedSpace();
+}
+
+size_t FdbEngine::estimateSpaceUsed(FdbFileHandle *fhandle)
+{
+    size_t ret = 0;
+    size_t datasize;
+    size_t nlivenodes;
+    FdbKvsHandle *handle = NULL;
+    FileMgr *file;
+
+    if (!fhandle) {
+        return 0;
+    }
+
+    handle = fhandle->getRootHandle();
+
+    fdb_check_file_reopen(handle, NULL);
+    fdb_sync_db_header(handle);
+
+    file = handle->file;
+
+    datasize = file->getKvsStatOps()->statGetSum(KVS_STAT_DATASIZE);
+    nlivenodes = file->getKvsStatOps()->statGetSum(KVS_STAT_NLIVENODES);
+
+    ret = datasize;
+    ret += nlivenodes * handle->config.blocksize;
+    ret += handle->file->getWal()->getDataSize_Wal();
+
+    return ret;
+}
+
+size_t FdbEngine::estimateSpaceUsedFrom(FdbFileHandle *fhandle,
+                                        fdb_snapshot_marker_t marker)
+{
+    uint64_t deltasize;
+    size_t ret = 0;
+    FdbKvsHandle *handle;
+    FileMgr *file;
+    bid_t hdr_bid = BLK_NOT_FOUND, prev_bid;
+    size_t header_len;
+    uint8_t header_buf[FDB_BLOCKSIZE];
+    bid_t trie_root_bid = BLK_NOT_FOUND;
+    bid_t seq_root_bid = BLK_NOT_FOUND;
+    bid_t stale_root_bid = BLK_NOT_FOUND;
+    uint64_t ndocs;
+    uint64_t ndeletes;
+    uint64_t nlivenodes;
+    uint64_t datasize;
+    uint64_t last_wal_flush_hdr_bid;
+    uint64_t kv_info_offset;
+    uint64_t header_flags;
+    uint64_t version;
+    char *compacted_filename;
+    fdb_seqnum_t seqnum;
+    file_status_t fMgrStatus;
+    fdb_status status;
+
+    if (!fhandle || !marker) {
+        return 0;
+    }
+    handle = fhandle->getRootHandle();
+    if (!handle->file) {
+        fdb_log(&handle->log_callback, FDB_RESULT_FILE_NOT_OPEN,
+                "File not open.");
+        return 0;
+    }
+
+    fdb_check_file_reopen(handle, &fMgrStatus);
+    fdb_sync_db_header(handle);
+
+    // Start loading from current header
+    file = handle->file;
+    header_len = handle->file->accessHeader()->size;
+
+    // Reverse scan the file only summing up the delta.....
+    while (marker <= hdr_bid) {
+        if (hdr_bid == BLK_NOT_FOUND) {
+            hdr_bid = handle->last_hdr_bid;
+            status = file->fetchHeader(hdr_bid, header_buf, &header_len, NULL,
+                                       NULL, &deltasize, &version, NULL,
+                                       &handle->log_callback);
+        } else {
+            prev_bid = file->fetchPrevHeader(hdr_bid, header_buf, &header_len,
+                                             &seqnum, NULL, &deltasize, &version,
+                                             NULL, &handle->log_callback);
+            hdr_bid = prev_bid;
+        }
+        if (status != FDB_RESULT_SUCCESS) {
+            fdb_log(&handle->log_callback, status,
+                    "Failure to fetch DB header.");
+            return 0;
+        }
+        if (header_len == 0) {
+            status = FDB_RESULT_KV_STORE_NOT_FOUND; // can't work without header
+            fdb_log(&handle->log_callback, status, "Failure to find DB header.");
+            return 0;
+        }
+
+        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
+                         &stale_root_bid, &ndocs, &ndeletes, &nlivenodes, &datasize,
+                         &last_wal_flush_hdr_bid, &kv_info_offset,
+                         &header_flags, &compacted_filename, NULL);
+        if (marker == hdr_bid) { // for the oldest header, sum up full values
+            ret += datasize;
+            ret += nlivenodes * handle->config.blocksize;
+            break;
+        } else { // for headers upto oldest header, sum up only deltas..
+            ret += deltasize; // root kv store or single kv instance mode
+            if (kv_info_offset != BLK_NOT_FOUND) { // Multi kv instance mode..
+                int64_t doc_offset;
+                struct docio_object doc;
+                memset(&doc, 0, sizeof(struct docio_object));
+                doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset,
+                                            &doc, true);
+                if (doc_offset <= 0) {
+                    fdb_log(&handle->log_callback, (fdb_status) doc_offset,
+                            "Read failure estimate_space_used.");
+                    return 0;
+                }
+                ret += _kvs_stat_get_sum_attr(doc.body, version,
+                                              KVS_STAT_DELTASIZE);
+
+                free_docio_object(&doc, true, true, true);
+            }
+        }
+    }
+
+    return ret;
+}
+
+fdb_status FdbEngine::getFileInfo(FdbFileHandle *fhandle, fdb_file_info *info)
+{
+    uint64_t ndocs, ndeletes;
+    FdbKvsHandle *handle;
+
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    handle = fhandle->getRootHandle();
+
+    fdb_check_file_reopen(handle, NULL);
+    fdb_sync_db_header(handle);
+
+    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+        // compaction daemon mode
+        info->filename = handle->filename.c_str();
+    } else {
+        info->filename = handle->file->getFileName();
+    }
+
+    if (handle->shandle) {
+        // handle for snapshot
+    } else {
+        info->new_filename = NULL;
+    }
+
+    // Note that doc_count includes the number of WAL entries, which might
+    // incur an incorrect estimation. However, after the WAL flush, the doc
+    // counter becomes consistent. We plan to devise a new way of tracking
+    // the number of docs in a database instance.
+    size_t wal_docs = handle->file->getWal()->getNumDocs_Wal();
+    size_t wal_deletes = handle->file->getWal()->getNumDeletes_Wal();
+    size_t wal_n_inserts = wal_docs - wal_deletes;
+
+    ndocs = handle->file->getKvsStatOps()->statGetSum(KVS_STAT_NDOCS);
+
+    if (ndocs + wal_n_inserts < wal_deletes) {
+        info->doc_count = 0;
+    } else {
+        if (ndocs) {
+            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
+        } else {
+            info->doc_count = wal_n_inserts;
+        }
+    }
+
+    ndeletes = handle->file->getKvsStatOps()->statGetSum(KVS_STAT_NDELETES);
+    if (ndeletes) { // not accurate since some ndeletes may be wal_deletes
+        info->deleted_count = ndeletes + wal_deletes;
+    } else { // this is accurate since it reflects only wal_ndeletes
+        info->deleted_count = wal_deletes;
+    }
+
+    info->space_used = estimateSpaceUsed(fhandle);
+    info->file_size = handle->file->getPos();
+
+    // Get the number of KV store instances in a given ForestDB file.
+    KvsHeader *kv_header = handle->file->getKVHeader_UNLOCKED();
+    size_t num = 1; // default KV store.
+    if (kv_header) {
+        spin_lock(&kv_header->lock);
+        num += kv_header->num_kv_stores;
+        spin_unlock(&kv_header->lock);
+    }
+    info->num_kv_stores = num;
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::getLatencyStats(FdbFileHandle *fhandle,
+                                      fdb_latency_stat *stat,
+                                      fdb_latency_stat_type type)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!stat || type >= FDB_LATENCY_NUM_STATS) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!fhandle->getRootHandle()->file) {
+        return FDB_RESULT_FILE_NOT_OPEN;
+    }
+
+#ifdef _LATENCY_STATS
+    LatencyStats::get(fhandle->getRootHandle()->file, type, stat);
+#endif // _LATENCY_STATS
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::getLatencyHistogram(FdbFileHandle *fhandle,
+                                          char **stats,
+                                          size_t *stats_length,
+                                          fdb_latency_stat_type type)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!stats || type >= FDB_LATENCY_NUM_STATS) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!fhandle->getRootHandle()->file){
+        return FDB_RESULT_FILE_NOT_OPEN;
+    }
+
+#if defined(_LATENCY_STATS) && defined(_PLATFORM_LIB_AVAILABLE)
+    LatencyStats::getHistogram(fhandle->getRootHandle()->file, type,
+                               stats, stats_length);
+#else
+    *stats = nullptr;
+    *stats_length = 0;
+#endif
+
+    return FDB_RESULT_SUCCESS;
+}
+
+const char* FdbEngine::getLatencyStatName(fdb_latency_stat_type type)
+{
+    return FileMgr::getLatencyStatName(type);
 }
 
 // Delta changes in KV store stats during the WAL flush

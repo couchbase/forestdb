@@ -932,43 +932,11 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle)
 LIBFDB_API
 fdb_status fdb_get_kvs_seqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 {
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getKvsSeqnum(handle, seqnum);
     }
-
-    if (!seqnum) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (handle->shandle) {
-        // handle for snapshot
-        // return MAX_SEQNUM instead of the file's sequence number
-        *seqnum = handle->max_seqnum;
-    } else {
-        fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
-
-        FileMgr *file;
-        file = handle->file;
-
-        if (handle->kvs == NULL ||
-            handle->kvs->getKvsId() == 0) {
-            file->mutexLock();
-            *seqnum = file->getSeqnum();
-            file->mutexUnlock();
-        } else {
-            *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId());
-        }
-    }
-
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 void fdb_kvs_set_seqnum(FileMgr *file,
@@ -1951,158 +1919,21 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
 LIBFDB_API
 fdb_status fdb_get_kvs_info(FdbKvsHandle *handle, fdb_kvs_info *info)
 {
-    uint64_t ndocs;
-    uint64_t ndeletes;
-    uint64_t wal_docs;
-    uint64_t wal_deletes;
-    uint64_t wal_n_inserts;
-    uint64_t datasize;
-    uint64_t nlivenodes;
-    fdb_kvs_id_t kv_id;
-    struct avl_node *a;
-    FileMgr *file;
-    struct kvs_node *node, query;
-    KvsHeader *kv_header;
-    KvsStat stat;
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getKvsInfo(handle, info);
     }
-
-    if (!info) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (!handle->shandle) { // snapshot handle should be immutable
-        fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
-    }
-
-    file = handle->file;
-
-    if (handle->kvs == NULL) {
-        info->name = default_kvs_name;
-        kv_id = 0;
-
-    } else {
-        kv_header = file->getKVHeader_UNLOCKED();
-        kv_id = handle->kvs->getKvsId();
-        spin_lock(&kv_header->lock);
-
-        query.id = handle->kvs->getKvsId();
-        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
-        if (a) { // sub handle
-            node = _get_entry(a, struct kvs_node, avl_id);
-            info->name = (const char*)node->kvs_name;
-        } else { // root handle
-            info->name = default_kvs_name;
-        }
-        spin_unlock(&kv_header->lock);
-    }
-
-    if (handle->shandle) {
-        // snapshot .. get its local stats
-        file->getWal()->getSnapStats_Wal(handle->shandle, &stat);
-    } else {
-        file->getKvsStatOps()->statGet(kv_id, &stat);
-    }
-    ndocs = stat.ndocs;
-    ndeletes = stat.ndeletes;
-    wal_docs = stat.wal_ndocs;
-    wal_deletes = stat.wal_ndeletes;
-    wal_n_inserts = wal_docs - wal_deletes;
-
-    if (ndocs + wal_n_inserts < wal_deletes) {
-        info->doc_count = 0;
-    } else {
-        if (ndocs) { // not accurate since some ndocs may be in wal_n_inserts
-            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
-        } else { // this is accurate
-            info->doc_count = wal_n_inserts;
-        }
-    }
-
-    if (ndeletes) { // not accurate since some ndeletes may be wal_n_deletes
-        info->deleted_count = ndeletes + wal_deletes;
-    } else { // this is accurate
-        info->deleted_count = wal_deletes;
-    }
-
-    datasize = stat.datasize;
-    nlivenodes = stat.nlivenodes;
-
-    info->space_used = datasize;
-    info->space_used += nlivenodes * handle->config.blocksize;
-    info->file = handle->fhandle;
-
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-
-    // This is another LIBFDB_API call, so handle is marked as free
-    // in the line above before making this call
-    fdb_get_kvs_seqnum(handle, &info->last_seqnum);
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_get_kvs_ops_info(FdbKvsHandle *handle, fdb_kvs_ops_info *info)
 {
-    fdb_kvs_id_t kv_id;
-    FileMgr *file;
-    KvsOpsStat stat;
-    KvsOpsStat root_stat;
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getKvsOpsInfo(handle, info);
     }
-
-    if (!info) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    FdbKvsHandle *root_handle = handle->fhandle->getRootHandle();
-
-    // for snapshot handle do not reopen new file as user is interested in
-    // reader stats from the old file
-    if (!handle->shandle) {
-        // always get stats from the latest file
-        fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
-    }
-
-    file = handle->file;
-
-    if (handle->kvs == NULL) {
-        kv_id = 0;
-    } else {
-        kv_id = handle->kvs->getKvsId();
-    }
-
-    file->getKvsStatOps()->opsStatGet(kv_id, &stat);
-
-    if (root_handle != handle) {
-        file->getKvsStatOps()->opsStatGet(0, &root_stat);
-    } else {
-        root_stat = stat;
-    }
-
-    info->num_sets = stat.num_sets.load(std::memory_order_relaxed);
-    info->num_dels = stat.num_dels.load(std::memory_order_relaxed);
-    info->num_gets = stat.num_gets.load(std::memory_order_relaxed);
-    info->num_iterator_gets = stat.num_iterator_gets.load(
-                                                     std::memory_order_relaxed);
-    info->num_iterator_moves = stat.num_iterator_moves.load(
-                                                     std::memory_order_relaxed);
-
-    info->num_commits = root_stat.num_commits.load(std::memory_order_relaxed);
-    info->num_compacts = root_stat.num_compacts.load(std::memory_order_relaxed);
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -2348,3 +2179,198 @@ stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
     return ret;
 }
 
+fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
+{
+    uint64_t ndocs;
+    uint64_t ndeletes;
+    uint64_t wal_docs;
+    uint64_t wal_deletes;
+    uint64_t wal_n_inserts;
+    uint64_t datasize;
+    uint64_t nlivenodes;
+    fdb_kvs_id_t kv_id;
+    struct avl_node *a;
+    FileMgr *file;
+    struct kvs_node *node, query;
+    KvsHeader *kv_header;
+    KvsStat stat;
+
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    if (!handle->shandle) { // snapshot handle should be immutable
+        fdb_check_file_reopen(handle, NULL);
+        fdb_sync_db_header(handle);
+    }
+
+    file = handle->file;
+
+    if (handle->kvs == NULL) {
+        info->name = default_kvs_name;
+        kv_id = 0;
+
+    } else {
+        kv_header = file->getKVHeader_UNLOCKED();
+        kv_id = handle->kvs->getKvsId();
+        spin_lock(&kv_header->lock);
+
+        query.id = handle->kvs->getKvsId();
+        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
+        if (a) { // sub handle
+            node = _get_entry(a, struct kvs_node, avl_id);
+            info->name = (const char*)node->kvs_name;
+        } else { // root handle
+            info->name = default_kvs_name;
+        }
+        spin_unlock(&kv_header->lock);
+    }
+
+    if (handle->shandle) {
+        // snapshot .. get its local stats
+        file->getWal()->getSnapStats_Wal(handle->shandle, &stat);
+    } else {
+        file->getKvsStatOps()->statGet(kv_id, &stat);
+    }
+    ndocs = stat.ndocs;
+    ndeletes = stat.ndeletes;
+    wal_docs = stat.wal_ndocs;
+    wal_deletes = stat.wal_ndeletes;
+    wal_n_inserts = wal_docs - wal_deletes;
+
+    if (ndocs + wal_n_inserts < wal_deletes) {
+        info->doc_count = 0;
+    } else {
+        if (ndocs) { // not accurate since some ndocs may be in wal_n_inserts
+            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
+        } else { // this is accurate
+            info->doc_count = wal_n_inserts;
+        }
+    }
+
+    if (ndeletes) { // not accurate since some ndeletes may be wal_n_deletes
+        info->deleted_count = ndeletes + wal_deletes;
+    } else { // this is accurate
+        info->deleted_count = wal_deletes;
+    }
+
+    datasize = stat.datasize;
+    nlivenodes = stat.nlivenodes;
+
+    info->space_used = datasize;
+    info->space_used += nlivenodes * handle->config.blocksize;
+    info->file = handle->fhandle;
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+
+    // This is another LIBFDB_API call, so handle is marked as free
+    // in the line above before making this call
+    fdb_get_kvs_seqnum(handle, &info->last_seqnum);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info)
+{
+    fdb_kvs_id_t kv_id;
+    FileMgr *file;
+    KvsOpsStat stat;
+    KvsOpsStat root_stat;
+
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    FdbKvsHandle *root_handle = handle->fhandle->getRootHandle();
+
+    // for snapshot handle do not reopen new file as user is interested in
+    // reader stats from the old file
+    if (!handle->shandle) {
+        // always get stats from the latest file
+        fdb_check_file_reopen(handle, NULL);
+        fdb_sync_db_header(handle);
+    }
+
+    file = handle->file;
+
+    if (handle->kvs == NULL) {
+        kv_id = 0;
+    } else {
+        kv_id = handle->kvs->getKvsId();
+    }
+
+    file->getKvsStatOps()->opsStatGet(kv_id, &stat);
+
+    if (root_handle != handle) {
+        file->getKvsStatOps()->opsStatGet(0, &root_stat);
+    } else {
+        root_stat = stat;
+    }
+
+    info->num_sets = stat.num_sets.load(std::memory_order_relaxed);
+    info->num_dels = stat.num_dels.load(std::memory_order_relaxed);
+    info->num_gets = stat.num_gets.load(std::memory_order_relaxed);
+    info->num_iterator_gets = stat.num_iterator_gets.load(
+                                                     std::memory_order_relaxed);
+    info->num_iterator_moves = stat.num_iterator_moves.load(
+                                                     std::memory_order_relaxed);
+
+    info->num_commits = root_stat.num_commits.load(std::memory_order_relaxed);
+    info->num_compacts = root_stat.num_compacts.load(std::memory_order_relaxed);
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!seqnum) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    if (handle->shandle) {
+        // handle for snapshot
+        // return MAX_SEQNUM instead of the file's sequence number
+        *seqnum = handle->max_seqnum;
+    } else {
+        fdb_check_file_reopen(handle, NULL);
+        fdb_sync_db_header(handle);
+
+        FileMgr *file;
+        file = handle->file;
+
+        if (handle->kvs == NULL ||
+            handle->kvs->getKvsId() == 0) {
+            file->mutexLock();
+            *seqnum = file->getSeqnum();
+            file->mutexUnlock();
+        } else {
+            *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId());
+        }
+    }
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return FDB_RESULT_SUCCESS;
+}
