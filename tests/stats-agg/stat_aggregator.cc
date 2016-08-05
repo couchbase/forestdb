@@ -119,7 +119,11 @@ void StatAggregator::printValues(samples_t values, std::string unit) {
             "Histogram of samples\n\n", "");
     // Finally, print out each set.
     for (const auto& stats : value_stats) {
-        if (unit == "µs") {
+        if (unit == "ns") {
+            printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
+                    stats.name.c_str(), stats.median * 1e3, stats.pct95 * 1e3,
+                    stats.pct99 * 1e3, stats.stddev * 1e3);
+        } else if (unit == "µs") {
             printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
                     stats.name.c_str(), stats.median, stats.pct95,
                     stats.pct99, stats.stddev);

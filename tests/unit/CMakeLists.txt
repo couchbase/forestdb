@@ -15,8 +15,8 @@ add_executable(mempool_test
                ${ROOT_SRC}/memory_pool.cc
                ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
                ${GETTIMEOFDAY_VS}
-               ${ROOT_UTILS}/time_utils.cc)
-
+               ${ROOT_UTILS}/time_utils.cc
+               $<TARGET_OBJECTS:TEST_STAT_AGG>)
 target_link_libraries(mempool_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}

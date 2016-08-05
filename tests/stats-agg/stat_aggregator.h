@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <assert.h>
 
+#include <string>
 #include <vector>
 
 typedef struct {

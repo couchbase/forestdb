@@ -19,14 +19,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <mutex>
+
 #include "test.h"
 #include "memory_pool.h"
+
+#include "stat_aggregator.h"
+
+int samples(0);
+static std::mutex guard;
+
+void collect_stat(StatAggregator *sa, uint64_t diff) {
+    std::lock_guard<std::mutex> lock(guard);
+    sa->t_stats[0][0].latencies.push_back(diff);
+    ++samples;
+}
 
 struct worker_args{
     int num_runs;
     int num_bins;
     size_t bin_size;
     MemoryPool *mp;
+    StatAggregator *sa;
 };
 
 void *basic_tester(void *args_)
@@ -36,11 +50,14 @@ void *basic_tester(void *args_)
     size_t bin_size = args->bin_size;
     for (int i = args->num_runs; i; --i) {
         uint8_t *buf;
+        ts_nsec start = get_monotonic_ts();
         const int idx = args->mp->fetchBlock(&buf);
+        ts_nsec end = get_monotonic_ts();
         TEST_CHK(idx != -1);
         for (int j = 100; j; --j) {
             buf[rand() % (bin_size - 1)] = 'X';
         }
+        collect_stat(args->sa, (end - start));
         args->mp->returnBlock(idx);
     }
     return NULL;
@@ -49,23 +66,34 @@ void *basic_tester(void *args_)
 void basic_test(int iterations, int num_bins, size_t bin_size)
 {
     TEST_INIT();
-    struct worker_args mpool;
     struct timeval ts_begin, ts_cur, ts_gap;
+
+    StatAggregator *sa = new StatAggregator(1, 1);
+    sa->t_stats[0][0].name = "wait_times";
+    samples = 0;
+
     gettimeofday(&ts_begin, NULL);
 
+    struct worker_args mpool;
     mpool.num_runs = iterations;
     mpool.num_bins = num_bins;
     mpool.bin_size = bin_size;
     mpool.mp = new MemoryPool(mpool.num_bins, mpool.bin_size);
+    mpool.sa = sa;
+
     void *ret = basic_tester(&mpool);
     TEST_CHK(!ret);
     delete mpool.mp;
 
     gettimeofday(&ts_cur, NULL);
+
+    sa->aggregateAndPrintStats("BASIC_TEST", samples, "µs");
+    delete sa;
+
     ts_gap = _utime_gap(ts_begin, ts_cur);
     char res[128];
-    sprintf(res, "basic test with %d runs of %d bins x %" _F64 "bytes"
-            " in %ld us",
+    sprintf(res,
+            "basic test with %d runs of %d bins x %" _F64 "bytes in %ld µs",
             iterations, num_bins, uint64_t(bin_size),
             ts_gap.tv_sec*1000000 + ts_gap.tv_usec);
     TEST_RESULT(res);
@@ -77,6 +105,11 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
     TEST_INIT();
     thread_t *tid = alca(thread_t, num_threads);
     struct timeval ts_begin, ts_cur, ts_gap;
+
+    StatAggregator *sa = new StatAggregator(1, 1);
+    sa->t_stats[0][0].name = "wait_times";
+    samples = 0;
+
     gettimeofday(&ts_begin, NULL);
 
     struct worker_args mpool;
@@ -84,6 +117,7 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
     mpool.num_bins = num_bins;
     mpool.bin_size = bin_size;
     mpool.mp = new MemoryPool(mpool.num_bins, mpool.bin_size);
+    mpool.sa = sa;
 
     for (int i = num_threads - 1; i; --i) {
         thread_create(&tid[i], basic_tester, &mpool);
@@ -98,12 +132,17 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
     delete mpool.mp;
 
     gettimeofday(&ts_cur, NULL);
+
+    sa->aggregateAndPrintStats("MULTI_THREAD_TEST", samples, "µs");
+    delete sa;
+
     ts_gap = _utime_gap(ts_begin, ts_cur);
     char res[128];
-    sprintf(res, "multi-thread test with %d threads each with "
-                 "%d runs of %d bins x %" _F64 "bytes in %ld usec",
-                 num_threads, iterations, num_bins, uint64_t(bin_size),
-                 ts_gap.tv_sec*1000000 + ts_gap.tv_usec);
+    sprintf(res,
+            "multi-thread test with %d threads each with "
+            "%d runs of %d bins x %" _F64 "bytes in %ld µs",
+            num_threads, iterations, num_bins, uint64_t(bin_size),
+            ts_gap.tv_sec*1000000 + ts_gap.tv_usec);
     TEST_RESULT(res);
 }
 
