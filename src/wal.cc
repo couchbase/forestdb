@@ -674,7 +674,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             if (item->txn == file->getGlobalTxn()) {
                 // Remove duplicate item in same snapshot, if any..
                 struct wal_item *_item = getSnapItemHdr_Wal(item->header,
-                                                             shandle);
+                                                            shandle);
                 if (_item) {
                     avl_remove(&shandle->key_tree, &_item->avl_keysnap);
                     _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
@@ -1116,7 +1116,7 @@ fdb_status Wal::findWithKvid_Wal(fdb_txn *txn,
 inline void Wal::_wal_free_item(struct wal_item *item, bool gotlock) {
     struct snap_handle *shandle = item->shandle;
     fdb_assert(!(item->flag & WAL_ITEM_IN_SNAP_TREE) ||
-               item->shandle->is_flushed, item, shandle);
+                item->flag & WAL_ITEM_FLUSHED_OUT, item, shandle);
     if (!(--shandle->wal_ndocs)) {
         if (!gotlock) {
             spin_lock(&lock);
@@ -1388,9 +1388,11 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                     } else {
                         _wal_update_stat(kv_id, _WAL_DROP_DELETE);
                     }
-                    // To keep only one unique copy in snapshot remove old item
-                    if (_item->flag & WAL_ITEM_IN_SNAP_TREE) {
-
+                    // To keep only one unique copy in snapshot tree
+                    // remove old item only if the item is not already
+                    // flushed out (reflected in main index)
+                    if (_item->flag & WAL_ITEM_IN_SNAP_TREE &&
+                        !(_item->flag & WAL_ITEM_FLUSHED_OUT)) {
                         avl_remove(&_item->shandle->key_tree,
                                    &_item->avl_keysnap);
                         if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
@@ -1493,6 +1495,8 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
     struct list_elem *le = &item->list_elem;
     struct wal_item_header *header = item->header;
 
+    item->flag |= WAL_ITEM_FLUSHED_OUT;
+
     // get KVS ID
     if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
         buf2kvid(item->header->chunksize, item->header->key, &kv_id);
@@ -1506,7 +1510,6 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
         item = NULL;
     } else {
         item->flag &= ~WAL_ITEM_FLUSH_READY;
-        item->flag |= WAL_ITEM_FLUSHED_OUT;
     }
     // try to cleanup items from prior snapshots as well..
     while (le) {
@@ -1516,13 +1519,13 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
             break;
         }
         le = list_prev(le);
+        sitem->flag |= WAL_ITEM_FLUSHED_OUT;
         if (!_wal_snap_is_immutable(sitem->shandle)) {
             releaseItem_Wal(shard_num, kv_id, sitem);
             _mem_overhead += sizeof(struct wal_item);
         } else {
             item = sitem; // this is the latest and greatest item
             item->flag &= ~WAL_ITEM_FLUSH_READY;
-            item->flag |= WAL_ITEM_FLUSHED_OUT;
         }
     }
     if (list_begin(&header->items) == NULL) {
