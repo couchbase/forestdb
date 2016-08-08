@@ -911,21 +911,30 @@ void test_readers_writers_with_handle_pool(int nhandles,
 }
 
 struct compact_args {
-    std::string cur_filename;
-    std::string new_filename;
+    std::string filename;
+    std::atomic<bool> terminate_compaction;
 };
 
 void *compact_thread(void *args) {
     struct compact_args *ca = static_cast<struct compact_args *>(args);
     fdb_config config = fdb_get_default_config();
     fdb_file_handle *dbfile;
-    fdb_status status = FDB_RESULT_SUCCESS;
-    status = fdb_open(&dbfile, ca->cur_filename.c_str(), &config);
-    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-    status = fdb_compact(dbfile, ca->new_filename.c_str());
-    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-    status = fdb_close(dbfile);
-    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    std::string curfilename, nextfilename = ca->filename;
+    int revID = 0;
+    while (!ca->terminate_compaction) {
+        curfilename = nextfilename;
+        nextfilename = ca->filename + "." + std::to_string(++revID);
+        fdb_status status = FDB_RESULT_SUCCESS;
+        status = fdb_open(&dbfile, curfilename.c_str(), &config);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+#ifdef __DEBUG_USECASE
+        fprintf(stderr, "Compacting %s to %s\n", curfilename.c_str(), nextfilename.c_str());
+#endif
+        status = fdb_compact(dbfile, nextfilename.c_str());
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+        status = fdb_close(dbfile);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    }
     return nullptr;
 }
 
@@ -963,9 +972,11 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
 
     thread_t tid(0);
     void *ret;
-    int revId = 0;
 
     struct compact_args args;
+    args.filename = filenames.at(0);
+    args.terminate_compaction.store(false);
+    thread_create(&tid, compact_thread, &args);
 
     for (int i = 0; i < itemCountPerStore; ++i) {
         for (int j = 0; j < numKvStores; ++j) {
@@ -982,25 +993,11 @@ void test_writes_on_kv_stores_with_compaction(uint16_t numKvStores,
             fhp->returnResourceToPool(j);
         }
 
-        if (i % (itemCountPerStore / 3) == 0) {
-            // Spin off a background thread that will compact the file
-            if (tid) {
-                thread_join(tid, &ret);
-            }
-
-            if (revId) {
-                args.cur_filename = filenames.at(0) + "." + std::to_string(revId);
-            } else {
-                args.cur_filename = filenames.at(0);
-            }
-            args.new_filename = filenames.at(0) + "." + std::to_string(++revId);
-            thread_create(&tid, compact_thread, &args);
-        }
-
         status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
     }
 
+    args.terminate_compaction.store(true);
     thread_join(tid, &ret);
 
     // Get total item count in disk
