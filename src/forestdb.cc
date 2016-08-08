@@ -66,6 +66,7 @@
 
 std::atomic<FdbEngine *> FdbEngine::instance(nullptr);
 std::mutex FdbEngine::instanceMutex;
+volatile size_t FdbEngine::fdbOpenInProg(0);
 
 int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
 {
@@ -652,16 +653,20 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         config = FdbEngine::getDefaultConfig();
     }
 
+    FdbEngine::incrOpenInProgCounter();
     fdb_status fs = FdbEngine::init(&config);
     if (fs != FDB_RESULT_SUCCESS) {
+        FdbEngine::decrOpenInProgCounter();
         return fs;
     }
 
+    fs = FDB_RESULT_ENGINE_NOT_INSTANTIATED;
     FdbEngine *fdb_engine = FdbEngine::getInstance();
     if (fdb_engine) {
-        return fdb_engine->openFile(ptr_fhandle, filename, config);
+        fs = fdb_engine->openFile(ptr_fhandle, filename, config);
     }
-    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+    FdbEngine::decrOpenInProgCounter();
+    return fs;
 }
 
 LIBFDB_API
@@ -684,17 +689,21 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         config = FdbEngine::getDefaultConfig();
     }
 
+    FdbEngine::incrOpenInProgCounter();
     fdb_status fs = FdbEngine::init(&config);
     if (fs != FDB_RESULT_SUCCESS) {
+        FdbEngine::decrOpenInProgCounter();
         return fs;
     }
 
+    fs = FDB_RESULT_ENGINE_NOT_INSTANTIATED;
     FdbEngine *fdb_engine = FdbEngine::getInstance();
     if (fdb_engine) {
-        return fdb_engine->openFileWithCustomCmp(ptr_fhandle, filename, config,
-                                                 num_functions, kvs_names, functions);
+        fs = fdb_engine->openFileWithCustomCmp(ptr_fhandle, filename, config,
+                                               num_functions, kvs_names, functions);
     }
-    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+    FdbEngine::decrOpenInProgCounter();
+    return fs;
 }
 
 fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
@@ -2305,7 +2314,7 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle)
     return ver_get_version_string(fhandle->getRootHandle()->file->getVersion());
 }
 
-FdbEngine::FdbEngine(const fdb_config &config) : fdbOpenInProg(0) {
+FdbEngine::FdbEngine(const fdb_config &config) {
    // Initialize breakpad
    _dbg_handle_crashes(config.breakpad_minidump_dir);
 }
@@ -2464,8 +2473,6 @@ fdb_status FdbEngine::openFile(FdbFileHandle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    incrOpenInProgCounter();
-
     handle->handle_busy = 0;
     handle->shandle = NULL;
     handle->kvs_config = getDefaultKvsConfig();
@@ -2480,7 +2487,6 @@ fdb_status FdbEngine::openFile(FdbFileHandle **ptr_fhandle,
         delete handle;
         delete fhandle;
     }
-    decrOpenInProgCounter();
     return fs;
 }
 
@@ -2513,8 +2519,6 @@ fdb_status FdbEngine::openFileWithCustomCmp(FdbFileHandle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    incrOpenInProgCounter();
-
     handle->handle_busy = 0;
     handle->shandle = NULL;
     handle->kvs_config = getDefaultKvsConfig();
@@ -2531,7 +2535,6 @@ fdb_status FdbEngine::openFileWithCustomCmp(FdbFileHandle **ptr_fhandle,
         delete handle;
         delete fhandle;
     }
-    decrOpenInProgCounter();
     return fs;
 }
 

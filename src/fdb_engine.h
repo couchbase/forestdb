@@ -107,6 +107,29 @@ public:
                                FileMgrConfig *fconfig);
 
     /**
+     * Incr the file open in-progress counter
+     */
+    static size_t incrOpenInProgCounter() {
+        std::lock_guard<std::mutex> lock(instanceMutex);
+        return ++fdbOpenInProg;
+    }
+
+    /**
+     * Decr the file open in-progress counter
+     */
+    static size_t decrOpenInProgCounter() {
+        std::lock_guard<std::mutex> lock(instanceMutex);
+        return --fdbOpenInProg;
+    }
+
+    /**
+     * Get the file open in-progress counter
+     */
+    static size_t getOpenInProgCounter() {
+        return fdbOpenInProg;
+    }
+
+    /**
      * Open a ForestDB file.
      * The file should be closed with closeFile API call.
      *
@@ -549,32 +572,9 @@ private:
     // Destructor
     ~FdbEngine();
 
-    /**
-     * Incr the file open in-progress counter
-     */
-    size_t incrOpenInProgCounter() {
-        std::lock_guard<std::mutex> lock(instanceMutex);
-        return ++fdbOpenInProg;
-    }
-
-    /**
-     * Decr the file open in-progress counter
-     */
-    size_t decrOpenInProgCounter() {
-        std::lock_guard<std::mutex> lock(instanceMutex);
-        return --fdbOpenInProg;
-    }
-
-    /**
-     * Get the file open in-progress counter
-     */
-    size_t getOpenInProgCounter() {
-        return fdbOpenInProg;
-    }
-
     // Singleton ForestDB engine instance and mutex guarding it's creation.
     static std::atomic<FdbEngine *> instance;
     static std::mutex instanceMutex;
-
-    volatile size_t fdbOpenInProg;
+    // Number of open API calls that are currently running.
+    static volatile size_t fdbOpenInProg;
 };
