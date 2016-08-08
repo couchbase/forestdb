@@ -119,11 +119,11 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
     mpool.mp = new MemoryPool(mpool.num_bins, mpool.bin_size);
     mpool.sa = sa;
 
-    for (int i = num_threads - 1; i; --i) {
+    for (int i = num_threads - 1; i >= 0; --i) {
         thread_create(&tid[i], basic_tester, &mpool);
     }
 
-    for (int i = num_threads - 1; i; --i) {
+    for (int i = num_threads - 1; i >= 0; --i) {
         void *ret;
         thread_join(tid[i], &ret);
         TEST_CHK(!ret);
