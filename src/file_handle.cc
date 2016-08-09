@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "fdb_internal.h"
 #include "filemgr.h"
 #include "file_handle.h"
@@ -208,7 +209,7 @@ fdb_status FdbFileHandle::closeAllKVHandles() {
     while (e) {
         node = _get_entry(e, struct kvs_opened_node, le);
         e = list_remove(handles, e);
-        fs = _fdb_close(node->handle);
+        fs = FdbEngine::getInstance()->closeKVHandle(node->handle);
         if (fs != FDB_RESULT_SUCCESS) {
             spin_unlock(&lock);
             return fs;

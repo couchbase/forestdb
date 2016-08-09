@@ -21,6 +21,7 @@
 #include <stdlib.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "superblock.h"
 #include "staleblock.h"
 #include "btreeblock.h"
@@ -1237,7 +1238,7 @@ sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
         return SBD_NONE;
     }
 
-    live_datasize = fdb_estimate_space_used(handle->fhandle);
+    live_datasize = FdbEngine::getInstance()->estimateSpaceUsed(handle->fhandle);
     if (filesize == 0 || live_datasize == 0 ||
         live_datasize > filesize) {
         return SBD_NONE;

@@ -37,102 +37,30 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->beginTransaction(fhandle, isolation_level);
     }
-
-    file_status_t fstatus;
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-    FileMgr *file;
-    fdb_status status = FDB_RESULT_SUCCESS;
-
-    if (handle->txn) {
-        // transaction already exists
-        return FDB_RESULT_TRANSACTION_FAIL;
-    }
-    if (handle->kvs) {
-        if (handle->kvs->getKvsType() == KVS_SUB) {
-            // deny transaction on sub handle
-            return FDB_RESULT_INVALID_HANDLE;
-        }
-    }
-
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    do { // repeat until file status is not REMOVED_PENDING
-        status = fdb_check_file_reopen(handle, NULL);
-        if (status != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return status;
-        }
-        handle->file->mutexLock();
-        fdb_sync_db_header(handle);
-
-        cond = 1;
-        if (handle->file->isRollbackOn()) {
-            // deny beginning transaction during rollback
-            handle->file->mutexUnlock();
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            return FDB_RESULT_FAIL_BY_ROLLBACK;
-        }
-
-        file = handle->file;
-        fstatus = file->getFileStatus();
-        if (fstatus == FILE_REMOVED_PENDING) {
-            // we must not create transaction on this file
-            // file status was changed by other thread .. start over
-            file->mutexUnlock();
-        }
-    } while (fstatus == FILE_REMOVED_PENDING);
-
-    handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
-    handle->txn->wrapper = (struct wal_txn_wrapper *)
-                           malloc(sizeof(struct wal_txn_wrapper));
-    handle->txn->wrapper->txn = handle->txn;
-    handle->txn->handle = handle;
-    handle->txn->txn_id = ++transaction_id;
-    if (handle->file->getFileStatus() != FILE_COMPACT_OLD) {
-        // keep previous header's BID
-        handle->txn->prev_hdr_bid = handle->last_hdr_bid;
-    } else {
-        // if file status is COMPACT_OLD,
-        // then this transaction will work on new file, and
-        // there is no previous header until the compaction is done.
-        handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
-    }
-    handle->txn->prev_revnum = handle->cur_header_revnum;
-    handle->txn->items = (struct list *)malloc(sizeof(struct list));
-    handle->txn->isolation = isolation_level;
-    list_init(handle->txn->items);
-    file->getWal()->addTransaction_Wal(handle->txn);
-
-    file->mutexUnlock();
-
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
-    return status;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->abortTransaction(fhandle);
     }
-
-    return _fdb_abort_transaction(fhandle->getRootHandle());
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
-fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
+fdb_status FdbEngine::abortTransaction(FdbFileHandle *fhandle)
 {
-    if (!handle) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
+    FdbKvsHandle *handle = fhandle->getRootHandle();
     file_status_t fstatus;
     FileMgr *file;
     fdb_status status = FDB_RESULT_SUCCESS;
@@ -191,6 +119,100 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
 LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
+{
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->endTransaction(fhandle, opt);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+fdb_status FdbEngine::beginTransaction(FdbFileHandle *fhandle,
+                                       fdb_isolation_level_t isolation_level)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    file_status_t fstatus;
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+    FileMgr *file;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    if (handle->txn) {
+        // transaction already exists
+        return FDB_RESULT_TRANSACTION_FAIL;
+    }
+    if (handle->kvs) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
+            // deny transaction on sub handle
+            return FDB_RESULT_INVALID_HANDLE;
+        }
+    }
+
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
+    do { // repeat until file status is not REMOVED_PENDING
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return status;
+        }
+
+        file = handle->file;
+        file->mutexLock();
+        fdb_sync_db_header(handle);
+
+        cond = 1;
+        if (file->isRollbackOn()) {
+            // deny beginning transaction during rollback
+            file->mutexUnlock();
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return FDB_RESULT_FAIL_BY_ROLLBACK;
+        }
+
+        fstatus = file->getFileStatus();
+        if (fstatus == FILE_REMOVED_PENDING) {
+            // we must not create transaction on this file
+            // file status was changed by other thread .. start over
+            file->mutexUnlock();
+        }
+    } while (fstatus == FILE_REMOVED_PENDING);
+
+    handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
+    handle->txn->wrapper = (struct wal_txn_wrapper *)
+                           malloc(sizeof(struct wal_txn_wrapper));
+    handle->txn->wrapper->txn = handle->txn;
+    handle->txn->handle = handle;
+    handle->txn->txn_id = ++transaction_id;
+    if (file->getFileStatus() != FILE_COMPACT_OLD) {
+        // keep previous header's BID
+        handle->txn->prev_hdr_bid = handle->last_hdr_bid;
+    } else {
+        // if file status is COMPACT_OLD,
+        // then this transaction will work on new file, and
+        // there is no previous header until the compaction is done.
+        handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
+    }
+    handle->txn->prev_revnum = handle->cur_header_revnum;
+    handle->txn->items = (struct list *)malloc(sizeof(struct list));
+    handle->txn->isolation = isolation_level;
+    list_init(handle->txn->items);
+    file->getWal()->addTransaction_Wal(handle->txn);
+
+    file->mutexUnlock();
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
+    return status;
+}
+
+fdb_status FdbEngine::endTransaction(FdbFileHandle *fhandle,
+                                     fdb_commit_opt_t opt)
 {
     if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;

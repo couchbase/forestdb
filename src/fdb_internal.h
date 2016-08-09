@@ -63,9 +63,6 @@ fdb_status fdb_log(ErrLogCallback *callback,
 fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
                                FdbKvsHandle *handle_out);
 
-fdb_status _fdb_close_root(FdbKvsHandle *handle);
-fdb_status _fdb_close(FdbKvsHandle *handle);
-
 fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status);
 void fdb_sync_db_header(FdbKvsHandle *handle);
 
@@ -96,8 +93,6 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             bid_t marker_bid,
                             bool clone_docs,
                             const fdb_encryption_key *new_encryption_key);
-
-fdb_status _fdb_abort_transaction(FdbKvsHandle *handle);
 
 typedef enum {
     FDB_RESTORE_NORMAL,

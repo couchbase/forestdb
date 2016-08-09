@@ -772,7 +772,7 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     fs = copyDocs(&handle, prob, clone_docs);
     if (fs != FDB_RESULT_SUCCESS) {
         handle.bhandle->flushBuffer();
-        _fdb_close(&handle);
+        FdbEngine::getInstance()->closeKVHandle(&handle);
         return fs;
     }
 
@@ -790,7 +790,7 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
         fs = copyWalDocs(&handle, last_wal_hdr_bid, old_hdr_bid);
         if (fs != FDB_RESULT_SUCCESS) {
             handle.bhandle->flushBuffer();
-            _fdb_close(&handle);
+            FdbEngine::getInstance()->closeKVHandle(&handle);
             return fs;
         }
     }
@@ -830,7 +830,7 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     new_handle.bhandle->resetSubblockInfo();
 
     handle.shandle = NULL;
-    _fdb_close(&handle);
+    FdbEngine::getInstance()->closeKVHandle(&handle);
     return fs;
 }
 

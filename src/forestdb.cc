@@ -561,7 +561,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         status = handle->bhandle->flushBuffer();
         if (status != FDB_RESULT_SUCCESS) {
             new_file->mutexUnlock();
-            _fdb_close(&new_db);
+            FdbEngine::getInstance()->closeKVHandle(&new_db);
             return status;
         }
         delete handle->bhandle;
@@ -605,7 +605,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
     // Just in-case the new file gets opened before removal, point it to the old
     // file to ensure availability of data.
     FileMgr::removePending(new_db.file, handle->file, &handle->log_callback);
-    _fdb_close(&new_db);
+    FdbEngine::getInstance()->closeKVHandle(&new_db);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1139,7 +1139,7 @@ fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status)
             // We don't need to maintain fhandle list for the old file
             // as there will be no more mutation on the file.
             fhandle_ret = handle->file->fhandleRemove(handle->fhandle);
-            fs = _fdb_close(handle);
+            fs = FdbEngine::getInstance()->closeKVHandle(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 if (fhandle_ret) {
                     handle->file->fhandleAdd(handle->fhandle);
@@ -1164,7 +1164,7 @@ fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status)
                              &new_filename, NULL);
 
             fhandle_ret = handle->file->fhandleRemove(handle->fhandle);
-            fs = _fdb_close(handle);
+            fs = FdbEngine::getInstance()->closeKVHandle(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 if (fhandle_ret) {
                     handle->file->fhandleAdd(handle->fhandle);
@@ -1735,97 +1735,11 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                                       fdb_compaction_mode_t mode,
                                       size_t new_threshold)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->switchCompactionMode(fhandle, mode, new_threshold);
     }
-
-    int ret;
-    fdb_status fs;
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-    fdb_config config;
-    char vfilename[FDB_MAX_FILENAME_LEN];
-    char filename[FDB_MAX_FILENAME_LEN];
-    char metafile[FDB_MAX_FILENAME_LEN];
-
-    if (new_threshold > 100) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    config = handle->config;
-    if (handle->config.compaction_mode != mode) {
-        if (handle->file->getRefCount() > 1) {
-            // all the other handles referring this file should be closed
-            return FDB_RESULT_FILE_IS_BUSY;
-        }
-        /* TODO: In current code, we assume that all the other handles referring
-         * the same database file should be closed before calling this API and
-         * any open API calls should not be made until the completion of this API.
-         */
-
-        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-            // 1. deregister from compactor (by calling fdb_close)
-            // 2. remove [filename].meta
-            // 3. rename [filename].[n] as [filename]
-
-            // set compaction flag to avoid auto compaction.
-            // we will not clear this flag again becuase this file will be
-            // deregistered by calling _fdb_close().
-            if (CompactionManager::getInstance()->switchCompactionFlag(handle->file, true)
-                == false) {
-                return FDB_RESULT_FILE_IS_BUSY;
-            }
-
-            strcpy(vfilename, handle->filename.c_str());
-            strcpy(filename, handle->file->getFileName());
-            fs = _fdb_close(handle);
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-            sprintf(metafile, "%s.meta", vfilename);
-            if ((ret = remove(metafile)) < 0) {
-                return FDB_RESULT_FILE_REMOVE_FAIL;
-            }
-            if ((ret = rename(filename, vfilename)) < 0) {
-                return FDB_RESULT_FILE_RENAME_FAIL;
-            }
-            config.compaction_mode = FDB_COMPACTION_MANUAL;
-            fs = FdbEngine::getInstance()->openFdb(handle, vfilename,
-                                                   FDB_VFILENAME, &config);
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-        } else if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
-            // 1. rename [filename] as [filename].rev_num
-            std::string filename_str(handle->file->getFileName());
-            strcpy(vfilename, filename_str.c_str());
-            std::string nextfile = CompactionManager::getInstance()->
-                getNextFileName(filename_str);
-            fs = _fdb_close(handle);
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-            if ((ret = rename(vfilename, nextfile.c_str()) < 0)) {
-                return FDB_RESULT_FILE_RENAME_FAIL;
-            }
-            config.compaction_mode = FDB_COMPACTION_AUTO;
-            config.compaction_threshold = new_threshold;
-            fs = FdbEngine::getInstance()->openFdb(handle, vfilename,
-                                                   FDB_VFILENAME, &config);
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-
-        } else {
-            return FDB_RESULT_INVALID_ARGS;
-        }
-    } else {
-        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-            // change compaction threshold of the existing file
-            CompactionManager::getInstance()->setCompactionThreshold(handle->file,
-                                                                     new_threshold);
-        }
-    }
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -1842,180 +1756,18 @@ fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
 LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->closeFile(fhandle);
     }
-
-    fdb_status fs;
-    FdbKvsHandle *handle = fhandle->getRootHandle();
-    FileMgr *file = handle->file;
-    if (handle->config.auto_commit && file->getRefCount() == 1) {
-        // auto commit mode & the last handle referring the file
-        // commit file before close
-        if (file->getWal()->getDirtyStatus_Wal() == FDB_WAL_DIRTY) {
-            // Since auto-commit ensures WAL flushed commit, if WAL is dirty
-            // then it means that there is uncommitted data present
-            fs = fdb_commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-        }
-    }
-
-    file->fhandleRemove(fhandle);
-    fs = _fdb_close_root(handle);
-    if (fs == FDB_RESULT_SUCCESS) {
-        fhandle->closeAllKVHandles();
-        delete fhandle;
-    } else {
-        file->fhandleAdd(fhandle);
-    }
-    return fs;
-}
-
-fdb_status _fdb_close_root(FdbKvsHandle *handle)
-{
-    fdb_status fs;
-
-    if (!handle) {
-        return FDB_RESULT_SUCCESS;
-    }
-    if (handle->kvs) {
-        if (handle->kvs->getKvsType() == KVS_SUB) {
-            return fdb_kvs_close(handle);
-        } else if (handle->kvs->getKvsType() == KVS_ROOT) {
-            // close all sub-handles
-            fs = handle->fhandle->closeAllKVHandles();
-            if (fs != FDB_RESULT_SUCCESS) {
-                return fs;
-            }
-        }
-    }
-    if (handle->txn) {
-        _fdb_abort_transaction(handle);
-    }
-
-    SuperblockBase *sb = handle->file->getSb();
-    if (sb && !(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
-        // sync superblock before close (only for writable handles)
-        fdb_sync_db_header(handle);
-        bool updated = sb->updateHeader(handle);
-        if (updated) {
-            sb->syncCircular(handle);
-        }
-    }
-
-    fs = _fdb_close(handle);
-    if (fs == FDB_RESULT_SUCCESS) {
-        delete handle;
-    }
-    return fs;
-}
-
-fdb_status _fdb_close(FdbKvsHandle *handle)
-{
-    fdb_status fs;
-    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
-        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-            // read-only file is not registered in compactor
-            CompactionManager::getInstance()->deregisterFile(handle->file);
-        }
-        BgFlusher *bgf = BgFlusher::getBgfInstance();
-        if (bgf) {
-            bgf->deregisterFile_BgFlusher(handle->file);
-        }
-    }
-
-    handle->bhandle->flushBuffer();
-
-    if (handle->shandle) { // must close wal_snapshot before file
-        handle->file->getWal()->snapshotClose_Wal(handle->shandle);
-        FileMgr::dirtyUpdateCloseNode(handle->bhandle->getDirtyUpdate());
-        handle->bhandle->clearDirtyUpdate();
-    }
-
-    fs = FileMgr::close(handle->file, handle->config.cleanup_cache_onclose,
-                        handle->filename.c_str(), &handle->log_callback);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
-    delete handle->trie;
-
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (handle->kvs) {
-            // multi KV instance mode
-            delete handle->seqtrie;
-        } else {
-            delete handle->seqtree->getKVOps();
-            delete handle->seqtree;
-        }
-    }
-
-    if (handle->staletree) {
-        delete handle->staletree->getKVOps();
-        delete handle->staletree;
-    }
-
-    delete handle->bhandle;
-    delete handle->dhandle;
-
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_destroy(const char *fname,
                        fdb_config *fdbconfig)
 {
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
-
-    fdb_config config;
-    FileMgrConfig fconfig;
-    fdb_status status = FDB_RESULT_SUCCESS;
-    std::string filename(fname);
-
-    if (fdbconfig) {
-        if (FdbEngine::validateFdbConfig(*fdbconfig)) {
-            config = *fdbconfig;
-        } else {
-            return FDB_RESULT_INVALID_CONFIG;
-        }
-    } else {
-        config = get_default_config();
-    }
-
-    if (!CompactionManager::getInstance()->isValidCompactionMode(filename,config)) {
-        status = FDB_RESULT_INVALID_COMPACTION_MODE;
-        return status;
-    }
-
-    FdbEngine::initFileConfig(&config, &fconfig);
-
-    FileMgr::mutexOpenlock(&fconfig);
-
-    // Destroy file whose name is exactly matched.
-    // In auto compaction mode, exact matching file name will not exist in
-    // file system, so we allow failure returned by this function.
-    status = FileMgr::destroyFile(filename, &fconfig, NULL);
-    if (status != FDB_RESULT_SUCCESS &&
-        config.compaction_mode != FDB_COMPACTION_AUTO) {
-        FileMgr::mutexOpenunlock();
-        return status;
-    }
-
-    if (config.compaction_mode == FDB_COMPACTION_AUTO) {
-        // Destroy all files whose prefix is matched.
-        status = CompactionManager::getInstance()->destroyFile(filename, config);
-        if (status != FDB_RESULT_SUCCESS) {
-            FileMgr::mutexOpenunlock();
-            return status;
-        }
-    }
-
-    FileMgr::mutexOpenunlock();
-
-    return status;
+    return FdbEngine::destroyFile(fname, fdbconfig);
 }
 
 LIBFDB_API
@@ -2086,182 +1838,20 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                                     fdb_snapshot_info_t **markers_out,
                                     uint64_t *num_markers)
 {
-    FdbKvsHandle *handle;
-    bid_t hdr_bid;
-    size_t header_len;
-    uint8_t header_buf[FDB_BLOCKSIZE];
-    bid_t trie_root_bid = BLK_NOT_FOUND;
-    bid_t seq_root_bid = BLK_NOT_FOUND;
-    bid_t stale_root_bid = BLK_NOT_FOUND;
-    uint64_t ndocs;
-    uint64_t ndeletes;
-    uint64_t nlivenodes;
-    uint64_t datasize;
-    uint64_t last_wal_flush_hdr_bid;
-    uint64_t kv_info_offset;
-    uint64_t header_flags;
-    uint64_t version;
-    char *compacted_filename;
-    fdb_seqnum_t seqnum;
-    fdb_snapshot_info_t *markers;
-    int i;
-    uint64_t size, array_size;
-    file_status_t fMgrStatus;
-    filemgr_header_revnum_t revnum;
-    fdb_status status = FDB_RESULT_SUCCESS;
-
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getAllSnapMarkers(fhandle, markers_out, num_markers);
     }
-
-    if (!markers_out || !num_markers) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    handle = fhandle->getRootHandle();
-    if (!handle->file) {
-        return FDB_RESULT_FILE_NOT_OPEN;
-    }
-
-    status = fdb_check_file_reopen(handle, &fMgrStatus);
-    if (status != FDB_RESULT_SUCCESS) {
-        return status;
-    }
-    fdb_sync_db_header(handle);
-
-    SuperblockBase *sb = handle->file->getSb();
-    uint64_t sb_min_live_revnum = 0;
-    if (sb) {
-        sb->getMinLiveHdrRevnum();
-    }
-
-    // There are as many DB headers in a file as the file's header revision num
-    array_size = handle->cur_header_revnum - sb_min_live_revnum;
-    if (!array_size) {
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-    markers = (fdb_snapshot_info_t *)calloc(array_size, sizeof(fdb_snapshot_info_t));
-    if (!markers) { // LCOV_EXCL_START
-        return FDB_RESULT_ALLOC_FAIL;
-    } // LCOV_EXCL_STOP
-
-    // Start loading from current header
-    seqnum = handle->seqnum;
-    hdr_bid = handle->last_hdr_bid;
-    header_len = handle->file->accessHeader()->size;
-    size = 0;
-
-    uint64_t num_keeping_headers = handle->file->getConfig()->getNumKeepingHeaders();
-
-    // Reverse scan the file to locate the DB header with seqnum marker
-    for (i = 0; header_len; ++i, ++size) {
-        if (handle->config.block_reusing_threshold > 0 &&
-            handle->config.block_reusing_threshold < 100 &&
-            size >= num_keeping_headers) {
-            // if block reuse is enabled,
-            // do not allow to scan beyond the config parameter
-            break;
-        }
-
-        if (i == 0) {
-            status = handle->file->fetchHeader(handle->last_hdr_bid,
-                                               header_buf, &header_len, NULL,
-                                               &revnum, NULL, &version, NULL,
-                                               &handle->log_callback);
-        } else {
-            if ((uint64_t)i >= array_size) {
-                break;
-            }
-            hdr_bid = handle->file->fetchPrevHeader(hdr_bid, header_buf,
-                                                    &header_len, &seqnum,
-                                                    &revnum, NULL, &version,
-                                                    NULL, &handle->log_callback);
-        }
-        if (header_len == 0) {
-            break; // header doesn't exist, terminate iteration
-        }
-        if (ver_superblock_support(version) &&
-            revnum < sb_min_live_revnum) {
-            break; // eariler than the last block reclaiming
-        }
-
-        fdb_fetch_header(version, header_buf,
-                         &trie_root_bid, &seq_root_bid, &stale_root_bid,
-                         &ndocs, &ndeletes, &nlivenodes, &datasize,
-                         &last_wal_flush_hdr_bid, &kv_info_offset,
-                         &header_flags, &compacted_filename, NULL);
-        markers[i].marker = (fdb_snapshot_marker_t)hdr_bid;
-        if (kv_info_offset == BLK_NOT_FOUND) { // Single kv instance mode
-            markers[i].num_kvs_markers = 1;
-            markers[i].kvs_markers = (fdb_kvs_commit_marker_t *)malloc(
-                                            sizeof(fdb_kvs_commit_marker_t));
-            if (!markers[i].kvs_markers) { // LCOV_EXCL_START
-                fdb_free_snap_markers(markers, i);
-                return FDB_RESULT_ALLOC_FAIL;
-            } // LCOV_EXCL_STOP
-            markers[i].kvs_markers->seqnum = seqnum;
-            markers[i].kvs_markers->kv_store_name = NULL;
-        } else { // Multi kv instance mode
-            int64_t doc_offset;
-            struct docio_object doc;
-            memset(&doc, 0, sizeof(struct docio_object));
-            doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset, &doc,
-                                                         true);
-            if (doc_offset <= 0) {
-                fdb_free_snap_markers(markers, i);
-                return doc_offset < 0 ? (fdb_status) doc_offset : FDB_RESULT_READ_FAIL;
-            }
-            status = _fdb_kvs_get_snap_info(doc.body, version,
-                                            &markers[i]);
-            if (status != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
-                fdb_free_snap_markers(markers, i);
-                return status;
-            } // LCOV_EXCL_STOP
-            if (seqnum) {
-                // default KVS has been used
-                // add the default KVS info
-                int idx = markers[i].num_kvs_markers - 1;
-                markers[i].kvs_markers[idx].seqnum = seqnum;
-                markers[i].kvs_markers[idx].kv_store_name = NULL;
-            } else {
-                // do not count default KVS .. decrease it by one.
-                markers[i].num_kvs_markers--;
-            }
-            free_docio_object(&doc, true, true, true);
-        }
-    }
-
-    *num_markers = size;
-
-    if (size == 0) {
-        // No Snap Markers found
-        fdb_free_snap_markers(markers, array_size);
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
-    *markers_out = markers;
-
-    return status;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
-    uint64_t i;
-    int64_t kvs_idx;
-    if (!markers || !size) {
-        return FDB_RESULT_INVALID_ARGS;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->freeSnapMarkers(markers, size);
     }
-    for (i = 0; i < size; ++i) {
-        kvs_idx = markers[i].num_kvs_markers;
-        if (kvs_idx) {
-            for (kvs_idx = kvs_idx - 1; kvs_idx >=0; --kvs_idx) {
-                free(markers[i].kvs_markers[kvs_idx].kv_store_name);
-            }
-        }
-        free(markers[i].kvs_markers);
-    }
-    free(markers);
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -4598,7 +4188,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                 handle_in->txn = NULL;
             }
             handle_in->fhandle->setRootHandle(handle);
-            _fdb_close_root(handle_in);
+            closeRootHandle(handle_in);
             handle->max_seqnum = 0;
             handle->seqnum = seqnum;
             *handle_ptr = handle;
@@ -4741,7 +4331,7 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
         fs = FdbEngine::getInstance()->commitWithKVHandle(handle, FDB_COMMIT_NORMAL,
                                                           sync);
         if (fs == FDB_RESULT_SUCCESS) {
-            _fdb_close(super_handle);
+            closeKVHandle(super_handle);
             *super_handle = *handle;
         } else {
             file->mutexLock();
@@ -5137,6 +4727,460 @@ fdb_status FdbEngine::getLatencyHistogram(FdbFileHandle *fhandle,
 const char* FdbEngine::getLatencyStatName(fdb_latency_stat_type type)
 {
     return FileMgr::getLatencyStatName(type);
+}
+
+fdb_status FdbEngine::getAllSnapMarkers(FdbFileHandle *fhandle,
+                                        fdb_snapshot_info_t **markers_out,
+                                        uint64_t *num_markers)
+{
+    FdbKvsHandle *handle;
+    bid_t hdr_bid;
+    size_t header_len;
+    uint8_t header_buf[FDB_BLOCKSIZE];
+    bid_t trie_root_bid = BLK_NOT_FOUND;
+    bid_t seq_root_bid = BLK_NOT_FOUND;
+    bid_t stale_root_bid = BLK_NOT_FOUND;
+    uint64_t ndocs;
+    uint64_t ndeletes;
+    uint64_t nlivenodes;
+    uint64_t datasize;
+    uint64_t last_wal_flush_hdr_bid;
+    uint64_t kv_info_offset;
+    uint64_t header_flags;
+    uint64_t version;
+    char *compacted_filename;
+    fdb_seqnum_t seqnum;
+    fdb_snapshot_info_t *markers;
+    int i;
+    uint64_t size, array_size;
+    file_status_t fMgrStatus;
+    filemgr_header_revnum_t revnum;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!markers_out || !num_markers) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    handle = fhandle->getRootHandle();
+    if (!handle->file) {
+        return FDB_RESULT_FILE_NOT_OPEN;
+    }
+
+    status = fdb_check_file_reopen(handle, &fMgrStatus);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
+    fdb_sync_db_header(handle);
+
+    SuperblockBase *sb = handle->file->getSb();
+    uint64_t sb_min_live_revnum = 0;
+    if (sb) {
+        sb->getMinLiveHdrRevnum();
+    }
+
+    // There are as many DB headers in a file as the file's header revision num
+    array_size = handle->cur_header_revnum - sb_min_live_revnum;
+    if (!array_size) {
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+    markers = (fdb_snapshot_info_t *)calloc(array_size, sizeof(fdb_snapshot_info_t));
+    if (!markers) { // LCOV_EXCL_START
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    // Start loading from current header
+    seqnum = handle->seqnum;
+    hdr_bid = handle->last_hdr_bid;
+    header_len = handle->file->accessHeader()->size;
+    size = 0;
+
+    uint64_t num_keeping_headers = handle->file->getConfig()->getNumKeepingHeaders();
+
+    // Reverse scan the file to locate the DB header with seqnum marker
+    for (i = 0; header_len; ++i, ++size) {
+        if (handle->config.block_reusing_threshold > 0 &&
+            handle->config.block_reusing_threshold < 100 &&
+            size >= num_keeping_headers) {
+            // if block reuse is enabled,
+            // do not allow to scan beyond the config parameter
+            break;
+        }
+
+        if (i == 0) {
+            status = handle->file->fetchHeader(handle->last_hdr_bid,
+                                               header_buf, &header_len, NULL,
+                                               &revnum, NULL, &version, NULL,
+                                               &handle->log_callback);
+        } else {
+            if ((uint64_t)i >= array_size) {
+                break;
+            }
+            hdr_bid = handle->file->fetchPrevHeader(hdr_bid, header_buf,
+                                                    &header_len, &seqnum,
+                                                    &revnum, NULL, &version,
+                                                    NULL, &handle->log_callback);
+        }
+        if (header_len == 0) {
+            break; // header doesn't exist, terminate iteration
+        }
+        if (ver_superblock_support(version) &&
+            revnum < sb_min_live_revnum) {
+            break; // eariler than the last block reclaiming
+        }
+
+        fdb_fetch_header(version, header_buf,
+                         &trie_root_bid, &seq_root_bid, &stale_root_bid,
+                         &ndocs, &ndeletes, &nlivenodes, &datasize,
+                         &last_wal_flush_hdr_bid, &kv_info_offset,
+                         &header_flags, &compacted_filename, NULL);
+        markers[i].marker = (fdb_snapshot_marker_t)hdr_bid;
+        if (kv_info_offset == BLK_NOT_FOUND) { // Single kv instance mode
+            markers[i].num_kvs_markers = 1;
+            markers[i].kvs_markers = (fdb_kvs_commit_marker_t *)malloc(
+                                            sizeof(fdb_kvs_commit_marker_t));
+            if (!markers[i].kvs_markers) { // LCOV_EXCL_START
+                freeSnapMarkers(markers, i);
+                return FDB_RESULT_ALLOC_FAIL;
+            } // LCOV_EXCL_STOP
+            markers[i].kvs_markers->seqnum = seqnum;
+            markers[i].kvs_markers->kv_store_name = NULL;
+        } else { // Multi kv instance mode
+            int64_t doc_offset;
+            struct docio_object doc;
+            memset(&doc, 0, sizeof(struct docio_object));
+            doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset, &doc,
+                                                         true);
+            if (doc_offset <= 0) {
+                freeSnapMarkers(markers, i);
+                return doc_offset < 0 ? (fdb_status) doc_offset : FDB_RESULT_READ_FAIL;
+            }
+            status = _fdb_kvs_get_snap_info(doc.body, version,
+                                            &markers[i]);
+            if (status != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+                freeSnapMarkers(markers, i);
+                return status;
+            } // LCOV_EXCL_STOP
+            if (seqnum) {
+                // default KVS has been used
+                // add the default KVS info
+                int idx = markers[i].num_kvs_markers - 1;
+                markers[i].kvs_markers[idx].seqnum = seqnum;
+                markers[i].kvs_markers[idx].kv_store_name = NULL;
+            } else {
+                // do not count default KVS .. decrease it by one.
+                markers[i].num_kvs_markers--;
+            }
+            free_docio_object(&doc, true, true, true);
+        }
+    }
+
+    *num_markers = size;
+
+    if (size == 0) {
+        // No Snap Markers found
+        freeSnapMarkers(markers, array_size);
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    *markers_out = markers;
+
+    return status;
+}
+
+fdb_status FdbEngine::freeSnapMarkers(fdb_snapshot_info_t *markers,
+                                      uint64_t size) {
+    uint64_t i;
+    int64_t kvs_idx;
+    if (!markers || !size) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    for (i = 0; i < size; ++i) {
+        kvs_idx = markers[i].num_kvs_markers;
+        if (kvs_idx) {
+            for (kvs_idx = kvs_idx - 1; kvs_idx >=0; --kvs_idx) {
+                free(markers[i].kvs_markers[kvs_idx].kv_store_name);
+            }
+        }
+        free(markers[i].kvs_markers);
+    }
+    free(markers);
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
+                                           fdb_compaction_mode_t mode,
+                                           size_t new_threshold)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    int ret;
+    fdb_status fs;
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+    fdb_config config;
+    char vfilename[FDB_MAX_FILENAME_LEN];
+    char filename[FDB_MAX_FILENAME_LEN];
+    char metafile[FDB_MAX_FILENAME_LEN];
+
+    if (new_threshold > 100) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    config = handle->config;
+    if (handle->config.compaction_mode != mode) {
+        if (handle->file->getRefCount() > 1) {
+            // all the other handles referring this file should be closed
+            return FDB_RESULT_FILE_IS_BUSY;
+        }
+        /* TODO: In current code, we assume that all the other handles referring
+         * the same database file should be closed before calling this API and
+         * any open API calls should not be made until the completion of this API.
+         */
+
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // 1. deregister from compactor (by calling fdb_close)
+            // 2. remove [filename].meta
+            // 3. rename [filename].[n] as [filename]
+
+            // set compaction flag to avoid auto compaction.
+            // we will not clear this flag again becuase this file will be
+            // deregistered by calling closeKVHandle().
+            if (CompactionManager::getInstance()->switchCompactionFlag(handle->file, true)
+                == false) {
+                return FDB_RESULT_FILE_IS_BUSY;
+            }
+
+            strcpy(vfilename, handle->filename.c_str());
+            strcpy(filename, handle->file->getFileName());
+            fs = closeKVHandle(handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+            sprintf(metafile, "%s.meta", vfilename);
+            if ((ret = remove(metafile)) < 0) {
+                return FDB_RESULT_FILE_REMOVE_FAIL;
+            }
+            if ((ret = rename(filename, vfilename)) < 0) {
+                return FDB_RESULT_FILE_RENAME_FAIL;
+            }
+            config.compaction_mode = FDB_COMPACTION_MANUAL;
+            fs = openFdb(handle, vfilename, FDB_VFILENAME, &config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+        } else if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
+            // 1. rename [filename] as [filename].rev_num
+            std::string filename_str(handle->file->getFileName());
+            strcpy(vfilename, filename_str.c_str());
+            std::string nextfile = CompactionManager::getInstance()->
+                getNextFileName(filename_str);
+            fs = closeKVHandle(handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+            if ((ret = rename(vfilename, nextfile.c_str()) < 0)) {
+                return FDB_RESULT_FILE_RENAME_FAIL;
+            }
+            config.compaction_mode = FDB_COMPACTION_AUTO;
+            config.compaction_threshold = new_threshold;
+            fs = openFdb(handle, vfilename, FDB_VFILENAME, &config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+
+        } else {
+            return FDB_RESULT_INVALID_ARGS;
+        }
+    } else {
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // change compaction threshold of the existing file
+            CompactionManager::getInstance()->setCompactionThreshold(handle->file,
+                                                                     new_threshold);
+        }
+    }
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status FdbEngine::closeFile(FdbFileHandle *fhandle)
+{
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    fdb_status fs;
+    FdbKvsHandle *handle = fhandle->getRootHandle();
+    FileMgr *file = handle->file;
+    if (handle->config.auto_commit && file->getRefCount() == 1) {
+        // auto commit mode & the last handle referring the file
+        // commit file before close
+        if (file->getWal()->getDirtyStatus_Wal() == FDB_WAL_DIRTY) {
+            // Since auto-commit ensures WAL flushed commit, if WAL is dirty
+            // then it means that there is uncommitted data present
+            fs = commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+        }
+    }
+
+    file->fhandleRemove(fhandle);
+    fs = closeRootHandle(handle);
+    if (fs == FDB_RESULT_SUCCESS) {
+        fhandle->closeAllKVHandles();
+        delete fhandle;
+    } else {
+        file->fhandleAdd(fhandle);
+    }
+    return fs;
+}
+
+fdb_status FdbEngine::closeRootHandle(FdbKvsHandle *handle)
+{
+    fdb_status fs;
+
+    if (!handle) {
+        return FDB_RESULT_SUCCESS;
+    }
+    if (handle->kvs) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
+            return fdb_kvs_close(handle);
+        } else if (handle->kvs->getKvsType() == KVS_ROOT) {
+            // close all sub-handles
+            fs = handle->fhandle->closeAllKVHandles();
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+        }
+    }
+    if (handle->txn) {
+        abortTransaction(handle->fhandle);
+    }
+
+    SuperblockBase *sb = handle->file->getSb();
+    if (sb && !(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+        // sync superblock before close (only for writable handles)
+        fdb_sync_db_header(handle);
+        bool updated = sb->updateHeader(handle);
+        if (updated) {
+            sb->syncCircular(handle);
+        }
+    }
+
+    fs = closeKVHandle(handle);
+    if (fs == FDB_RESULT_SUCCESS) {
+        delete handle;
+    }
+    return fs;
+}
+
+fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
+{
+    fdb_status fs;
+    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // read-only file is not registered in compactor
+            CompactionManager::getInstance()->deregisterFile(handle->file);
+        }
+        BgFlusher *bgf = BgFlusher::getBgfInstance();
+        if (bgf) {
+            bgf->deregisterFile_BgFlusher(handle->file);
+        }
+    }
+
+    handle->bhandle->flushBuffer();
+
+    if (handle->shandle) { // must close wal_snapshot before file
+        handle->file->getWal()->snapshotClose_Wal(handle->shandle);
+        FileMgr::dirtyUpdateCloseNode(handle->bhandle->getDirtyUpdate());
+        handle->bhandle->clearDirtyUpdate();
+    }
+
+    fs = FileMgr::close(handle->file, handle->config.cleanup_cache_onclose,
+                        handle->filename.c_str(), &handle->log_callback);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+    delete handle->trie;
+
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            // multi KV instance mode
+            delete handle->seqtrie;
+        } else {
+            delete handle->seqtree->getKVOps();
+            delete handle->seqtree;
+        }
+    }
+
+    if (handle->staletree) {
+        delete handle->staletree->getKVOps();
+        delete handle->staletree;
+    }
+
+    delete handle->bhandle;
+    delete handle->dhandle;
+
+    return fs;
+}
+
+fdb_status FdbEngine::destroyFile(const char *fname,
+                                  fdb_config *fdbconfig)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    FileMgrConfig fconfig;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    std::string filename(fname);
+
+    if (fdbconfig) {
+        if (FdbEngine::validateFdbConfig(*fdbconfig)) {
+            config = *fdbconfig;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        config = get_default_config();
+    }
+
+    if (!CompactionManager::getInstance()->isValidCompactionMode(filename,config)) {
+        status = FDB_RESULT_INVALID_COMPACTION_MODE;
+        return status;
+    }
+
+    FdbEngine::initFileConfig(&config, &fconfig);
+
+    FileMgr::mutexOpenlock(&fconfig);
+
+    // Destroy the file whose name is exactly matched.
+    // In auto compaction mode, exact matching file name does not exist in
+    // the file system, so we allow failure returned by this function.
+    status = FileMgr::destroyFile(filename, &fconfig, NULL);
+    if (status != FDB_RESULT_SUCCESS &&
+        config.compaction_mode != FDB_COMPACTION_AUTO) {
+        FileMgr::mutexOpenunlock();
+        return status;
+    }
+
+    if (config.compaction_mode == FDB_COMPACTION_AUTO) {
+        // Destroy all files whose prefix is matched in the auto compaction mode.
+        status = CompactionManager::getInstance()->destroyFile(filename, config);
+        if (status != FDB_RESULT_SUCCESS) {
+            FileMgr::mutexOpenunlock();
+            return status;
+        }
+    }
+
+    FileMgr::mutexOpenunlock();
+
+    return status;
 }
 
 // Delta changes in KV store stats during the WAL flush

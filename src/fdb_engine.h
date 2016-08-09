@@ -560,6 +560,156 @@ public:
      */
     static const char * getLatencyStatName(fdb_latency_stat_type type);
 
+    /**
+     * Get all KV store names in a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param kvs_name_list Pointer to a KV store name list. Note that this list
+     *        should be released using fdb_free_kvs_name_list API call().
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status getKvsNameList(FdbFileHandle *fhandle,
+                              fdb_kvs_name_list *kvs_name_list);
+
+    /**
+     * Return all the snapshot markers in a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param markers Pointer to the allocated array of snapshot_info instances
+     *                that correspond to each of the commit markers in a file.
+     * @param size Number of elements of the markers that are allocated.
+     * @return file i/o or other on failure, FDB_RESULT_SUCCESS if successful.
+     *
+     */
+    fdb_status getAllSnapMarkers(FdbFileHandle *fhandle,
+                                 fdb_snapshot_info_t **markers,
+                                 uint64_t *size);
+
+    /**
+     * Returns the last available rollback sequence number for a given
+     * sequence number of a KV store.
+     *
+     * @param handle Pointer to ForestDB kvs handle.
+     * @param request_seqno Sequence number to rollback to.
+     * @return last available rollback sequence number.
+     *
+     */
+    fdb_seqnum_t getAvailableRollbackSeq(FdbKvsHandle *handle,
+                                         uint64_t request_seqno);
+
+    /**
+     * Free a kv snapshot_info array allocated by getAllSnapMarkers API.
+     *
+     * @param markers Pointer to a KV snapshot_info array that is allocated by
+     *        fdb_get_all_snap_markers API.
+     * @param size Number of elements in above array.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status freeSnapMarkers(fdb_snapshot_info_t *markers, uint64_t size);
+
+    /**
+     * Free a KV store name list allocated by getKvsNameList API.
+     *
+     * @param kvs_name_list Pointer to a KV store name list to be freed.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status freeKvsNameList(fdb_kvs_name_list *kvs_name_list);
+
+    /**
+     * Change the compaction mode of a ForestDB file referred by the handle passed.
+     * If the mode is changed to auto-compaction (i.e., FDB_COMPACTION_AUTO),
+     * the compaction threshold is set to the threshold passed to this API.
+     * This API can be also used to change the compaction threshould for a ForestDB file
+     * whose compaction mode is currently auto-compaction.
+     *
+     * Note that all the other handles referring the same ForestDB file should be closed
+     * before this API call, and no concurrent operation should be performed on the same
+     * file until the mode switching is done.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param mode New compaction mode to be set.
+     * @param new_threshold New compaction threshold to be set.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status switchCompactionMode(FdbFileHandle *fhandle,
+                                    fdb_compaction_mode_t mode,
+                                    size_t new_threshold);
+
+    /**
+     * Close a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status closeFile(FdbFileHandle *fhandle);
+
+    /**
+     * Close the KV store handle
+     *
+     * @param handle Pointer to the KV store handle
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status closeKVHandle(FdbKvsHandle *handle);
+
+    /**
+     * Destroy all resources associated with a ForestDB file permanently
+     * (e.g., buffer cache, in-memory WAL, indexes, daemon compaction thread)
+     * including current and past versions of the file.
+     * Note that all handles on the file should be closed through fdb_close
+     * calls before calling this API.
+     *
+     * NOTE: If manual compaction is being used, fdb_destroy() is best-effort only
+     *       and must be called with the correct filename
+     * Reason for best-effort in manual compaction case:
+     * FileA --> FileB --> FileC --> FileA --> FileD --> FileC -->DESTROY
+     * (In above case, FileB cannot be destroyed as its info is not
+     *  reachable from file path "FileC", api will wipe out FileA, FileC and FileD)
+     *
+     * @param filename The file path that needs to be destroyed
+     * @param fconfig  The forestdb configuration to determine
+     *        error log callbacks, manual/auto compaction etc
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    static fdb_status destroyFile(const char *filename,
+                                  fdb_config *fconfig);
+
+    /**
+     * Begin a transaction with a given ForestDB file handle and isolation level.
+     * The transaction should be closed with fdb_end_transaction API call.
+     * The isolation levels supported are "read committed" or "read uncommitted".
+     * We plan to support both serializable and repeatable read isolation levels
+     * in the upcoming releases. For more information about database isolation levels,
+     * please refer to the following link:
+     * http://en.wikipedia.org/wiki/Isolation_level
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param isolation_level Isolation level (i.e., read_committed or read_uncommitted)
+     *        of the transaction.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status beginTransaction(FdbFileHandle *fhandle,
+                                fdb_isolation_level_t isolation_level);
+
+    /**
+     * End a transaction for a given ForestDB file handle by commiting all the dirty
+     * updates and releasing all the resouces allocated for that transaction.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param opt Commit option.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status endTransaction(FdbFileHandle *fhandle,
+                              fdb_commit_opt_t opt);
+
+    /**
+     * Abort the transaction for a given ForestDB file handle.
+     * All uncommitted dirty updates in the handle will be discarded.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status abortTransaction(FdbFileHandle *fhandle);
+
 private:
 
     /**
@@ -571,6 +721,14 @@ private:
 
     // Destructor
     ~FdbEngine();
+
+    /**
+     * Close the root KV store handle.
+     *
+     * @param handle Pointer to the root KV store handle
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status closeRootHandle(FdbKvsHandle *handle);
 
     // Singleton ForestDB engine instance and mutex guarding it's creation.
     static std::atomic<FdbEngine *> instance;

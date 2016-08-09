@@ -1443,7 +1443,7 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
 }
 
 // 1) remove corresponding node from fhandle->handles list.
-// 2) call _fdb_close().
+// 2) call FdbEngine::getInstance()->closeKVHandle().
 static fdb_status _fdb_kvs_close(FdbKvsHandle *handle)
 {
     FdbKvsHandle *root_handle = handle->kvs->getRootHandle();
@@ -1454,7 +1454,7 @@ static fdb_status _fdb_kvs_close(FdbKvsHandle *handle)
         free(handle->node);
     } // 'handle->node == NULL' happens only during rollback
 
-    fs = _fdb_close(handle);
+    fs = FdbEngine::getInstance()->closeKVHandle(handle);
     return fs;
 }
 
@@ -1463,7 +1463,7 @@ static fdb_status _fdb_kvs_close(FdbKvsHandle *handle)
 //   2-1) if the requested handle is the root handle,
 //        -> just clear the OPENED flag.
 //   2-2) if the requested handle is not the root handle,
-//        -> call _fdb_close(),
+//        -> call FdbEngine::getInstance()->closeKVHandle(),
 //        -> remove the corresponding node from fhandle->handles list,
 //        -> free the memory for the handle.
 // 3) if the requested handle is for non-default KVS,
@@ -1488,7 +1488,7 @@ fdb_status fdb_kvs_close(FdbKvsHandle *handle)
         // directly close handle
         // (snapshot of the other KV stores will be closed
         //  using _fdb_kvs_close(...) below)
-        fs = _fdb_close(handle);
+        fs = FdbEngine::getInstance()->closeKVHandle(handle);
         if (fs == FDB_RESULT_SUCCESS) {
             delete handle;
         }
@@ -1507,7 +1507,7 @@ fdb_status fdb_kvs_close(FdbKvsHandle *handle)
 
         } else {
             // the default KV store but not the root handle .. normally close
-            fs = _fdb_close(handle);
+            fs = FdbEngine::getInstance()->closeKVHandle(handle);
             if (fs == FDB_RESULT_SUCCESS) {
                 // remove from 'handles' list in the root node
                 handle->fhandle->removeKVHandle(&handle->node->le);
@@ -1952,143 +1952,31 @@ LIBFDB_API
 fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list)
 {
-    size_t num, size, offset;
-    char *ptr;
-    char **segment;
-    FdbKvsHandle *root_handle;
-    KvsHeader *kv_header;
-    struct kvs_node *node;
-    struct avl_node *a;
-
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getKvsNameList(fhandle, kvs_name_list);
     }
-
-    if (!kvs_name_list) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    root_handle = fhandle->getRootHandle();
-    kv_header = root_handle->file->getKVHeader_UNLOCKED();
-
-    spin_lock(&kv_header->lock);
-    // sum all lengths of KVS names first
-    // (to calculate the size of memory segment to be allocated)
-    num = 1;
-    size = strlen(default_kvs_name) + 1;
-    a = avl_first(kv_header->idx_id);
-    while (a) {
-        node = _get_entry(a, struct kvs_node, avl_id);
-        a = avl_next(&node->avl_id);
-
-        num++;
-        size += strlen(node->kvs_name) + 1;
-    }
-    size += num * sizeof(char*);
-
-    // allocate memory segment
-    segment = (char**)calloc(1, size);
-    kvs_name_list->num_kvs_names = num;
-    kvs_name_list->kvs_names = segment;
-
-    ptr = (char*)segment + num * sizeof(char*);
-    offset = num = 0;
-
-    // copy default KVS name
-    strcpy(ptr + offset, default_kvs_name);
-    segment[num] = ptr + offset;
-    num++;
-    offset += strlen(default_kvs_name) + 1;
-
-    // copy the others
-    a = avl_first(kv_header->idx_name);
-    while (a) {
-        node = _get_entry(a, struct kvs_node, avl_name);
-        a = avl_next(&node->avl_name);
-
-        strcpy(ptr + offset, node->kvs_name);
-        segment[num] = ptr + offset;
-
-        num++;
-        offset += strlen(node->kvs_name) + 1;
-    }
-
-    spin_unlock(&kv_header->lock);
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
 {
-    if (!kvs_name_list) {
-        return FDB_RESULT_INVALID_ARGS;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->freeKvsNameList(kvs_name_list);
     }
-
-    free(kvs_name_list->kvs_names);
-    kvs_name_list->kvs_names = NULL;
-    kvs_name_list->num_kvs_names = 0;
-
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
 fdb_seqnum_t fdb_get_available_rollback_seq(FdbKvsHandle *handle,
                                             uint64_t request_seqno) {
-
-    if (!handle) {
-        // FDB_RESULT_INVALID_HANDLE;
-        return (fdb_seqnum_t) 0;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getAvailableRollbackSeq(handle, request_seqno);
     }
-
-    if (request_seqno == 0) {
-        // Avoid unnecessary fetching of snapshot markers
-        return (fdb_seqnum_t) 0;
-    }
-
-    fdb_snapshot_info_t *markers;
-    uint64_t marker_count;
-    fdb_status status = FDB_RESULT_SUCCESS;
-
-    // Fetch all available snapshot markers
-    status = fdb_get_all_snap_markers(handle->fhandle, &markers, &marker_count);
-    if (status != FDB_RESULT_SUCCESS) {
-        // No markers available / Allocation failure perhaps
-        return (fdb_seqnum_t) 0;
-    }
-
-    const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
-    fdb_seqnum_t rollback_seqno = 0;
-
-    // Iterate over the retrieved markers to find the closest available
-    // rollback sequence number to the request_seqno for the provided
-    // KV store
-    for (uint64_t i = 0; i < marker_count; ++i) {
-        for (int64_t j = 0; j < markers[i].num_kvs_markers; ++j) {
-            if (kvs_name == NULL) { // Default KVS
-                if (markers[i].kvs_markers[j].kv_store_name == NULL) {
-                    rollback_seqno = markers[i].kvs_markers[j].seqnum;
-                    break;
-                }
-            } else if (strcmp(kvs_name,
-                              markers[i].kvs_markers[j].kv_store_name) == 0) {
-                rollback_seqno = markers[i].kvs_markers[j].seqnum;
-                break;
-            }
-        }
-        if (rollback_seqno <= request_seqno) {
-            break;
-        }
-    }
-
-    fdb_free_snap_markers(markers, marker_count);
-
-    if (rollback_seqno > request_seqno) {
-        // No header/marker available to rollback to
-        rollback_seqno = 0;
-    }
-
-    return rollback_seqno;
+    return 0;
 }
 
 stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
@@ -2293,7 +2181,7 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
 
     // This is another LIBFDB_API call, so handle is marked as free
     // in the line above before making this call
-    fdb_get_kvs_seqnum(handle, &info->last_seqnum);
+    getKvsSeqnum(handle, &info->last_seqnum);
 
     return status;
 }
@@ -2402,4 +2290,144 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
     return status;
+}
+
+fdb_status FdbEngine::getKvsNameList(FdbFileHandle *fhandle,
+                                     fdb_kvs_name_list *kvs_name_list)
+{
+    size_t num, size, offset;
+    char *ptr;
+    char **segment;
+    FdbKvsHandle *root_handle;
+    KvsHeader *kv_header;
+    struct kvs_node *node;
+    struct avl_node *a;
+
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!kvs_name_list) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    root_handle = fhandle->getRootHandle();
+    kv_header = root_handle->file->getKVHeader_UNLOCKED();
+
+    spin_lock(&kv_header->lock);
+    // sum all lengths of KVS names first
+    // (to calculate the size of memory segment to be allocated)
+    num = 1;
+    size = strlen(default_kvs_name) + 1;
+    a = avl_first(kv_header->idx_id);
+    while (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        a = avl_next(&node->avl_id);
+
+        num++;
+        size += strlen(node->kvs_name) + 1;
+    }
+    size += num * sizeof(char*);
+
+    // allocate memory segment
+    segment = (char**)calloc(1, size);
+    kvs_name_list->num_kvs_names = num;
+    kvs_name_list->kvs_names = segment;
+
+    ptr = (char*)segment + num * sizeof(char*);
+    offset = num = 0;
+
+    // copy default KVS name
+    strcpy(ptr + offset, default_kvs_name);
+    segment[num] = ptr + offset;
+    num++;
+    offset += strlen(default_kvs_name) + 1;
+
+    // copy the others
+    a = avl_first(kv_header->idx_name);
+    while (a) {
+        node = _get_entry(a, struct kvs_node, avl_name);
+        a = avl_next(&node->avl_name);
+
+        strcpy(ptr + offset, node->kvs_name);
+        segment[num] = ptr + offset;
+
+        num++;
+        offset += strlen(node->kvs_name) + 1;
+    }
+
+    spin_unlock(&kv_header->lock);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_seqnum_t FdbEngine::getAvailableRollbackSeq(FdbKvsHandle *handle,
+                                                uint64_t request_seqno) {
+
+    if (!handle) {
+        // FDB_RESULT_INVALID_HANDLE;
+        return (fdb_seqnum_t) 0;
+    }
+
+    if (request_seqno == 0) {
+        // Avoid unnecessary fetching of snapshot markers
+        return (fdb_seqnum_t) 0;
+    }
+
+    fdb_snapshot_info_t *markers;
+    uint64_t marker_count;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    // Fetch all available snapshot markers
+    status = getAllSnapMarkers(handle->fhandle, &markers, &marker_count);
+    if (status != FDB_RESULT_SUCCESS) {
+        // No markers available / Allocation failure perhaps
+        return (fdb_seqnum_t) 0;
+    }
+
+    const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+    fdb_seqnum_t rollback_seqno = 0;
+
+    // Iterate over the retrieved markers to find the closest available
+    // rollback sequence number to the request_seqno for the provided
+    // KV store
+    for (uint64_t i = 0; i < marker_count; ++i) {
+        for (int64_t j = 0; j < markers[i].num_kvs_markers; ++j) {
+            if (kvs_name == NULL) { // Default KVS
+                if (markers[i].kvs_markers[j].kv_store_name == NULL) {
+                    rollback_seqno = markers[i].kvs_markers[j].seqnum;
+                    break;
+                }
+            } else if (strcmp(kvs_name,
+                              markers[i].kvs_markers[j].kv_store_name) == 0) {
+                rollback_seqno = markers[i].kvs_markers[j].seqnum;
+                break;
+            }
+        }
+        if (rollback_seqno <= request_seqno) {
+            break;
+        }
+    }
+
+    freeSnapMarkers(markers, marker_count);
+
+    if (rollback_seqno > request_seqno) {
+        // No header/marker available to rollback to
+        rollback_seqno = 0;
+    }
+
+    return rollback_seqno;
+}
+
+fdb_status FdbEngine::freeKvsNameList(fdb_kvs_name_list *kvs_name_list)
+{
+    if (!kvs_name_list) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    free(kvs_name_list->kvs_names);
+    kvs_name_list->kvs_names = NULL;
+    kvs_name_list->num_kvs_names = 0;
+
+    return FDB_RESULT_SUCCESS;
 }
