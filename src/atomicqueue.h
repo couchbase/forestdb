@@ -24,6 +24,8 @@
 #include <thread>
 #include <mutex>
 
+#include "atomic.h"
+
 /**
  * Create a simple version of the AtomicQueue for windows right now to
  * avoid the threadlocal usage which is currently using pthreads
@@ -32,12 +34,12 @@ template <typename T>
 class AtomicQueue {
 public:
     void push(T &value) {
-        std::lock_guard<std::mutex> lock(mutex);
+        LockHolder lock(mutex);
         queue.push(value);
     }
 
     void getAll(std::queue<T> &outQueue) {
-        std::lock_guard<std::mutex> lock(mutex);
+        LockHolder lock(mutex);
         while (!queue.empty()) {
             outQueue.push(queue.front());
             queue.pop();
@@ -45,12 +47,12 @@ public:
     }
 
     bool empty() {
-        std::lock_guard<std::mutex> lock(mutex);
+        LockHolder lock(mutex);
         return queue.empty();
     }
 
     size_t size() {
-        std::lock_guard<std::mutex> lock(mutex);
+        LockHolder lock(mutex);
         return queue.size();
     }
 

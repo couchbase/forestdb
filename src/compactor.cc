@@ -284,7 +284,7 @@ void CompactorThread::run() {
     // TODO: Need to implement more flexible way of scheduling the compaction
     // daemon (e.g., public APIs to start / stop the compaction daemon).
     {
-        std::unique_lock<std::mutex> lh(manager->syncMutex);
+        UniqueLock lh(manager->syncMutex);
         if (manager->terminateSignal) {
             return;
         }
@@ -420,7 +420,7 @@ void CompactorThread::run() {
         manager->cptLock.unlock();
 
         {
-            std::unique_lock<std::mutex> lh(manager->syncMutex);
+            UniqueLock lh(manager->syncMutex);
             if (manager->terminateSignal) {
                 break;
             }
@@ -469,7 +469,7 @@ bool compactor_is_file_removed(const char *filename) {
 }
 
 bool CompactionManager::isFileRemoved(const std::string &filename) {
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     if (openFiles.find(filename) != openFiles.end()) {
         // exist .. old file is not removed yet
         return false;
@@ -583,7 +583,7 @@ std::string CompactionManager::getNextFileName(const std::string &filename) {
 }
 
 bool CompactionManager::switchCompactionFlag(FileMgr *file, bool flag) {
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     auto iter = openFiles.find(std::string(file->getFileName()));
     if (iter != openFiles.end()) {
         // found
@@ -617,7 +617,7 @@ CompactionManager* CompactionManager::init(const struct compactor_config &config
     CompactionManager* tmp = instance.load();
     if (tmp == nullptr) {
         // Ensure two threads don't both create an instance.
-        std::lock_guard<std::mutex> lock(instanceMutex);
+        LockHolder lock(instanceMutex);
         tmp = instance.load();
         if (tmp == nullptr) {
             tmp = new CompactionManager(config);
@@ -640,7 +640,7 @@ CompactionManager* CompactionManager::getInstance() {
 }
 
 void CompactionManager::destroyInstance() {
-    std::lock_guard<std::mutex> lock(instanceMutex);
+    LockHolder lock(instanceMutex);
     CompactionManager* tmp = instance.load();
     if (tmp != nullptr) {
         delete tmp;
@@ -660,7 +660,7 @@ CompactionManager::~CompactionManager() {
         delete thread;
     }
 
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     // Free all elements in the compaction file list
     for (auto &entry : openFiles) {
         FileCompactionEntry *file_entry = entry.second;
@@ -728,7 +728,7 @@ fdb_status CompactionManager::registerFile(FileMgr *file,
 }
 
 void CompactionManager::deregisterFile(FileMgr *file) {
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;
@@ -804,7 +804,7 @@ fdb_status CompactionManager::registerFileRemoval(FileMgr *file,
 
 void CompactionManager::setCompactionThreshold(FileMgr *file,
                                                size_t new_threshold) {
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;
@@ -816,7 +816,7 @@ fdb_status CompactionManager::setCompactionInterval(FileMgr *file,
                                                     size_t interval) {
     fdb_status result = FDB_RESULT_SUCCESS;
 
-    std::lock_guard<std::mutex> lock(cptLock);
+    LockHolder lock(cptLock);
     auto entry = openFiles.find(std::string(file->getFileName()));
     if (entry != openFiles.end()) {
         FileCompactionEntry *file_entry = entry->second;

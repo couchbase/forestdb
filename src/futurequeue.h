@@ -38,27 +38,27 @@ class FutureQueue {
 public:
 
     void push(ExTask task) {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         queue.push(task);
     }
 
     void pop() {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         queue.pop();
     }
 
     ExTask top() {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         return queue.top();
     }
 
     size_t size() {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         return queue.size();
     }
 
     bool empty() {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         return queue.empty();
     }
 
@@ -68,7 +68,7 @@ public:
      * @returns true if 'task' is in the FutureQueue.
      */
     bool updateWaketime(const ExTask& task, hrtime_t newTime) {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         task->updateWaketime(newTime);
         // After modifiying the task's wakeTime, rebuild the heap
         return queue.heapify(task);
@@ -80,7 +80,7 @@ public:
      * @returns true if 'task' is in the FutureQueue.
      */
     bool snooze(const ExTask& task, const double secs) {
-        std::lock_guard<std::mutex> lock(queueMutex);
+        LockHolder lock(queueMutex);
         task->snooze(secs);
         // After modifiying the task's wakeTime, rebuild the heap
         return queue.heapify(task);

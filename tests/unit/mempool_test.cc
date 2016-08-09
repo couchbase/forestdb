@@ -21,16 +21,17 @@
 
 #include <mutex>
 
-#include "test.h"
+#include "atomic.h"
 #include "memory_pool.h"
 
+#include "test.h"
 #include "stat_aggregator.h"
 
 int samples(0);
 static std::mutex guard;
 
 void collect_stat(StatAggregator *sa, uint64_t diff) {
-    std::lock_guard<std::mutex> lock(guard);
+    LockHolder lh(guard);
     sa->t_stats[0][0].latencies.push_back(diff);
     ++samples;
 }

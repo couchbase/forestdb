@@ -1299,7 +1299,7 @@ BlockCacheManager* BlockCacheManager::init(uint64_t nblock, uint32_t blocksize) 
     BlockCacheManager* tmp = instance.load();
     if (tmp == nullptr) {
         // Ensure two threads don't both create an instance.
-        std::lock_guard<std::mutex> lock(instanceMutex);
+        LockHolder lock(instanceMutex);
         tmp = instance.load();
         if (tmp == nullptr) {
             tmp = new BlockCacheManager(nblock, blocksize);
@@ -1319,7 +1319,7 @@ BlockCacheManager* BlockCacheManager::getInstance() {
 }
 
 void BlockCacheManager::destroyInstance() {
-    std::lock_guard<std::mutex> lock(instanceMutex);
+    LockHolder lock(instanceMutex);
     BlockCacheManager* tmp = instance.load();
     if (tmp != nullptr) {
         delete tmp;
@@ -1365,7 +1365,7 @@ BlockCacheManager::~BlockCacheManager() {
 }
 
 void BlockCacheManager::eraseFileHistory(FileMgr *file) {
-    std::lock_guard<std::mutex> lock(instanceMutex);
+    LockHolder lock(instanceMutex);
     BlockCacheManager* tmp = instance.load();
     if (tmp) {
         tmp->removeDirtyBlocks(file);

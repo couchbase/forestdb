@@ -20,6 +20,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include "atomic.h"
+
 /**
  * Abstraction built on top of std::condition_variable & std::mutex
  */
@@ -31,16 +33,16 @@ public:
     ~SyncObject() {
     }
 
-    void wait(std::unique_lock<std::mutex>& lock) {
+    void wait(UniqueLock& lock) {
         cond.wait(lock);
     }
 
-    void wait_for(std::unique_lock<std::mutex>& lock,
+    void wait_for(UniqueLock& lock,
                   const double secs) {
         cond.wait_for(lock, std::chrono::milliseconds(int64_t(secs * 1000.0)));
     }
 
-    void wait_for(std::unique_lock<std::mutex>& lock,
+    void wait_for(UniqueLock& lock,
                   const uint64_t nanoSecs) {
         cond.wait_for(lock, std::chrono::nanoseconds(nanoSecs));
     }

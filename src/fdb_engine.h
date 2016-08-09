@@ -110,7 +110,7 @@ public:
      * Incr the file open in-progress counter
      */
     static size_t incrOpenInProgCounter() {
-        std::lock_guard<std::mutex> lock(instanceMutex);
+        LockHolder lock(instanceMutex);
         return ++fdbOpenInProg;
     }
 
@@ -118,7 +118,7 @@ public:
      * Decr the file open in-progress counter
      */
     static size_t decrOpenInProgCounter() {
-        std::lock_guard<std::mutex> lock(instanceMutex);
+        LockHolder lock(instanceMutex);
         return --fdbOpenInProg;
     }
 

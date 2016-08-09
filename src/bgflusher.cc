@@ -86,7 +86,7 @@ void * BgFlusher::bgflusherThread()
     while (1) {
         uint64_t num_blocks = 0;
 
-        std::unique_lock<std::mutex> l_lock(bgfLock);
+        UniqueLock l_lock(bgfLock);
         a = avl_first(&openFiles);
         while(a) {
             filemgr_open_result ffs;
@@ -149,7 +149,7 @@ BgFlusher * BgFlusher::createBgFlusher(struct bgflusher_config *config)
 {
     BgFlusher *tmp = bgflusherInstance.load();
     if (tmp == nullptr) {
-        std::lock_guard<std::mutex> l_lock(bgfLock);
+        LockHolder l_lock(bgfLock);
         tmp = bgflusherInstance.load();
         if (tmp == nullptr) {
             tmp = new BgFlusher(config->num_threads);
@@ -193,7 +193,7 @@ BgFlusher *BgFlusher::getBgfInstance() {
 }
 
 void BgFlusher::destroyBgFlusher() {
-    std::lock_guard<std::mutex> l_lock(bgfLock);
+    LockHolder l_lock(bgfLock);
     BgFlusher *tmp  = bgflusherInstance.load();
     if (tmp != nullptr) {
         delete tmp;
@@ -258,7 +258,7 @@ fdb_status BgFlusher::registerFile_BgFlusher(FileMgr *file,
 
     strcpy(query.filename, file->getFileName());
     // first search the existing file
-    std::lock_guard<std::mutex> l_lock(bgfLock);
+    LockHolder l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
     if (a == NULL) {
         // doesn't exist
@@ -291,7 +291,7 @@ void BgFlusher::switchFile_BgFlusher(FileMgr *old_file,
     struct openfiles_elem query, *elem;
 
     strcpy(query.filename, old_file->getFileName());
-    std::lock_guard<std::mutex> l_lock(bgfLock);
+    LockHolder l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
@@ -310,7 +310,7 @@ void BgFlusher::deregisterFile_BgFlusher(FileMgr *file)
     struct openfiles_elem query, *elem;
 
     strcpy(query.filename, file->getFileName());
-    std::lock_guard<std::mutex> l_lock(bgfLock);
+    LockHolder l_lock(bgfLock);
     a = avl_search(&openFiles, &query.avl, _bgflusher_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);

@@ -189,7 +189,7 @@ static void _log_errno_str(fdb_fileops_handle fops_handle,
 FileMgrMap* FileMgrMap::get(void) {
     auto *tmp = instance.load();
     if (tmp == nullptr) {
-        std::lock_guard<std::mutex> lock(initGuard);
+        LockHolder lock(initGuard);
         tmp = instance.load();
         if (tmp == nullptr) {
             // Second check under lock - to ensure that an instance is not
@@ -202,7 +202,7 @@ FileMgrMap* FileMgrMap::get(void) {
 }
 
 void FileMgrMap::shutdown(void) {
-    std::lock_guard<std::mutex> lock(initGuard);
+    LockHolder lock(initGuard);
     auto *tmp = instance.load();
     if (tmp != nullptr) {
         delete tmp;
@@ -382,7 +382,7 @@ void FileMgr::init(FileMgrConfig *config)
     // global initialization
     // initialized only once at first time
     if (!fileMgrInitialized) {
-        std::lock_guard<std::mutex> lock(FileMgr::initMutex);
+        LockHolder lock(FileMgr::initMutex);
         if (!fileMgrInitialized) {
             global_config = *config;
 
@@ -1819,7 +1819,7 @@ fdb_status FileMgr::shutdown()
     fdb_status ret = FDB_RESULT_SUCCESS;
     void *open_file;
     if (fileMgrInitialized) {
-        std::unique_lock<std::mutex> lh(FileMgr::initMutex);
+        UniqueLock lh(FileMgr::initMutex);
 
         if (!fileMgrInitialized) {
             // filemgr is already shut down

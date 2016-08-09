@@ -161,7 +161,7 @@ ExecutorPool *ExecutorPool::get(void) {
 }
 
 void ExecutorPool::shutdown(void) {
-    std::lock_guard<std::mutex> lock(initGuard);
+    LockHolder lh(initGuard);
     auto* tmp = instance.load();
     if (tmp != nullptr) {
         delete tmp;
@@ -548,7 +548,7 @@ bool ExecutorPool::_stopTaskGroup(task_gid_t taskGID,
     bool retVal = false;
     std::map<size_t, TaskQpair>::iterator itr;
 
-    std::unique_lock<std::mutex> lh(tMutex);
+    UniqueLock lh(tMutex);
     do {
         ExTask task;
         unfinishedTask = false;

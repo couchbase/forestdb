@@ -2325,7 +2325,7 @@ fdb_status FdbEngine::init(fdb_config *config) {
 
     if (tmp == nullptr) {
         // Ensure two threads don't both create an instance.
-        std::lock_guard<std::mutex> lock(instanceMutex);
+        LockHolder lock(instanceMutex);
         tmp = instance.load();
         if (tmp == nullptr) {
             fdb_config _config;
@@ -2401,7 +2401,7 @@ FdbEngine::~FdbEngine() {
 }
 
 fdb_status FdbEngine::destroyInstance() {
-    std::lock_guard<std::mutex> lock(instanceMutex);
+    LockHolder lock(instanceMutex);
     FdbEngine* tmp = instance.load();
     if (tmp != nullptr) {
         if (tmp->getOpenInProgCounter()) {
