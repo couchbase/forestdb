@@ -164,6 +164,10 @@ void ExecutorPool::shutdown(void) {
     LockHolder lh(initGuard);
     auto* tmp = instance.load();
     if (tmp != nullptr) {
+        for (auto &taskable : tmp->taskOwners) {
+            tmp->_unregisterTaskable(*reinterpret_cast<Taskable *>(taskable),
+                                     true);
+        }
         delete tmp;
         instance = nullptr;
     }

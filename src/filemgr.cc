@@ -35,6 +35,7 @@
 #include "list.h"
 #include "fdb_internal.h"
 #include "time_utils.h"
+#include "executorpool.h"
 #include "version.h"
 
 #include "memleak.h"
@@ -278,8 +279,9 @@ void FileMgrMap::freeEntries(filemgr_factory_free_cb free_callback) {
 FileMgr::FileMgr()
     : refCount(1), fMgrFlags(0x00), blockSize(global_config.getBlockSize()),
       fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
-      ioInprog(0), fMgrWal(nullptr), fMgrOps(nullptr), fMgrStatus(FILE_NORMAL),
-      fileConfig(nullptr), bCache(nullptr), inPlaceCompaction(false),
+      ioInprog(0), fMgrWal(nullptr), exPoolCtx(this), fMgrOps(nullptr),
+      fMgrStatus(FILE_NORMAL), fileConfig(nullptr), bCache(nullptr),
+      inPlaceCompaction(false),
       fsType(0), kvHeader(nullptr), throttlingDelay(0), fMgrVersion(0),
       fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
       staleData(nullptr), latestDirtyUpdate(nullptr)
@@ -774,6 +776,19 @@ uint64_t FileMgr::getBcacheUsedSpace(void)
     return bcache_free_space;
 }
 
+FdbTaskable::FdbTaskable(FileMgr *file) : fileExPoolCtx(file),
+    // Workload Policy allows ExecutorPool to have tasks grouped by priority
+    // The first parameter marks the file as low (default) or high priority
+    // Currently this feature is unused by forestdb as all files are equal.
+    workLoadPolicy(FDB_EXPOOL_NUM_WRITERS, // Marks DB file priority as LOW
+                   FDB_EXPOOL_NUM_QUEUES), // Shard count (unused feature)
+    taskableName(file->getFileName()) {
+}
+
+task_gid_t FdbTaskable::getGID() const {
+    return task_gid_t(fileExPoolCtx->getFopsHandle());
+}
+
 struct filemgr_prefetch_args {
     FileMgr *file;
     uint64_t duration;
@@ -1178,6 +1193,8 @@ filemgr_open_result FileMgr::open(std::string filename,
     if (config->getPrefetchDuration() > 0) {
         file->prefetch(log_callback);
     }
+
+    ExecutorPool::get()->registerTaskable(file->exPoolCtx);
 
     spin_unlock(&fileMgrOpenlock);
 
@@ -1724,6 +1741,8 @@ void FileMgr::freeFunc(FileMgr *file)
         return;
     }
 
+    ExecutorPool::get()->unregisterTaskable(file->exPoolCtx, false);
+
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
     if (file->prefetchStatus.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
         // prefetch thread is now running
@@ -1830,6 +1849,7 @@ fdb_status FileMgr::shutdown()
         open_file = FileMgrMap::get()->scan(_filemgr_is_closed, nullptr);
         spin_unlock(&fileMgrOpenlock);
         if (!open_file) {
+            ExecutorPool::shutdown();
             FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
             FileMgrMap::shutdown();
             if (global_config.getNcacheBlock() > 0) {

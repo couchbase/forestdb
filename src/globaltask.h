@@ -27,6 +27,10 @@ enum task_state_t {
     TASK_DEAD
 };
 
+enum class TaskId : int {
+    NOTASK=0 // TODO: implement mapping from taskId to strigified name
+};
+
 class Taskable;
 
 class GlobalTask : public RCValue {

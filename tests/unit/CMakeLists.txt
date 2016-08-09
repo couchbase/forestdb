@@ -49,13 +49,18 @@ SET(FILEMGR_DEPS_SRC
     ${ROOT_SRC}/encryption.cc
     ${ROOT_SRC}/encryption_aes.cc
     ${ROOT_SRC}/encryption_bogus.cc
+    ${ROOT_SRC}/executorpool.cc
+    ${ROOT_SRC}/executorthread.cc
     ${ROOT_SRC}/filemgr.cc
     ${ROOT_SRC}/filemgr_ops.cc
     ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
     ${GETTIMEOFDAY_VS}
+    ${ROOT_SRC}/globaltask.cc
     ${ROOT_SRC}/hash.cc
     ${ROOT_SRC}/hash_functions.cc
     ${ROOT_SRC}/list.cc
+    ${ROOT_SRC}/task_priority.cc
+    ${ROOT_SRC}/taskqueue.cc
     ${ROOT_SRC}/wal.cc
     ${ROOT_SRC}/version.cc
     ${ROOT_UTILS}/crc32.cc
