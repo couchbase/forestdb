@@ -27,6 +27,7 @@
 #include <mach/mach_time.h>
 #endif
 
+#ifndef _PLATFORM_LIB_AVAILABLE
 extern "C" hrtime_t gethrtime(void)
 {
     auto now = std::chrono::high_resolution_clock::now();
@@ -38,6 +39,8 @@ extern "C" hrtime_t gethrtime_period(void)
     std::chrono::nanoseconds ns = std::chrono::high_resolution_clock::duration(1);
     return ns.count();
 }
+#endif // _PLATFORM_LIB_AVAILABLE
+
 #if defined(WIN32) || defined(_WIN32)
 
 #ifndef _PLATFORM_LIB_AVAILABLE
