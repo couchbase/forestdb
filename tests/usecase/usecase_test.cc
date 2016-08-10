@@ -386,7 +386,7 @@ public:
      */
     void displayCollection(const char* title) {
         if (sa) {
-            sa->aggregateAndPrintStats(title, samples, "ms");
+            sa->aggregateAndPrintStats(title, samples, "µs");
         }
     }
 
@@ -439,7 +439,7 @@ public:
             }
             (void)status;
 
-            s->aggregateAndPrintStats("FDB_STATS", pool_vector.size(), "ms");
+            s->aggregateAndPrintStats("FDB_STATS", pool_vector.size(), "µs");
             delete s;
             reader_unlock(&pool_vector_lock);
         } else {

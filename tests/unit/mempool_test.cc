@@ -88,7 +88,7 @@ void basic_test(int iterations, int num_bins, size_t bin_size)
 
     gettimeofday(&ts_cur, NULL);
 
-    sa->aggregateAndPrintStats("BASIC_TEST", samples, "µs");
+    sa->aggregateAndPrintStats("BASIC_TEST", samples, "ns");
     delete sa;
 
     ts_gap = _utime_gap(ts_begin, ts_cur);
@@ -134,7 +134,7 @@ void multi_thread_test(int num_threads, int iterations, int num_bins,
 
     gettimeofday(&ts_cur, NULL);
 
-    sa->aggregateAndPrintStats("MULTI_THREAD_TEST", samples, "µs");
+    sa->aggregateAndPrintStats("MULTI_THREAD_TEST", samples, "ns");
     delete sa;
 
     ts_gap = _utime_gap(ts_begin, ts_cur);

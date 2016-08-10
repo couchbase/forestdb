@@ -71,7 +71,7 @@ void print_db_stats(fdb_file_handle **dbfiles, int nfiles) {
     }
     (void)status;
 
-    sa->aggregateAndPrintStats("FDB_STATS", nfiles, "ms");
+    sa->aggregateAndPrintStats("FDB_STATS", nfiles, "µs");
     delete sa;
 }
 
@@ -368,7 +368,7 @@ void do_bench() {
     }
 
     // print aggregated reader stats
-    sa->aggregateAndPrintStats("ITERATOR_TEST_STATS", n_kvs * n_kvs, "µs");
+    sa->aggregateAndPrintStats("ITERATOR_TEST_STATS", n_kvs * n_kvs, "ns");
     delete sa;
 
     // print aggregated dbfile stats

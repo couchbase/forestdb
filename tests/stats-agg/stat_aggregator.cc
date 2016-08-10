@@ -121,20 +121,20 @@ void StatAggregator::printValues(samples_t values, std::string unit) {
     for (const auto& stats : value_stats) {
         if (unit == "ns") {
             printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
-                    stats.name.c_str(), stats.median * 1e3, stats.pct95 * 1e3,
-                    stats.pct99 * 1e3, stats.stddev * 1e3);
-        } else if (unit == "µs") {
-            printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
                     stats.name.c_str(), stats.median, stats.pct95,
                     stats.pct99, stats.stddev);
-        } else if (unit == "ms") {
+        } else if (unit == "µs") {
             printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
                     stats.name.c_str(), stats.median/1e3, stats.pct95/1e3,
                     stats.pct99/1e3, stats.stddev/1e3);
-        } else {    // unit == "s"
+        } else if (unit == "ms") {
             printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
                     stats.name.c_str(), stats.median/1e6, stats.pct95/1e6,
                     stats.pct99/1e6, stats.stddev/1e6);
+        } else {    // unit == "s"
+            printf("%-16s %8.03f %8.03f %8.03f %8.03f  ",
+                    stats.name.c_str(), stats.median/1e9, stats.pct95/1e9,
+                    stats.pct99/1e9, stats.stddev/1e9);
         }
 
         // Calculate and render Sparkline (requires UTF-8 terminal).
@@ -163,15 +163,18 @@ void StatAggregator::printValues(samples_t values, std::string unit) {
         }
         putchar('\n');
     }
-    if (unit == "µs") {
+    if (unit == "ns") {
         printf("%52s  %-14d %s %14d\n", "",
                int(spark_start), unit.c_str(), int(spark_end));
-    } else if (unit == "ms") {
+    } else if (unit == "µs") {
         printf("%52s  %-14d %s %14d\n", "",
                int(spark_start/1e3), unit.c_str(), int(spark_end/1e3));
-    } else {    // unit == "s"
+    } else if (unit == "ms") {
         printf("%52s  %-14d %s %14d\n", "",
                int(spark_start/1e6), unit.c_str(), int(spark_end/1e6));
+    } else {    // unit == "s"
+        printf("%52s  %-14d %s %14d\n", "",
+               int(spark_start/1e9), unit.c_str(), int(spark_end/1e9));
     }
 }
 
