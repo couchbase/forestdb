@@ -23,6 +23,23 @@ target_link_libraries(mempool_test ${PTHREAD_LIB} ${LIBM}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(mempool_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
+add_executable(execpool_test
+               execpool_test.cc
+               ${ROOT_SRC}/executorpool.cc
+               ${ROOT_SRC}/executorthread.cc
+               ${ROOT_SRC}/globaltask.cc
+               ${ROOT_SRC}/task_priority.cc
+               ${ROOT_SRC}/taskqueue.cc
+               ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
+               ${GETTIMEOFDAY_VS}
+               ${ROOT_UTILS}/time_utils.cc
+               $<TARGET_OBJECTS:TEST_STAT_AGG>)
+target_link_libraries(execpool_test ${PTHREAD_LIB} ${LIBM}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(execpool_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 SET(FILEMGR_DEPS_SRC
     ${ROOT_SRC}/avltree.cc
     ${ROOT_SRC}/bgflusher.cc
@@ -120,6 +137,7 @@ target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
 # add test target
 add_test(hash_test hash_test)
 add_test(mempool_test mempool_test)
+add_test(execpool_test execpool_test)
 add_test(bcache_test bcache_test)
 add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
