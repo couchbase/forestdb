@@ -2183,8 +2183,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     }
 
     if (filename_mode == FDB_VFILENAME &&
-        !CompactionManager::getInstance()->isValidCompactionMode(filename_str,
-                                                                 *config)) {
+        !CompactionManager::isValidCompactionMode(filename_str, *config)) {
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
@@ -2192,9 +2191,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
 
     if (filename_mode == FDB_VFILENAME) {
         actual_filename =
-            CompactionManager::getInstance()->getActualFileName(filename_str,
-                                                                config->compaction_mode,
-                                                                &handle->log_callback);
+            CompactionManager::getActualFileName(filename_str,
+                                                 config->compaction_mode,
+                                                 &handle->log_callback);
     } else {
         actual_filename = filename_str;
     }
@@ -2209,8 +2208,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     } else {
         // otherwise (auto compaction mode + 'filename' is actual filename)
         // -> copy 'virtual_filename'
-        virtual_filename =
-            CompactionManager::getInstance()->getVirtualFileName(filename_str);
+        virtual_filename = CompactionManager::getVirtualFileName(filename_str);
         target_filename = virtual_filename;
     }
 
@@ -2244,7 +2242,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         // This file was in-place compacted.
         // set 'handle->filename' to the original filename to trigger file renaming
         virtual_filename =
-            CompactionManager::getInstance()->getVirtualFileName(filename_str);
+            CompactionManager::getVirtualFileName(filename_str);
         target_filename = virtual_filename;
     }
 
@@ -2819,9 +2817,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
         if (config->compaction_mode == FDB_COMPACTION_AUTO) {
-            status = CompactionManager::getInstance()->registerFile(handle->file,
-                                                                    (fdb_config *)config,
-                                                                    &handle->log_callback);
+           status = CompactionManager::getInstance()->registerFile(handle->file,
+                                                        (fdb_config *)config,
+                                                        &handle->log_callback);
         }
         if (status == FDB_RESULT_SUCCESS) {
             BgFlusher *bgf = BgFlusher::getBgfInstance();
@@ -4368,30 +4366,16 @@ fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
         // manual compaction
         if (!new_filename) { // In-place compaction.
             in_place_compaction = true;
-            nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
+            nextfile = CompactionManager::getNextFileName(filename_str);
             new_filename = nextfile.c_str();
         }
         fs = Compaction::compactFile(fhandle, new_filename, in_place_compaction,
                                      (bid_t)marker, clone_docs, new_encryption_key);
     } else { // auto compaction mode.
-        bool ret;
-        // set compaction flag
-        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
-                                                                     true);
-        if (!ret) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
-            // the file is already being compacted by other thread
-            return FDB_RESULT_FILE_IS_BUSY;
-        }
         // get next filename
-        nextfile = CompactionManager::getInstance()->getNextFileName(filename_str);
+        nextfile = CompactionManager::getNextFileName(filename_str);
         fs = Compaction::compactFile(fhandle, nextfile.c_str(), in_place_compaction,
                                      (bid_t)marker, clone_docs, new_encryption_key);
-        // clear compaction flag
-        ret = CompactionManager::getInstance()->switchCompactionFlag(handle->file,
-                                                                     false);
-        (void)ret;
     }
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
@@ -4433,8 +4417,8 @@ fdb_status FdbEngine::setDaemonCompactionInterval(FdbFileHandle *fhandle,
     FdbKvsHandle *handle = fhandle->getRootHandle();
 
     if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        return CompactionManager::getInstance()->setCompactionInterval(handle->file,
-                                                                       interval);
+        return CompactionManager::getInstance()->setCompactionInterval(
+                                                handle->file, interval);
     } else {
         return FDB_RESULT_INVALID_CONFIG;
     }
@@ -4938,10 +4922,9 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
             // 3. rename [filename].[n] as [filename]
 
             // set compaction flag to avoid auto compaction.
-            // we will not clear this flag again becuase this file will be
-            // deregistered by calling closeKVHandle().
-            if (CompactionManager::getInstance()->switchCompactionFlag(handle->file, true)
-                == false) {
+            // Last file close will also kill the compaction task.
+            if (CompactionManager::getInstance()->switchCompactionFlag(
+                                            handle->file, true) == false) {
                 return FDB_RESULT_FILE_IS_BUSY;
             }
 
@@ -4967,8 +4950,8 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
             // 1. rename [filename] as [filename].rev_num
             std::string filename_str(handle->file->getFileName());
             strcpy(vfilename, filename_str.c_str());
-            std::string nextfile = CompactionManager::getInstance()->
-                getNextFileName(filename_str);
+            std::string nextfile = CompactionManager::getNextFileName(filename_str);
+            // Last close of file will kill the compaction task.
             fs = closeKVHandle(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
@@ -4989,8 +4972,8 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
     } else {
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
             // change compaction threshold of the existing file
-            CompactionManager::getInstance()->setCompactionThreshold(handle->file,
-                                                                     new_threshold);
+            CompactionManager::getInstance()->setCompactionThreshold(
+                                                handle->file, new_threshold);
         }
     }
     return FDB_RESULT_SUCCESS;
@@ -5140,7 +5123,7 @@ fdb_status FdbEngine::destroyFile(const char *fname,
         config = get_default_config();
     }
 
-    if (!CompactionManager::getInstance()->isValidCompactionMode(filename,config)) {
+    if (!CompactionManager::isValidCompactionMode(filename, config)) {
         status = FDB_RESULT_INVALID_COMPACTION_MODE;
         return status;
     }

@@ -47,7 +47,6 @@
 #include "encryption.h"
 #include "superblock.h"
 #include "staleblock.h"
-#include "taskable.h"
 
 #ifdef _PLATFORM_LIB_AVAILABLE
 #include <platform/histogram.h>
@@ -400,6 +399,7 @@ enum {
 class Wal;
 class KvsHeader;
 class FileBlockCache;
+class CompactionTask;
 
 typedef struct {
     mutex_t mutex;
@@ -489,57 +489,6 @@ private:
     FileMgr *file;
 };
 
-/**
- * A Context for managing I/O Tasks queued into the global shared thread pool
- */
-class FdbTaskable : public Taskable {
-public:
-    FdbTaskable(FileMgr *file);
-
-    /**
-     * Simply returns the current filename of the forestdb file
-     */
-    const std::string& getName() const { return taskableName; }
-
-    /**
-     * Returns the opaque value of fopsHandle to uniquely identify a file
-     */
-    task_gid_t getGID() const;
-
-    /**
-     * Default set to LOW_BUCKET_PRIORITY
-     */
-    bucket_priority_t getWorkloadPriority() const {
-        return LOW_BUCKET_PRIORITY;
-    }
-
-    /**
-     * Default set to LOW_BUCKET_PRIORITY
-     */
-    void setWorkloadPriority(bucket_priority_t prio) { }
-
-    /**
-     * Default set to WRITE_HEAVY
-     */
-    WorkLoadPolicy& getWorkLoadPolicy(void) {
-        return workLoadPolicy;
-    }
-
-    /**
-     * TODO: Implement latency stats/histogram for Task scheduling wait times
-     */
-    void logQTime(type_id_t id, hrtime_t enqTime) { }
-
-    /**
-     * TODO: Implement latency stats/histogram for Task run times
-     */
-    void logRunTime(type_id_t id, hrtime_t runTime) { }
-private:
-   FileMgr *fileExPoolCtx;
-   WorkLoadPolicy workLoadPolicy;
-   const std::string taskableName;
-};
-
 class FileMgr {
 public:
     FileMgr();
@@ -624,10 +573,6 @@ public:
 
     Wal* getWal() {
         return fMgrWal;
-    }
-
-    FdbTaskable *getTaskable() {
-        return &exPoolCtx;
     }
 
     uint64_t updateHeader(void *buf, size_t len, bool inc_revnum);
@@ -1304,7 +1249,6 @@ private:
     std::atomic<uint64_t> lastWritableBmpRevnum;
     std::atomic<uint8_t> ioInprog;
     Wal *fMgrWal;
-    FdbTaskable exPoolCtx; // executor pool context
     FileMgrHeader fMgrHeader;
     struct filemgr_ops *fMgrOps;
     std::atomic<uint8_t> fMgrStatus;

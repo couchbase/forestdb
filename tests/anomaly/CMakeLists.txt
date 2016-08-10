@@ -24,6 +24,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/filemgr.cc
     ${PROJECT_SOURCE_DIR}/src/file_handle.cc
     ${PROJECT_SOURCE_DIR}/src/forestdb.cc
+    ${PROJECT_SOURCE_DIR}/src/globaltask.cc
     ${PROJECT_SOURCE_DIR}/src/hash.cc
     ${PROJECT_SOURCE_DIR}/src/hash_functions.cc
     ${PROJECT_SOURCE_DIR}/src/hbtrie.cc
@@ -34,6 +35,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/memory_pool.cc
     ${PROJECT_SOURCE_DIR}/src/staleblock.cc
     ${PROJECT_SOURCE_DIR}/src/superblock.cc
+    ${PROJECT_SOURCE_DIR}/src/task_priority.cc
     ${PROJECT_SOURCE_DIR}/src/taskqueue.cc
     ${PROJECT_SOURCE_DIR}/src/transaction.cc
     ${PROJECT_SOURCE_DIR}/src/version.cc

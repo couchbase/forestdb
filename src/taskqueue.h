@@ -17,6 +17,7 @@
 #ifndef SRC_TASKQUEUE_H_
 #define SRC_TASKQUEUE_H_ 1
 
+#include <string>
 #include "common.h"
 
 #include <queue>
@@ -26,7 +27,7 @@
 #include "ringbuffer.h"
 #include "task_type.h"
 #include "sync_object.h"
-#include "tasks.h"
+#include "globaltask.h"
 
 class ExecutorPool;
 class ExecutorThread;

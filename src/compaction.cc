@@ -2580,8 +2580,19 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
         new_file->getWal()->releaseFlushedItems_Wal(&flush_items);
     }
 
-    CompactionManager::getInstance()->switchFile(old_file, new_file,
-                                                 &handle->log_callback);
+    if (handle->config.compaction_mode != FDB_COMPACTION_MANUAL) {
+        CompactionManager::getInstance()->removeCompactionTask(
+                                                 handle->file->getFileName());
+        status = CompactionManager::getInstance()->registerFile(new_file,
+                                                    &handle->config,
+                                                    &handle->log_callback);
+        if (status != FDB_RESULT_SUCCESS) {
+            old_file->mutexUnlock();
+            new_file->mutexUnlock();
+            return status;
+        }
+    }
+
     do { // Find all files pointing to old_file and redirect them to new file..
         very_old_file = old_file->searchStaleLinks();
         if (very_old_file) {

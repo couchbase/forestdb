@@ -25,6 +25,8 @@
 #include <mutex>
 #include <string>
 
+#include "globaltask.h"
+#include "taskable.h"
 #include "internal_types.h"
 #include "sync_object.h"
 
@@ -36,6 +38,106 @@ struct compactor_config {
 class FileCompactionEntry;
 class CompactorThread;
 struct compactor_meta;
+class CompactionManager;
+
+class CompactionMgrTaskable : public Taskable {
+public:
+    CompactionMgrTaskable(CompactionManager *cm) : compMgrCtx(cm),
+        taskableName("CompactionManager"),
+        // Workload Policy allows ExecutorPool to have tasks grouped by priority
+        // The first parameter marks the file as low (default) or high priority
+        // Currently this feature is unused by forestdb as all files are equal.
+        workLoadPolicy(FDB_EXPOOL_NUM_WRITERS, // Marks DB file priority as LOW
+                       FDB_EXPOOL_NUM_QUEUES) {} // Shard count (unused feature)
+
+    /**
+     * Return the parent FileMgr pointer
+     */
+    CompactionManager *getCompactionMgr(void) { return compMgrCtx; }
+
+    /**
+     * Simply returns the current filename of the forestdb file
+     */
+    const std::string& getName() const { return taskableName; }
+
+    /**
+     * Returns the address of CompactionManager (just some unique value)
+     */
+    task_gid_t getGID() const {
+        return task_gid_t(compMgrCtx);
+    }
+
+    /**
+     * Default set to LOW_BUCKET_PRIORITY
+     */
+    bucket_priority_t getWorkloadPriority() const {
+        return LOW_BUCKET_PRIORITY;
+    }
+
+    /**
+     * Unused but implementation of a pure virtual function.
+     */
+    void setWorkloadPriority(bucket_priority_t prio) { }
+
+    /**
+     * Default set to WRITE_HEAVY
+     */
+    WorkLoadPolicy& getWorkLoadPolicy(void) {
+        return workLoadPolicy;
+    }
+
+    /**
+     * TODO: Implement latency stats/histogram for Task scheduling wait times
+     */
+    void logQTime(type_id_t id, hrtime_t enqTime) { }
+
+    /**
+     * TODO: Implement latency stats/histogram for Task run times
+     */
+    void logRunTime(type_id_t id, hrtime_t runTime) { }
+
+private:
+   CompactionManager *compMgrCtx;
+   const std::string taskableName;
+   WorkLoadPolicy workLoadPolicy;
+};
+
+class CompactionTask : public GlobalTask {
+public:
+    CompactionTask(CompactionMgrTaskable &e, CompactionManager *c,
+                   FileMgr *f, fdb_config &config);
+    bool run();
+    std::string getDescription() {
+        return desc;
+    }
+    uint32_t incrOpenHandles() {
+        return ++openHandles;
+    }
+    uint32_t decrOpenHandles() {
+        return --openHandles;
+    }
+    bool getCompactionFlag() {
+        return compactionFlag;
+    }
+    void setCompactionFlag(bool newFlag) {
+        compactionFlag = newFlag;
+    }
+    void setCompactionInterval(size_t newInterval);
+    void setCompactionThreshold (size_t threshold) {
+        fdbConfig.compaction_threshold = threshold;
+    }
+private:
+    uint64_t estimateActiveSpace();
+    bool isCompactionThresholdSatisfied();
+
+    CompactionManager *compMgr;
+    FileMgr *fileToCompact;
+    fdb_config fdbConfig;
+    double sleepTime;
+    bool compactionFlag; // set when the file is being compacted
+    std::string desc;
+    uint32_t openHandles;
+};
 
 // Compaction file map with a file name as a key.
 typedef std::map<std::string, FileCompactionEntry *> compaction_file_map;
@@ -63,23 +165,6 @@ public:
     static CompactionManager* getInstance();
 
     /**
-     * Release all the resources including threads and memory allocated and
-     * destroy the compaction manager.
-     */
-    static void destroyInstance();
-
-    /**
-     * Set the flag that indicates if a compaction task is currently running
-     * for a given file.
-     *
-     * @param file Pointer to a file manager instance
-     * @param flag Flag value to be set
-     * @return True if the flag is set successfully
-     */
-    bool switchCompactionFlag(FileMgr *file,
-                              bool flag);
-
-    /**
      * Register a given file in the compaction file list for auto compaction.
      *
      * @param file Pointer to a file manager instance
@@ -90,6 +175,12 @@ public:
     fdb_status registerFile(FileMgr *file,
                             fdb_config *config,
                             ErrLogCallback *log_callback);
+
+    /**
+     * Release all the resources including threads and memory allocated and
+     * destroy the compaction manager.
+     */
+    static void destroyInstance();
 
     /**
      * Register a given file for the removal from the file system.
@@ -117,62 +208,32 @@ public:
     void deregisterFile(FileMgr *file);
 
     /**
+     * Helps a compactionTask remove it's parent Taskable entry from map
+     * @param Name of file to look up filesToCompact map
+     * @returns true if entry was present, false if task was deregistered
+     */
+    bool removeCompactionTask(const std::string file_name);
+
+    /**
+     * Set the flag that indicates if a compaction task is currently running
+     * for a given file.
+     *
+     * @param file Pointer to a file manager instance
+     * @param flag Flag value to be set
+     * @return True if the flag is set successfully
+     */
+    bool switchCompactionFlag(FileMgr *file,
+                              bool flag);
+
+    /**
      * Set a compaction fragmentation threshold for a given file
      *
      * @param file Pointer to a file manager instance
      * @param new_threshold Fragmentation threshold to be set
+     * @returns FDB_RESULT_INVALID_ARGS if not auto compaction task present
      */
-    void setCompactionThreshold(FileMgr *file,
+    fdb_status setCompactionThreshold(FileMgr *file,
                                 size_t new_threshold);
-
-    /**
-     * Replace a given old file with a new file in the compaction file list.
-     *
-     * @param old_file Pointer to a old file manager instance
-     * @param new_file Pointer to a new file manager instance
-     * @param log_callback Pointer to a log callback given by the client
-     */
-    void switchFile(FileMgr *old_file,
-                    FileMgr *new_file,
-                    ErrLogCallback *log_callback);
-
-    /**
-     * Return the virtual name of a given file.
-     *
-     * @param filename File name
-     * @return Virtual name of a given file
-     */
-    std::string getVirtualFileName(const std::string &filename);
-
-    /**
-     * Return the actual name of a given file.
-     *
-     * @param filename File name
-     * @param comp_mode Compaction mode (i.e., auto or manual)
-     * @param log_callback Pointer to a log callback given by the client
-     * @return Actual name of a given file
-     */
-    std::string getActualFileName(const std::string &filename,
-                                  fdb_compaction_mode_t comp_mode,
-                                  ErrLogCallback *log_callback);
-
-    /**
-     * Return the next target name for a given file for compaction.
-     *
-     * @param filename File name
-     * @return Next target name for a given file for compaction
-     */
-    std::string getNextFileName(const std::string &filename);
-
-    /**
-     * Check if a given file is configured with a valid compaction mode.
-     *
-     * @param filename File name
-     * @param config Pointer to a forestdb config instance
-     * @return True if a give file's compaction mode is valid
-     */
-    bool isValidCompactionMode(const std::string &filename,
-                               const fdb_config &config);
 
     /**
      * Set the daemon compaction interval for a given file.
@@ -183,6 +244,48 @@ public:
      */
     fdb_status setCompactionInterval(FileMgr *file,
                                      size_t interval);
+
+    /**
+     * Return the virtual name of a given file.
+     *
+     * @param filename File name
+     * @return Virtual name of a given file
+     */
+    static std::string getVirtualFileName(const std::string &filename);
+
+    /**
+     * Return the actual name of a given file.
+     *
+     * @param filename File name
+     * @param comp_mode Compaction mode (i.e., auto or manual)
+     * @param log_callback Pointer to a log callback given by the client
+     * @return Actual name of a given file
+     */
+    static std::string getActualFileName(const std::string &filename,
+                                         fdb_compaction_mode_t comp_mode,
+                                         ErrLogCallback *log_callback);
+
+    /**
+     * Return the next target name for a given file for compaction.
+     *
+     * @param filename File name
+     * @return Next target name for a given file for compaction
+     */
+    static std::string getNextFileName(const std::string &filename);
+
+    /**
+     * Check if a given file is configured with a valid compaction mode.
+     *
+     * @param filename File name
+     * @param config Pointer to a forestdb config instance
+     * @return True if a give file's compaction mode is valid
+     */
+    static bool isValidCompactionMode(const std::string &filename,
+                                      const fdb_config &config);
+
+    // Create the meta file for a given forestdb file.
+    static fdb_status storeMetaFile(const std::string &filename,
+                                    ErrLogCallback*log_callback);
 
     /**
      * Search the list of files that have a given file name as a prefix, and remove them
@@ -210,10 +313,6 @@ private:
     // Spawn compactor threads
     void spawnCompactorThreads();
 
-    // Create the meta file for a given forestdb file.
-    fdb_status storeMetaFile(const std::string &filename,
-                             ErrLogCallback*log_callback);
-
     /**
      * Check if a given file is waiting for being removed
      *
@@ -230,9 +329,9 @@ private:
      * @param log_callback Pointer to the log callback given by an application
      * @return Pointer to the metadata buffer
      */
-    struct compactor_meta* readMetaFile(const char *metafile,
-                                        struct compactor_meta *metadata,
-                                        ErrLogCallback *log_callback);
+    static struct compactor_meta* readMetaFile(const char *metafile,
+                                               struct compactor_meta *metadata,
+                                               ErrLogCallback *log_callback);
 
     // Singleton compaction manager and mutex guarding it's creation.
     static std::atomic<CompactionManager *> instance;
@@ -251,6 +350,13 @@ private:
     size_t sleepDuration;
     // Flag indicating if a compaction termination signal is received
     std::atomic<uint8_t> terminateSignal;
+
+    // Compaction Taskable context
+    CompactionMgrTaskable compactionTaskable;
+
+    // Map of files registered for compaction
+    std::map<std::string, ExTask> pendingCompactions;
+
     // List of files registered for compaction
     compaction_file_map openFiles;
 

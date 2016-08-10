@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-#include "tasks.h"
+#include "globaltask.h"
 #include "task_type.h"
 
 #define LOG(...)

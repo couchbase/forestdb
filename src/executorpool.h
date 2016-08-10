@@ -21,7 +21,7 @@
 #include <set>
 #include "common.h"
 
-#include "tasks.h"
+#include "globaltask.h"
 #include "task_type.h"
 #include "taskable.h"
 #include "sync_object.h"
