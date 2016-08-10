@@ -21,6 +21,7 @@
 #include <fcntl.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "fdb_internal.h"
 #include "hbtrie.h"
 #include "docio.h"
@@ -317,7 +318,7 @@ FdbIterator::~FdbIterator()
     if (!snapshotHandle) {
         // Close the opened handle in the iterator,
         // if the handle is not for snapshot.
-        fdb_status fs = fdb_kvs_close(iterHandle);
+        fdb_status fs = FdbEngine::getInstance()->closeKvs(iterHandle);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(&iterHandle->log_callback, fs,
                     "Failed to close the KV Store from a database file '%s' as "

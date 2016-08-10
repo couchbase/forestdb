@@ -710,7 +710,113 @@ public:
      */
     fdb_status abortTransaction(FdbFileHandle *fhandle);
 
+    /**
+     * Open the KV store with a given instance name.
+     * The KV store should be closed with closeKvs API call.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param ptr_handle Pointer to the place where the KV store handle is
+     *        instantiated as a result of this API call.
+     * @param kvs_name The name of KV store to be opened. If the name is not given
+     *        (i.e., NULL is passed), the KV store instance named "default" will be
+     *        returned.
+     * @param config Pointer to the config instance that contains KV store configs.
+     *        If NULL is passed, then we use default settings of KV store configs.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status openKvs(FdbFileHandle *fhandle,
+                       FdbKvsHandle **ptr_handle,
+                       const char *kvs_name,
+                       fdb_kvs_config *config);
+
+    /**
+     * Open the default KV store.
+     * The KV store should be closed with closeKvs API call.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param ptr_handle Pointer to the place where the KV store handle is
+     *        instantiated as a result of this API call.
+     * @param config Pointer to the config instance that contains KV store configs.
+     *        If NULL is passed, then we use default settings of KV store configs.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status openDefaultKvs(FdbFileHandle *fhandle,
+                              FdbKvsHandle **ptr_handle,
+                              fdb_kvs_config *config);
+
+    /**
+     * Close the KV store.
+     *
+     * @param handle Pointer to KV store handle.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status closeKvs(fdb_kvs_handle *handle);
+
+    /**
+     * Permanently drop a given KV store instance from a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param kvs_name The name of KV store instance to be removed. If the name is
+     *        not given (i.e., NULL is passed), the KV store instance named "default"
+     *        will be dropped.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status removeKvs(fdb_file_handle *fhandle,
+                         const char *kvs_name);
+
+    /**
+     * Change the config parameters for reusing stale blocks
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param block_reusing_threshold Circular block reusing threshold in the unit of
+     *        percentage(%), which can be represented as
+     *        '(stale data size)/(total file size)
+     *        When stale data size grows beyond this threshold, circular block reusing is
+     *        triggered so that stale blocks are reused for further block allocations.
+     *        Block reusing is disabled if this threshold is set to zero or 100.
+     * @param num_keeping_headers Number of the last commit headers whose stale blocks
+     *        should be kept for snapshot readers
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status setBlockReusingParams(FdbFileHandle *fhandle,
+                                     size_t block_reusing_threshold,
+                                     size_t num_keeping_headers);
+    /**
+     * Retrieve ForestDB error code as a string
+     *
+     * @param  err_code Error code
+     * @return A text string that describes an error code. Note that the string
+     *         returned is a constant. The application must not try to modify
+     *         it or try to free the pointer to this string.
+     */
+    static const char* getErrorMsg(fdb_status err_code);
+
+    /**
+     * Return the string representation of ForestDB library version that is based on
+     * git-describe output.
+     *
+     * @return A text string that represents ForestDB library version
+     */
+    static const char* getLibVersion();
+
+    /**
+     * Return the version of a given ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle whose file version is returned.
+     * @return Version of a given ForestDB file.
+     */
+    const char* getFileVersion(fdb_file_handle *fhandle);
+
+    /**
+     * Return the default file operations used by ForestDB.
+     *
+     * @return pointer to the struct having all the default file operations
+     */
+    static fdb_filemgr_ops_t* getDefaultFileOps();
+
 private:
+
+    friend class Compaction;
 
     /**
      * Constructor
@@ -729,6 +835,83 @@ private:
      * @return FDB_RESULT_SUCCESS on success.
      */
     fdb_status closeRootHandle(FdbKvsHandle *handle);
+
+    /**
+     * Open the KV store with a given file and KV store name.
+     *
+     * @param root_handle Pointer to the root KV store handle
+     * @param config  ForestDB config
+     * @param kvs_config KV store config
+     * @param file Pointer to the file manager instance
+     * @param filename ForestDB file's name
+     * @param kvs_name The name of KV store to be opened. If the name is not given
+     *        (i.e., NULL is passed), the KV store instance named "default" will be
+     *        returned.
+     * @param handle Pointer to the KV store handle that is initialized by this function
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status openKvs(FdbKvsHandle *root_handle,
+                       fdb_config *config,
+                       fdb_kvs_config *kvs_config,
+                       FileMgr *file,
+                       const char *filename,
+                       const char *kvs_name,
+                       FdbKvsHandle *handle);
+
+    /**
+     * Rollback a KV store to a given sequence number
+     *
+     * @param handle_ptr Pointer to the KV store
+     * @param seqnum Sequence number of the rollback
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status rollbackKvs(FdbKvsHandle **handle_ptr,
+                           fdb_seqnum_t seqnum);
+
+    /**
+     * Create a KV store with a given name
+     *
+     * @param root_handle Pointer to the root KV store handle
+     * @param kvs_name KV store's name
+     * @param kvs_config KV store's config
+     * @return FDB_RESULT_SUCCESS on success
+     */
+    fdb_status createKvs(FdbKvsHandle *root_handle,
+                         const char *kvs_name,
+                         fdb_kvs_config *kvs_config);
+
+    /**
+     * Close the KV store
+     *
+     * @param handle Pointer to the KV store handle
+     * @return FDB_RESULT_SUCCESS on success
+     */
+    fdb_status closeKvsInternal(FdbKvsHandle *handle);
+
+    /**
+     * Permanently drop a given KV store instance from a ForestDB file.
+     *
+     * @param fhandle Pointer to ForestDB file handle.
+     * @param kvs_name The name of KV store instance to be removed. If the name is
+     *        not given (i.e., NULL is passed), the KV store instance named "default"
+     *        will be dropped.
+     * @param rollback_recreate Flag indicating if the request is to drop the KV store
+     *        and recreate it
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status removeKvs(FdbFileHandle *fhandle,
+                         const char *kvs_name,
+                         bool rollback_recreate);
+
+    /**
+     * Check if any KV store handle is still opened and active in the file handle
+     *
+     * @param fhandle Pointer to the file handle
+     * @param kv_id KV store's ID
+     * @return True if any KV store handle is still active in the file handle
+     */
+    bool isAnyKvsHandleOpened(FdbFileHandle *fhandle,
+                              fdb_kvs_id_t kv_id);
 
     // Singleton ForestDB engine instance and mutex guarding it's creation.
     static std::atomic<FdbEngine *> instance;

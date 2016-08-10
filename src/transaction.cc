@@ -236,8 +236,7 @@ fdb_status FdbEngine::endTransaction(FdbFileHandle *fhandle,
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
         bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, opt,
-                                                          sync);
+        fs = commitWithKVHandle(handle, opt, sync);
     }
 
     if (fs == FDB_RESULT_SUCCESS) {

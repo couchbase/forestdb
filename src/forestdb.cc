@@ -634,7 +634,7 @@ fdb_kvs_config fdb_get_default_kvs_config(void) {
 
 LIBFDB_API
 fdb_filemgr_ops_t* fdb_get_default_file_ops(void) {
-    return (fdb_filemgr_ops_t *) get_filemgr_ops();
+    return FdbEngine::getDefaultFileOps();
 }
 
 LIBFDB_API
@@ -1878,13 +1878,12 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
                                         size_t block_reusing_threshold,
                                         size_t num_keeping_headers)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->setBlockReusingParams(fhandle, block_reusing_threshold,
+                                                 num_keeping_headers);
     }
-    FileMgr *file = fhandle->getRootHandle()->file;
-    file->getConfig()->setBlockReusingThreshold(block_reusing_threshold);
-    file->getConfig()->setNumKeepingHeaders(num_keeping_headers);
-    return FDB_RESULT_SUCCESS;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -1896,16 +1895,17 @@ fdb_status fdb_shutdown()
 LIBFDB_API
 const char* fdb_get_lib_version()
 {
-    return FORESTDB_VERSION;
+    return FdbEngine::getLibVersion();
 }
 
 LIBFDB_API
 const char* fdb_get_file_version(fdb_file_handle *fhandle)
 {
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return "Error: file not opened yet!!!";
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->getFileVersion(fhandle);
     }
-    return ver_get_version_string(fhandle->getRootHandle()->file->getVersion());
+    return nullptr;
 }
 
 FdbEngine::FdbEngine(const fdb_config &config) {
@@ -3965,18 +3965,17 @@ fdb_snapshot_open_start:
         if (clone_snapshot) {
             fs = _fdb_kvs_clone_snapshot(handle_in, handle);
         } else {
-            fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
-                              &config, &kvs_config, file,
-                              file->getFileName(),
-                              _fdb_kvs_get_name(handle_in, file),
-                              handle);
+            fs = openKvs(handle_in->kvs->getRootHandle(),
+                         &config, &kvs_config, file,
+                         file->getFileName(),
+                         _fdb_kvs_get_name(handle_in, file),
+                         handle);
         }
     } else {
         if (clone_snapshot) {
             fs = _fdb_clone_snapshot(handle_in, handle);
         } else {
-            fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
-                                                   FDB_AFILENAME, &config);
+            fs = openFdb(handle, file->getFileName(), FDB_AFILENAME, &config);
         }
     }
 
@@ -4093,7 +4092,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     config = handle_in->config;
 
     if (handle_in->kvs) {
-        return fdb_kvs_rollback(handle_ptr, seqnum);
+        return rollbackKvs(handle_ptr, seqnum);
     }
 
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
@@ -4166,8 +4165,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         fs = _fdb_reset(handle, handle_in);
     } else {
         handle->max_seqnum = seqnum;
-        fs = FdbEngine::getInstance()->openFdb(handle, handle_in->file->getFileName(),
-                                               FDB_AFILENAME, &config);
+        fs = openFdb(handle, handle_in->file->getFileName(), FDB_AFILENAME, &config);
     }
 
     handle_in->file->setRollback(0); // allow mutations
@@ -4179,9 +4177,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         handle_in->file->mutexUnlock();
 
         bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(handle,
-                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
-                                                          sync);
+        fs = commitWithKVHandle(handle, FDB_COMMIT_MANUAL_WAL_FLUSH, sync);
         if (fs == FDB_RESULT_SUCCESS) {
             if (handle_in->txn) {
                 handle->txn = handle_in->txn;
@@ -4301,8 +4297,7 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
     }
     handle->config = config;
 
-    fs = FdbEngine::getInstance()->openFdb(handle, file->getFileName(),
-                                           FDB_AFILENAME, &config);
+    fs = openFdb(handle, file->getFileName(), FDB_AFILENAME, &config);
 
     if (handle->config.multi_kv_instances) {
         handle->file->mutexLock();
@@ -4328,8 +4323,7 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
         file->mutexUnlock();
 
         bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(handle, FDB_COMMIT_NORMAL,
-                                                          sync);
+        fs = commitWithKVHandle(handle, FDB_COMMIT_NORMAL, sync);
         if (fs == FDB_RESULT_SUCCESS) {
             closeKVHandle(super_handle);
             *super_handle = *handle;
@@ -4449,11 +4443,7 @@ fdb_status FdbEngine::setDaemonCompactionInterval(FdbFileHandle *fhandle,
 fdb_status FdbEngine::reKey(FdbFileHandle *fhandle,
                             fdb_encryption_key new_key)
 {
-    FdbEngine *fdb_engine = FdbEngine::getInstance();
-    if (fdb_engine) {
-        return fdb_engine->compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
-    }
-    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+    return compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
 }
 
 size_t FdbEngine::getBufferCacheUsed() {
@@ -5048,7 +5038,7 @@ fdb_status FdbEngine::closeRootHandle(FdbKvsHandle *handle)
     }
     if (handle->kvs) {
         if (handle->kvs->getKvsType() == KVS_SUB) {
-            return fdb_kvs_close(handle);
+            return closeKvs(handle);
         } else if (handle->kvs->getKvsType() == KVS_ROOT) {
             // close all sub-handles
             fs = handle->fhandle->closeAllKVHandles();
@@ -5181,6 +5171,36 @@ fdb_status FdbEngine::destroyFile(const char *fname,
     FileMgr::mutexOpenunlock();
 
     return status;
+}
+
+fdb_status FdbEngine::setBlockReusingParams(FdbFileHandle *fhandle,
+                                            size_t block_reusing_threshold,
+                                            size_t num_keeping_headers)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    FileMgr *file = fhandle->getRootHandle()->file;
+    file->getConfig()->setBlockReusingThreshold(block_reusing_threshold);
+    file->getConfig()->setNumKeepingHeaders(num_keeping_headers);
+    return FDB_RESULT_SUCCESS;
+}
+
+const char* FdbEngine::getLibVersion()
+{
+    return FORESTDB_VERSION;
+}
+
+const char* FdbEngine::getFileVersion(fdb_file_handle *fhandle)
+{
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return "Error: file not opened yet!!!";
+    }
+    return ver_get_version_string(fhandle->getRootHandle()->file->getVersion());
+}
+
+fdb_filemgr_ops_t* FdbEngine::getDefaultFileOps(void) {
+    return (fdb_filemgr_ops_t *) get_filemgr_ops();
 }
 
 // Delta changes in KV store stats during the WAL flush

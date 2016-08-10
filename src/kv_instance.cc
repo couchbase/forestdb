@@ -66,31 +66,6 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
-                                       fdb_kvs_id_t kv_id)
-{
-    FileMgr *file = fhandle->getRootHandle()->file;
-    struct avl_node *a;
-    struct filemgr_fhandle_idx_node *fhandle_node;
-    fdb_file_handle *file_handle;
-
-    file->acquireHandleIdxLock();
-    struct avl_tree *handle_idx = file->getHandleIdx();
-    a = avl_first(handle_idx);
-    while (a) {
-        fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
-        a = avl_next(a);
-        file_handle = (fdb_file_handle *) fhandle_node->fhandle;
-        if (file_handle->checkAnyActiveKVHandle(kv_id)) {
-            file->releaseHandleIdxLock();
-            return true;
-        }
-    }
-    file->releaseHandleIdxLock();
-
-    return false;
-}
-
 void fdb_cmp_func_list_from_filemgr(FileMgr *file, struct list *cmp_func_list)
 {
     if (!file || !file->getKVHeader_UNLOCKED() || !cmp_func_list) {
@@ -989,167 +964,6 @@ void fdb_kvs_header_free(FileMgr *file)
     file->setKVHeader_UNLOCKED(NULL);
 }
 
-static fdb_status _fdb_kvs_create(FdbKvsHandle *root_handle,
-                                  const char *kvs_name,
-                                  fdb_kvs_config *kvs_config)
-{
-    int kv_ins_name_len;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    struct avl_node *a;
-    FileMgr *file;
-    struct kvs_node *node, query;
-    KvsHeader *kv_header;
-
-    if (root_handle->config.multi_kv_instances == false) {
-        // cannot open KV instance under single DB instance mode
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
-                       "Cannot open or create KV store instance '%s' because multi-KV "
-                       "store instance mode is disabled.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
-                       "Cannot open or create KV store instance '%s' because the handle "
-                       "doesn't support multi-KV sotre instance mode.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-
-fdb_kvs_create_start:
-    fs = fdb_check_file_reopen(root_handle, NULL);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
-    root_handle->file->mutexLock();
-    fdb_sync_db_header(root_handle);
-
-    if (root_handle->file->isRollbackOn()) {
-        root_handle->file->mutexUnlock();
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
-
-    file = root_handle->file;
-
-    file_status_t fMgrStatus = file->getFileStatus();
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        // we must not write into this file
-        // file status was changed by other thread .. start over
-        file->mutexUnlock();
-        goto fdb_kvs_create_start;
-    }
-
-    kv_header = file->getKVHeader_UNLOCKED();
-    spin_lock(&kv_header->lock);
-
-    // find existing KV instance
-    // search by name
-    query.kvs_name = (char*)kvs_name;
-    a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
-    if (a) { // KV name already exists
-        spin_unlock(&kv_header->lock);
-        file->mutexUnlock();
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
-                       "Failed to create KV Store '%s' as it already exists.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-
-    // create a kvs_node and insert
-    node = (struct kvs_node *)calloc(1, sizeof(struct kvs_node));
-    node->id = kv_header->id_counter++;
-    node->seqnum = 0;
-    node->flags = 0x0;
-    node->op_stat.reset();
-    // search fhandle's custom cmp func list first
-    node->custom_cmp = root_handle->fhandle->getCmpFunctionByName((char *)kvs_name);
-    if (node->custom_cmp == NULL && kvs_config->custom_cmp) {
-        // follow kvs_config's custom cmp next
-        node->custom_cmp = kvs_config->custom_cmp;
-        // if custom cmp function is given by user but
-        // there is no corresponding function in fhandle's list
-        // add it into the list
-        root_handle->fhandle->addCmpFunction((char*) kvs_name,
-                                             kvs_config->custom_cmp);
-    }
-    if (node->custom_cmp) { // custom cmp function is used
-        node->flags |= KVS_FLAG_CUSTOM_CMP;
-        kv_header->custom_cmp_enabled = 1;
-    }
-    kv_ins_name_len = strlen(kvs_name)+1;
-    node->kvs_name = (char *)malloc(kv_ins_name_len);
-    strcpy(node->kvs_name, kvs_name);
-
-    avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
-    avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
-    ++kv_header->num_kv_stores;
-    spin_unlock(&kv_header->lock);
-
-    // if compaction is in-progress,
-    // create a same kvs_node for the new file
-    if (file->getFileStatus() == FILE_COMPACT_OLD) {
-
-        FileMgr *new_file = FileMgrMap::get()->fetchEntry(
-                                                    file->getNewFileName());
-
-        if (new_file) {
-            struct kvs_node *node_new;
-            KvsHeader *kv_header_new;
-
-            kv_header_new = new_file->getKVHeader_UNLOCKED();
-            node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
-            *node_new = *node;
-            node_new->kvs_name = (char*)malloc(kv_ins_name_len);
-            strcpy(node_new->kvs_name, kvs_name);
-
-            // insert into new file's kv_header
-            spin_lock(&kv_header_new->lock);
-            if (node->custom_cmp) {
-                kv_header_new->custom_cmp_enabled = 1;
-            }
-            avl_insert(kv_header_new->idx_name, &node_new->avl_name, _kvs_cmp_name);
-            avl_insert(kv_header_new->idx_id, &node_new->avl_id, _kvs_cmp_id);
-            spin_unlock(&kv_header_new->lock);
-        } else {
-            // new_file should have been found if compaction is in progress
-            fdb_assert(new_file, new_file, nullptr);
-        }
-    }
-
-    // since this function calls FileMgr::commit() and appends a new DB header,
-    // we should finalize & flush the previous dirty update before commit.
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-    struct filemgr_dirty_update_node *prev_node = NULL;
-    struct filemgr_dirty_update_node *new_node = NULL;
-
-    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
-                            &dirty_idtree_root, &dirty_seqtree_root, false);
-
-    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
-                               &dirty_idtree_root, &dirty_seqtree_root, true);
-
-    // append system doc
-    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
-
-    // if no compaction is being performed, append header and commit
-    if (root_handle->file == file) {
-        uint64_t cur_bmp_revnum = 0;
-        if (file->getSb()) {
-            cur_bmp_revnum = file->getSb()->getBmpRevnum();
-        }
-        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
-        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = root_handle->file->commitBid(
-                                root_handle->last_hdr_bid,
-                                cur_bmp_revnum,
-                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
-                                &root_handle->log_callback);
-        root_handle->bhandle->resetSubblockInfo();
-    }
-
-    file->mutexUnlock();
-
-    return fs;
-}
-
 // this function just returns pointer
 char* _fdb_kvs_get_name(FdbKvsHandle *handle, FileMgr *file)
 {
@@ -1240,198 +1054,17 @@ fdb_status _fdb_kvs_clone_snapshot(FdbKvsHandle *handle_in,
     return fs;
 }
 
-// 1) allocate memory & create 'handle->kvs'
-//    by calling handle->createKvsInfo().
-//      -> this will allocate a corresponding node and
-//         insert it into fhandle->handles list.
-// 2) if matching KVS name doesn't exist, create it.
-// 3) call FdbEngine::openFdb.
-fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
-                         fdb_config *config,
-                         fdb_kvs_config *kvs_config,
-                         FileMgr *file,
-                         const char *filename,
-                         const char *kvs_name,
-                         FdbKvsHandle *handle)
-{
-    fdb_status fs;
-
-    if (handle->kvs == NULL) {
-        // create kvs_info
-        handle->file = file;
-        handle->createKvsInfo(root_handle, kvs_name);
-    }
-
-    if (handle->kvs == NULL) {
-        // KV instance name is not found
-        if (!kvs_config->create_if_missing) {
-            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
-                           "Failed to open KV store '%s' because it doesn't exist.",
-                           kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-        }
-        if (root_handle->config.flags == FDB_OPEN_FLAG_RDONLY) {
-            return fdb_log(&root_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
-                           "Failed to create KV store '%s' because the KV store's handle "
-                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-        }
-
-        // create
-        fs = _fdb_kvs_create(root_handle, kvs_name, kvs_config);
-
-        // If fs == INVALID_KV_INSTANCE_NAME, it means that the same KVS name already
-        // exists. Since 'handle->kvs' was NULL at above if condition, the KVS might
-        // be created by other concurrent thread. So we can tolerate this case and
-        // try the creation of 'handle->kvs' again.
-        if ( fs != FDB_RESULT_SUCCESS &&
-             fs != FDB_RESULT_INVALID_KV_INSTANCE_NAME ) { // create fail
-            return fs;
-        }
-        // create kvs_info again
-        handle->createKvsInfo(root_handle, kvs_name);
-        if (handle->kvs == NULL) { // fail again
-            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
-                           "Failed to create KV store '%s' because the KV store's handle "
-                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-        }
-    }
-    fs = FdbEngine::getInstance()->openFdb(handle, filename, FDB_AFILENAME, config);
-    if (fs != FDB_RESULT_SUCCESS) {
-        if (handle->node) {
-            root_handle->fhandle->removeKVHandle(&handle->node->le);
-            free(handle->node);
-        } // 'handle->node == NULL' happens only during rollback
-    }
-    return fs;
-}
-
-// 1) identify whether the requested KVS is default or non-default.
-// 2) if the requested KVS is default,
-//   2-1) if no KVS handle is opened yet from this fhandle,
-//        -> return the root handle.
-//   2-2) if the root handle is already opened,
-//        -> allocate memory for handle, and call FdbEngine::openFdb().
-//        -> 'handle->kvs' will be created in FdbEngine::openFdb(),
-//           since it is treated as a default handle.
-//        -> allocate a corresponding node and insert it into
-//           fhandle->handles list.
-// 3) if the requested KVS is non-default,
-//    -> allocate memory for handle, and call _fdb_kvs_open().
 LIBFDB_API
 fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                         FdbKvsHandle **ptr_handle,
                         const char *kvs_name,
                         fdb_kvs_config *kvs_config)
 {
-    FdbKvsHandle *handle;
-    fdb_config config;
-    fdb_status fs;
-    FdbKvsHandle *root_handle;
-    fdb_kvs_config config_local;
-
-    LATENCY_STAT_START();
-
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->openKvs(fhandle, ptr_handle, kvs_name, kvs_config);
     }
-
-    root_handle = fhandle->getRootHandle();
-    config = root_handle->config;
-
-    if (kvs_config) {
-        if (validate_fdb_kvs_config(kvs_config)) {
-            config_local = *kvs_config;
-        } else {
-            return FDB_RESULT_INVALID_CONFIG;
-        }
-    } else {
-        config_local = get_default_kvs_config();
-    }
-
-    fs = fdb_check_file_reopen(root_handle, NULL);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
-    fdb_sync_db_header(root_handle);
-
-    if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
-        // return the default KV store handle
-        if (fhandle->activateRootHandle(kvs_name, config_local)) {
-            // If the root handle is not opened yet, then simply activate and return it.
-            *ptr_handle = root_handle;
-            return FDB_RESULT_SUCCESS;
-        } else {
-            // the root handle is already opened
-            // open new default KV store handle
-            handle = new FdbKvsHandle();
-            handle->kvs_config = config_local;
-            handle->handle_busy = 0;
-
-            if (root_handle->file->getKVHeader_UNLOCKED()) {
-                spin_lock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
-                handle->kvs_config.custom_cmp =
-                    root_handle->file->getKVHeader_UNLOCKED()->default_kvs_cmp;
-                spin_unlock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
-            }
-
-            handle->fhandle = fhandle;
-            fs = FdbEngine::getInstance()->openFdb(handle,
-                                                   root_handle->file->getFileName(),
-                                                   FDB_AFILENAME, &config);
-            if (fs != FDB_RESULT_SUCCESS) {
-                delete handle;
-                *ptr_handle = NULL;
-            } else {
-                // insert into fhandle's list
-                struct kvs_opened_node *node = (struct kvs_opened_node *)
-                    calloc(1, sizeof(struct kvs_opened_node));
-                node->handle = handle;
-                fhandle->addKVHandle(&node->le);
-                handle->node = node;
-                *ptr_handle = handle;
-            }
-        }
-        LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
-        return fs;
-    }
-
-    if (config.multi_kv_instances == false) {
-        // cannot open KV instance under single DB instance mode
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
-                       "Cannot open KV store instance '%s' because multi-KV "
-                       "store instance mode is disabled.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
-                       "Cannot open KV store instance '%s' because the handle "
-                       "doesn't support multi-KV sotre instance mode.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-    if (root_handle->shandle) {
-        // cannot open KV instance from a snapshot
-        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_ARGS,
-                       "Not allowed to open KV store instance '%s' from the "
-                       "snapshot handle.",
-                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
-    }
-
-    handle = new FdbKvsHandle();
-    if (!handle) { // LCOV_EXCL_START
-        return FDB_RESULT_ALLOC_FAIL;
-    } // LCOV_EXCL_STOP
-
-    handle->handle_busy = 0;
-    handle->fhandle = fhandle;
-    fs = _fdb_kvs_open(root_handle, &config, &config_local,
-                       root_handle->file, root_handle->file->getFileName(), kvs_name, handle);
-    if (fs == FDB_RESULT_SUCCESS) {
-        *ptr_handle = handle;
-    } else {
-        *ptr_handle = NULL;
-        delete handle;
-    }
-    LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -1439,274 +1072,21 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
                                 FdbKvsHandle **ptr_handle,
                                 fdb_kvs_config *config)
 {
-    return fdb_kvs_open(fhandle, ptr_handle, NULL, config);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->openDefaultKvs(fhandle, ptr_handle, config);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
-// 1) remove corresponding node from fhandle->handles list.
-// 2) call FdbEngine::getInstance()->closeKVHandle().
-static fdb_status _fdb_kvs_close(FdbKvsHandle *handle)
-{
-    FdbKvsHandle *root_handle = handle->kvs->getRootHandle();
-    fdb_status fs;
-
-    if (handle->node) {
-        root_handle->fhandle->removeKVHandle(&handle->node->le);
-        free(handle->node);
-    } // 'handle->node == NULL' happens only during rollback
-
-    fs = FdbEngine::getInstance()->closeKVHandle(handle);
-    return fs;
-}
-
-// 1) identify whether the requested handle is for default KVS or not.
-// 2) if the requested handle is for the default KVS,
-//   2-1) if the requested handle is the root handle,
-//        -> just clear the OPENED flag.
-//   2-2) if the requested handle is not the root handle,
-//        -> call FdbEngine::getInstance()->closeKVHandle(),
-//        -> remove the corresponding node from fhandle->handles list,
-//        -> free the memory for the handle.
-// 3) if the requested handle is for non-default KVS,
-//    -> call _fdb_kvs_close(),
-//       -> this will remove the node from fhandle->handles list.
-//    -> free the memory for the handle.
 LIBFDB_API
 fdb_status fdb_kvs_close(FdbKvsHandle *handle)
 {
-    fdb_status fs;
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->closeKvs(handle);
     }
-    if (handle->num_iterators) {
-        // There are still active iterators created from this handle
-        return FDB_RESULT_KV_STORE_BUSY;
-    }
-
-    if (handle->shandle && handle->kvs == NULL) {
-        // snapshot of the default KV store + single KV store mode
-        // directly close handle
-        // (snapshot of the other KV stores will be closed
-        //  using _fdb_kvs_close(...) below)
-        fs = FdbEngine::getInstance()->closeKVHandle(handle);
-        if (fs == FDB_RESULT_SUCCESS) {
-            delete handle;
-        }
-        return fs;
-    }
-
-    if (handle->kvs == NULL ||
-        handle->kvs->getKvsType() == KVS_ROOT) {
-        // the default KV store handle
-
-        if (handle->fhandle->getRootHandle() == handle) {
-            // do nothing for root handle
-            // the root handle will be closed with fdb_close() API call.
-            handle->fhandle->setFlags(handle->fhandle->getFlags() & ~FHANDLE_ROOT_OPENED); // remove flag
-            return FDB_RESULT_SUCCESS;
-
-        } else {
-            // the default KV store but not the root handle .. normally close
-            fs = FdbEngine::getInstance()->closeKVHandle(handle);
-            if (fs == FDB_RESULT_SUCCESS) {
-                // remove from 'handles' list in the root node
-                handle->fhandle->removeKVHandle(&handle->node->le);
-                free(handle->node);
-                delete handle;
-            }
-            return fs;
-        }
-    }
-
-    if (handle->kvs && handle->kvs->getRootHandle() == NULL) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    fs = _fdb_kvs_close(handle);
-    if (fs == FDB_RESULT_SUCCESS) {
-        delete handle;
-    }
-    return fs;
-}
-
-static
-fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
-                           const char *kvs_name,
-                           bool rollback_recreate)
-{
-    size_t size_chunk, size_id;
-    uint8_t *_kv_id;
-    fdb_status fs = FDB_RESULT_SUCCESS;
-    fdb_kvs_id_t kv_id = 0;
-    FdbKvsHandle *root_handle;
-    struct avl_node *a = NULL;
-    FileMgr *file;
-    struct kvs_node *node, query;
-    KvsHeader *kv_header;
-
-    if (!fhandle || !fhandle->getRootHandle()) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    root_handle = fhandle->getRootHandle();
-
-    if (root_handle->config.multi_kv_instances == false) {
-        // cannot remove the KV instance under single DB instance mode
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-fdb_kvs_remove_start:
-    if (!rollback_recreate) {
-        fs = fdb_check_file_reopen(root_handle, NULL);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-        root_handle->file->mutexLock();
-        fdb_sync_db_header(root_handle);
-
-        if (root_handle->file->isRollbackOn()) {
-            root_handle->file->mutexUnlock();
-            return FDB_RESULT_FAIL_BY_ROLLBACK;
-        }
-    } else {
-        root_handle->file->mutexLock();
-    }
-
-    file = root_handle->file;
-
-    file_status_t fMgrStatus = file->getFileStatus();
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        // we must not write into this file
-        // file status was changed by other thread .. start over
-        file->mutexUnlock();
-        goto fdb_kvs_remove_start;
-    } else if (fMgrStatus == FILE_COMPACT_OLD) {
-        // Cannot remove existing KV store during compaction.
-        // To remove a KV store, the corresponding first chunk in HB+trie
-        // should be unlinked. This can be possible in the old file during
-        // compaction, but impossible in the new file, since existing documents
-        // (including docs belonging to the KV store to be removed) are being moved.
-        file->mutexUnlock();
-        return FDB_RESULT_FAIL_BY_COMPACTION;
-    }
-
-    // find the kvs_node and remove
-
-    // search by name to get ID
-    if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
-        if (!rollback_recreate) {
-            // default KV store .. KV ID = 0
-            kv_id = 0;
-            if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
-                // there is an opened handle
-                file->mutexUnlock();
-                return FDB_RESULT_KV_STORE_BUSY;
-            }
-        }
-        // reset KVS stats (excepting for WAL stats)
-        file->accessHeader()->stat.ndocs = 0;
-        file->accessHeader()->stat.nlivenodes = 0;
-        file->accessHeader()->stat.datasize = 0;
-        file->accessHeader()->stat.deltasize = 0;
-
-        // reset seqnum
-        file->setSeqnum(0);
-    } else {
-        kv_header = file->getKVHeader_UNLOCKED();
-        spin_lock(&kv_header->lock);
-        query.kvs_name = (char*)kvs_name;
-        a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
-        if (a == NULL) { // KV name doesn't exist
-            spin_unlock(&kv_header->lock);
-            file->mutexUnlock();
-            return FDB_RESULT_KV_STORE_NOT_FOUND;
-        }
-        node = _get_entry(a, struct kvs_node, avl_name);
-        kv_id = node->id;
-
-        if (!rollback_recreate) {
-            spin_unlock(&kv_header->lock);
-            if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
-                // there is an opened handle
-                file->mutexUnlock();
-                return FDB_RESULT_KV_STORE_BUSY;
-            }
-            spin_lock(&kv_header->lock);
-
-            avl_remove(kv_header->idx_name, &node->avl_name);
-            avl_remove(kv_header->idx_id, &node->avl_id);
-            --kv_header->num_kv_stores;
-            spin_unlock(&kv_header->lock);
-
-            kv_id = node->id;
-
-            // free node
-            free(node->kvs_name);
-            free(node);
-        } else {
-            // reset all stats except for WAL
-            node->stat.ndocs = 0;
-            node->stat.nlivenodes = 0;
-            node->stat.datasize = 0;
-            node->stat.deltasize = 0;
-            node->seqnum = 0;
-            spin_unlock(&kv_header->lock);
-        }
-    }
-
-    // discard all WAL entries
-    file->getWal()->closeKvs_Wal(kv_id, &root_handle->log_callback);
-
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
-
-    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
-                            &dirty_idtree_root, &dirty_seqtree_root, false);
-
-    size_id = sizeof(fdb_kvs_id_t);
-    size_chunk = root_handle->trie->getChunkSize();
-
-    // remove from super handle's HB+trie
-    _kv_id = alca(uint8_t, size_chunk);
-    kvid2buf(size_chunk, kv_id, _kv_id);
-    root_handle->trie->removePartial(_kv_id, size_chunk);
-    root_handle->bhandle->flushBuffer();
-
-    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        _kv_id = alca(uint8_t, size_id);
-        kvid2buf(size_id, kv_id, _kv_id);
-        root_handle->seqtrie->removePartial(_kv_id, size_id);
-        root_handle->bhandle->flushBuffer();
-    }
-
-    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
-                               &dirty_idtree_root, &dirty_seqtree_root, true);
-
-    // append system doc
-    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
-
-    // if no compaction is being performed, append header and commit
-    if (root_handle->file == file) {
-        uint64_t cur_bmp_revnum = 0;
-        if (file->getSb()) {
-            cur_bmp_revnum = file->getSb()->getBmpRevnum();
-        }
-        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
-        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = root_handle->file->commitBid(
-                                root_handle->last_hdr_bid,
-                                cur_bmp_revnum,
-                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
-                                &root_handle->log_callback);
-        root_handle->bhandle->resetSubblockInfo();
-    }
-
-    file->mutexUnlock();
-
-    return fs;
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
@@ -1734,198 +1114,15 @@ bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
     return ret;
 }
 
-fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
-{
-    fdb_config config;
-    fdb_kvs_config kvs_config;
-    FdbKvsHandle *handle_in, *handle, *super_handle;
-    fdb_status fs;
-    fdb_seqnum_t old_seqnum;
-    fdb_file_handle *fhandle;
-    char *kvs_name;
-
-    if (!handle_ptr) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    handle_in = *handle_ptr;
-
-    if (!handle_in) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    if (!handle_in->kvs) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    super_handle = handle_in->kvs->getRootHandle();
-    fhandle = handle_in->fhandle;
-    config = handle_in->config;
-    kvs_config = handle_in->kvs_config;
-
-    if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return fdb_log(&handle_in->log_callback,
-                       FDB_RESULT_RONLY_VIOLATION,
-                       "Warning: Rollback is not allowed on "
-                       "the read-only DB file '%s'.",
-                       handle_in->file->getFileName());
-    }
-
-    handle_in->file->mutexLock();
-    handle_in->file->setRollback(1); // disallow writes operations
-    // All transactions should be closed before rollback
-    if (handle_in->file->getWal()->doesTxnExist_Wal()) {
-        handle_in->file->setRollback(0);
-        handle_in->file->mutexUnlock();
-        return FDB_RESULT_FAIL_BY_TRANSACTION;
-    }
-
-    // If compaction is running, wait until it is aborted.
-    // TODO: Find a better way of waiting for the compaction abortion.
-    unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fMgrStatus = handle_in->file->getFileStatus();
-    while (fMgrStatus == FILE_COMPACT_OLD) {
-        handle_in->file->mutexUnlock();
-        decaying_usleep(&sleep_time, 1000000);
-        handle_in->file->mutexLock();
-        fMgrStatus = handle_in->file->getFileStatus();
-    }
-    if (fMgrStatus == FILE_REMOVED_PENDING) {
-        handle_in->file->mutexUnlock();
-        fs = fdb_check_file_reopen(handle_in, NULL);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-    } else {
-        handle_in->file->mutexUnlock();
-    }
-
-    fdb_sync_db_header(handle_in);
-
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current FdbKvsHandle
-    if (seqnum > handle_in->seqnum) {
-        super_handle->file->setRollback(0); // allow mutations
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
-    kvs_name = _fdb_kvs_get_name(handle_in, handle_in->file);
-    if (seqnum == 0) { // Handle special case of rollback to zero..
-        fs = _fdb_kvs_remove(fhandle, kvs_name, true /*recreate!*/);
-        super_handle->file->setRollback(0); // allow mutations
-        return fs;
-    }
-
-    handle = new FdbKvsHandle();
-    if (!handle) { // LCOV_EXCL_START
-        handle_in->file->setRollback(0); // allow mutations
-        return FDB_RESULT_ALLOC_FAIL;
-    } // LCOV_EXCL_STOP
-
-    handle->max_seqnum = seqnum;
-    handle->log_callback = handle_in->log_callback;
-    handle->fhandle = fhandle;
-    handle->handle_busy = 0;
-
-    if (handle_in->kvs->getKvsType() == KVS_SUB) {
-        fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
-                           &config,
-                           &kvs_config,
-                           handle_in->file,
-                           handle_in->file->getFileName(),
-                           kvs_name,
-                           handle);
-    } else {
-        fs = FdbEngine::getInstance()->openFdb(handle, handle_in->file->getFileName(),
-                                               FDB_AFILENAME, &config);
-    }
-    handle_in->file->setRollback(0); // allow mutations
-
-    if (fs == FDB_RESULT_SUCCESS) {
-        // get KV instance's sub B+trees' root node BIDs
-        // from both ID-tree and Seq-tree, AND
-        // replace current handle's sub B+trees' root node BIDs
-        // by old BIDs
-        size_t size_chunk, size_id;
-        bid_t id_root, seq_root, dummy;
-        uint8_t *_kv_id;
-        hbtrie_result hr;
-
-        size_chunk = handle->trie->getChunkSize();
-        size_id = sizeof(fdb_kvs_id_t);
-
-        handle_in->file->mutexLock();
-
-        // read root BID of the KV instance from the old handle
-        // and overwrite into the current handle
-        _kv_id = alca(uint8_t, size_chunk);
-        kvid2buf(size_chunk, handle->kvs->getKvsId(), _kv_id);
-        hr = handle->trie->findPartial(_kv_id, size_chunk, &id_root);
-        handle->bhandle->flushBuffer();
-        if (hr == HBTRIE_RESULT_SUCCESS) {
-            super_handle->trie->insertPartial(_kv_id, size_chunk, &id_root, &dummy);
-        } else { // No Trie info in rollback header.
-                 // Erase kv store from super handle's main index.
-            super_handle->trie->removePartial(_kv_id, size_chunk);
-        }
-        super_handle->bhandle->flushBuffer();
-
-        if (config.seqtree_opt == FDB_SEQTREE_USE) {
-            // same as above for seq-trie
-            _kv_id = alca(uint8_t, size_id);
-            kvid2buf(size_id, handle->kvs->getKvsId(), _kv_id);
-            hr = handle->seqtrie->findPartial(_kv_id, size_id, &seq_root);
-            handle->bhandle->flushBuffer();
-            if (hr == HBTRIE_RESULT_SUCCESS) {
-                super_handle->seqtrie->insertPartial(_kv_id, size_id,
-                                                     &seq_root, &dummy);
-            } else { // No seqtrie info in rollback header.
-                     // Erase kv store from super handle's seqtrie index.
-                super_handle->seqtrie->removePartial(_kv_id, size_id);
-            }
-            super_handle->bhandle->flushBuffer();
-        }
-
-        old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
-                                        handle_in->kvs->getKvsId());
-        fdb_kvs_set_seqnum(handle_in->file,
-                           handle_in->kvs->getKvsId(), seqnum);
-        handle_in->seqnum = seqnum;
-        handle_in->file->mutexUnlock();
-
-        super_handle->rollback_revnum = handle->rollback_revnum;
-        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
-        fs = FdbEngine::getInstance()->commitWithKVHandle(super_handle,
-                                                          FDB_COMMIT_MANUAL_WAL_FLUSH,
-                                                          sync);
-        if (fs == FDB_RESULT_SUCCESS) {
-            _fdb_kvs_close(handle);
-            *handle_ptr = handle_in;
-            delete handle;
-        } else {
-            // cancel the rolling-back of the sequence number
-            fdb_log(&handle_in->log_callback, fs,
-                    "Rollback failed due to a commit failure with a sequence "
-                    "number %" _F64, seqnum);
-            handle_in->file->mutexLock();
-            fdb_kvs_set_seqnum(handle_in->file,
-                               handle_in->kvs->getKvsId(), old_seqnum);
-            handle_in->file->mutexUnlock();
-            _fdb_kvs_close(handle);
-            delete handle;
-        }
-    } else {
-        delete handle;
-    }
-
-    return fs;
-}
-
 LIBFDB_API
 fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name)
 {
-    return _fdb_kvs_remove(fhandle, kvs_name, false);
+    FdbEngine *fdb_engine = FdbEngine::getInstance();
+    if (fdb_engine) {
+        return fdb_engine->removeKvs(fhandle, kvs_name);
+    }
+    return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
 }
 
 LIBFDB_API
@@ -2247,7 +1444,6 @@ fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info
 fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
-
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
@@ -2430,4 +1626,846 @@ fdb_status FdbEngine::freeKvsNameList(fdb_kvs_name_list *kvs_name_list)
     kvs_name_list->num_kvs_names = 0;
 
     return FDB_RESULT_SUCCESS;
+}
+
+// 1) identify whether the requested KVS is default or non-default.
+// 2) if the requested KVS is default,
+//   2-1) if no KVS handle is opened yet from this fhandle,
+//        -> return the root handle.
+//   2-2) if the root handle is already opened,
+//        -> allocate memory for handle, and call FdbEngine::openFdb().
+//        -> 'handle->kvs' will be created in FdbEngine::openFdb(),
+//           since it is treated as a default handle.
+//        -> allocate a corresponding node and insert it into
+//           fhandle->handles list.
+// 3) if the requested KVS is non-default,
+//    -> allocate memory for handle, and call openKvs().
+fdb_status FdbEngine::openKvs(FdbFileHandle *fhandle,
+                              FdbKvsHandle **ptr_handle,
+                              const char *kvs_name,
+                              fdb_kvs_config *kvs_config)
+{
+    FdbKvsHandle *handle;
+    fdb_config config;
+    fdb_status fs;
+    FdbKvsHandle *root_handle;
+    fdb_kvs_config config_local;
+
+    LATENCY_STAT_START();
+
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    root_handle = fhandle->getRootHandle();
+    config = root_handle->config;
+
+    if (kvs_config) {
+        if (validate_fdb_kvs_config(kvs_config)) {
+            config_local = *kvs_config;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        config_local = get_default_kvs_config();
+    }
+
+    fs = fdb_check_file_reopen(root_handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+    fdb_sync_db_header(root_handle);
+
+    if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
+        // return the default KV store handle
+        if (fhandle->activateRootHandle(kvs_name, config_local)) {
+            // If the root handle is not opened yet, then simply activate and return it.
+            *ptr_handle = root_handle;
+            return FDB_RESULT_SUCCESS;
+        } else {
+            // the root handle is already opened
+            // open new default KV store handle
+            handle = new FdbKvsHandle();
+            handle->kvs_config = config_local;
+            handle->handle_busy = 0;
+
+            if (root_handle->file->getKVHeader_UNLOCKED()) {
+                spin_lock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
+                handle->kvs_config.custom_cmp =
+                    root_handle->file->getKVHeader_UNLOCKED()->default_kvs_cmp;
+                spin_unlock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
+            }
+
+            handle->fhandle = fhandle;
+            fs = openFdb(handle, root_handle->file->getFileName(),
+                         FDB_AFILENAME, &config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                delete handle;
+                *ptr_handle = NULL;
+            } else {
+                // insert into fhandle's list
+                struct kvs_opened_node *node = (struct kvs_opened_node *)
+                    calloc(1, sizeof(struct kvs_opened_node));
+                node->handle = handle;
+                fhandle->addKVHandle(&node->le);
+                handle->node = node;
+                *ptr_handle = handle;
+            }
+        }
+        LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
+        return fs;
+    }
+
+    if (config.multi_kv_instances == false) {
+        // cannot open KV instance under single DB instance mode
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
+                       "Cannot open KV store instance '%s' because multi-KV "
+                       "store instance mode is disabled.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
+                       "Cannot open KV store instance '%s' because the handle "
+                       "doesn't support multi-KV sotre instance mode.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+    if (root_handle->shandle) {
+        // cannot open KV instance from a snapshot
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_ARGS,
+                       "Not allowed to open KV store instance '%s' from the "
+                       "snapshot handle.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+
+    handle = new FdbKvsHandle();
+    if (!handle) { // LCOV_EXCL_START
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    handle->handle_busy = 0;
+    handle->fhandle = fhandle;
+    fs = openKvs(root_handle, &config, &config_local,
+                 root_handle->file, root_handle->file->getFileName(),
+                 kvs_name, handle);
+    if (fs == FDB_RESULT_SUCCESS) {
+        *ptr_handle = handle;
+    } else {
+        *ptr_handle = NULL;
+        delete handle;
+    }
+    LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
+    return fs;
+}
+
+fdb_status FdbEngine::openDefaultKvs(FdbFileHandle *fhandle,
+                                     FdbKvsHandle **ptr_handle,
+                                     fdb_kvs_config *config)
+{
+    return openKvs(fhandle, ptr_handle, NULL, config);
+}
+
+// 1) allocate memory & create 'handle->kvs'
+//    by calling handle->createKvsInfo().
+//      -> this will allocate a corresponding node and
+//         insert it into fhandle->handles list.
+// 2) if matching KVS name doesn't exist, create it.
+// 3) call FdbEngine::openFdb.
+fdb_status FdbEngine::openKvs(FdbKvsHandle *root_handle,
+                              fdb_config *config,
+                              fdb_kvs_config *kvs_config,
+                              FileMgr *file,
+                              const char *filename,
+                              const char *kvs_name,
+                              FdbKvsHandle *handle)
+{
+    fdb_status fs;
+
+    if (handle->kvs == NULL) {
+        // create kvs_info
+        handle->file = file;
+        handle->createKvsInfo(root_handle, kvs_name);
+    }
+
+    if (handle->kvs == NULL) {
+        // KV instance name is not found
+        if (!kvs_config->create_if_missing) {
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                           "Failed to open KV store '%s' because it doesn't exist.",
+                           kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+        }
+        if (root_handle->config.flags == FDB_OPEN_FLAG_RDONLY) {
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                           "Failed to create KV store '%s' because the KV store's handle "
+                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+        }
+
+        // create the KV store
+        fs = createKvs(root_handle, kvs_name, kvs_config);
+
+        // If fs == INVALID_KV_INSTANCE_NAME, it means that the same KVS name already
+        // exists. Since 'handle->kvs' was NULL at above if condition, the KVS might
+        // be created by other concurrent thread. So we can tolerate this case and
+        // try the creation of 'handle->kvs' again.
+        if ( fs != FDB_RESULT_SUCCESS &&
+             fs != FDB_RESULT_INVALID_KV_INSTANCE_NAME ) { // create fail
+            return fs;
+        }
+        // create kvs_info again
+        handle->createKvsInfo(root_handle, kvs_name);
+        if (handle->kvs == NULL) { // fail again
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                           "Failed to create KV store '%s' because the KV store's handle "
+                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+        }
+    }
+    fs = openFdb(handle, filename, FDB_AFILENAME, config);
+    if (fs != FDB_RESULT_SUCCESS) {
+        if (handle->node) {
+            root_handle->fhandle->removeKVHandle(&handle->node->le);
+            free(handle->node);
+        } // 'handle->node == NULL' happens only during rollback
+    }
+    return fs;
+}
+
+fdb_status FdbEngine::rollbackKvs(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
+{
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    FdbKvsHandle *handle_in, *handle, *super_handle;
+    fdb_status fs;
+    fdb_seqnum_t old_seqnum;
+    fdb_file_handle *fhandle;
+    char *kvs_name;
+
+    if (!handle_ptr) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    handle_in = *handle_ptr;
+
+    if (!handle_in) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!handle_in->kvs) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    super_handle = handle_in->kvs->getRootHandle();
+    fhandle = handle_in->fhandle;
+    config = handle_in->config;
+    kvs_config = handle_in->kvs_config;
+
+    if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&handle_in->log_callback,
+                       FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Rollback is not allowed on "
+                       "the read-only DB file '%s'.",
+                       handle_in->file->getFileName());
+    }
+
+    handle_in->file->mutexLock();
+    handle_in->file->setRollback(1); // disallow writes operations
+    // All transactions should be closed before rollback
+    if (handle_in->file->getWal()->doesTxnExist_Wal()) {
+        handle_in->file->setRollback(0);
+        handle_in->file->mutexUnlock();
+        return FDB_RESULT_FAIL_BY_TRANSACTION;
+    }
+
+    // If compaction is running, wait until it is aborted.
+    // TODO: Find a better way of waiting for the compaction abortion.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fMgrStatus = handle_in->file->getFileStatus();
+    while (fMgrStatus == FILE_COMPACT_OLD) {
+        handle_in->file->mutexUnlock();
+        decaying_usleep(&sleep_time, 1000000);
+        handle_in->file->mutexLock();
+        fMgrStatus = handle_in->file->getFileStatus();
+    }
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        handle_in->file->mutexUnlock();
+        fs = fdb_check_file_reopen(handle_in, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+    } else {
+        handle_in->file->mutexUnlock();
+    }
+
+    fdb_sync_db_header(handle_in);
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current FdbKvsHandle
+    if (seqnum > handle_in->seqnum) {
+        super_handle->file->setRollback(0); // allow mutations
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    kvs_name = _fdb_kvs_get_name(handle_in, handle_in->file);
+    if (seqnum == 0) { // Handle special case of rollback to zero..
+        fs = removeKvs(fhandle, kvs_name, true /*recreate!*/);
+        super_handle->file->setRollback(0); // allow mutations
+        return fs;
+    }
+
+    handle = new FdbKvsHandle();
+    if (!handle) { // LCOV_EXCL_START
+        handle_in->file->setRollback(0); // allow mutations
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    handle->max_seqnum = seqnum;
+    handle->log_callback = handle_in->log_callback;
+    handle->fhandle = fhandle;
+    handle->handle_busy = 0;
+
+    if (handle_in->kvs->getKvsType() == KVS_SUB) {
+        fs = openKvs(handle_in->kvs->getRootHandle(),
+                     &config,
+                     &kvs_config,
+                     handle_in->file,
+                     handle_in->file->getFileName(),
+                     kvs_name,
+                     handle);
+    } else {
+        fs = openFdb(handle, handle_in->file->getFileName(),
+                     FDB_AFILENAME, &config);
+    }
+    handle_in->file->setRollback(0); // allow mutations
+
+    if (fs == FDB_RESULT_SUCCESS) {
+        // get KV instance's sub B+trees' root node BIDs
+        // from both ID-tree and Seq-tree, AND
+        // replace current handle's sub B+trees' root node BIDs
+        // by old BIDs
+        size_t size_chunk, size_id;
+        bid_t id_root, seq_root, dummy;
+        uint8_t *_kv_id;
+        hbtrie_result hr;
+
+        size_chunk = handle->trie->getChunkSize();
+        size_id = sizeof(fdb_kvs_id_t);
+
+        handle_in->file->mutexLock();
+
+        // read root BID of the KV instance from the old handle
+        // and overwrite into the current handle
+        _kv_id = alca(uint8_t, size_chunk);
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), _kv_id);
+        hr = handle->trie->findPartial(_kv_id, size_chunk, &id_root);
+        handle->bhandle->flushBuffer();
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            super_handle->trie->insertPartial(_kv_id, size_chunk, &id_root, &dummy);
+        } else { // No Trie info in rollback header.
+                 // Erase kv store from super handle's main index.
+            super_handle->trie->removePartial(_kv_id, size_chunk);
+        }
+        super_handle->bhandle->flushBuffer();
+
+        if (config.seqtree_opt == FDB_SEQTREE_USE) {
+            // same as above for seq-trie
+            _kv_id = alca(uint8_t, size_id);
+            kvid2buf(size_id, handle->kvs->getKvsId(), _kv_id);
+            hr = handle->seqtrie->findPartial(_kv_id, size_id, &seq_root);
+            handle->bhandle->flushBuffer();
+            if (hr == HBTRIE_RESULT_SUCCESS) {
+                super_handle->seqtrie->insertPartial(_kv_id, size_id,
+                                                     &seq_root, &dummy);
+            } else { // No seqtrie info in rollback header.
+                     // Erase kv store from super handle's seqtrie index.
+                super_handle->seqtrie->removePartial(_kv_id, size_id);
+            }
+            super_handle->bhandle->flushBuffer();
+        }
+
+        old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
+                                        handle_in->kvs->getKvsId());
+        fdb_kvs_set_seqnum(handle_in->file,
+                           handle_in->kvs->getKvsId(), seqnum);
+        handle_in->seqnum = seqnum;
+        handle_in->file->mutexUnlock();
+
+        super_handle->rollback_revnum = handle->rollback_revnum;
+        bool sync = !(handle_in->config.durability_opt & FDB_DRB_ASYNC);
+        fs = commitWithKVHandle(super_handle, FDB_COMMIT_MANUAL_WAL_FLUSH, sync);
+        if (fs == FDB_RESULT_SUCCESS) {
+            closeKvsInternal(handle);
+            *handle_ptr = handle_in;
+            delete handle;
+        } else {
+            // cancel the rolling-back of the sequence number
+            fdb_log(&handle_in->log_callback, fs,
+                    "Rollback failed due to a commit failure with a sequence "
+                    "number %" _F64, seqnum);
+            handle_in->file->mutexLock();
+            fdb_kvs_set_seqnum(handle_in->file,
+                               handle_in->kvs->getKvsId(), old_seqnum);
+            handle_in->file->mutexUnlock();
+            closeKvsInternal(handle);
+            delete handle;
+        }
+    } else {
+        delete handle;
+    }
+
+    return fs;
+}
+
+fdb_status FdbEngine::createKvs(FdbKvsHandle *root_handle,
+                                const char *kvs_name,
+                                fdb_kvs_config *kvs_config)
+{
+    int kv_ins_name_len;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    struct avl_node *a;
+    FileMgr *file;
+    struct kvs_node *node, query;
+    KvsHeader *kv_header;
+
+    if (root_handle->config.multi_kv_instances == false) {
+        // cannot open KV instance under single DB instance mode
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
+                       "Cannot open or create KV store instance '%s' because multi-KV "
+                       "store instance mode is disabled.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
+                       "Cannot open or create KV store instance '%s' because the handle "
+                       "doesn't support multi-KV sotre instance mode.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+
+fdb_kvs_create_start:
+    fs = fdb_check_file_reopen(root_handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+    root_handle->file->mutexLock();
+    fdb_sync_db_header(root_handle);
+
+    if (root_handle->file->isRollbackOn()) {
+        root_handle->file->mutexUnlock();
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    file = root_handle->file;
+
+    file_status_t fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        // we must not write into this file
+        // file status was changed by other thread .. start over
+        file->mutexUnlock();
+        goto fdb_kvs_create_start;
+    }
+
+    kv_header = file->getKVHeader_UNLOCKED();
+    spin_lock(&kv_header->lock);
+
+    // find existing KV instance
+    // search by name
+    query.kvs_name = (char*)kvs_name;
+    a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
+    if (a) { // KV name already exists
+        spin_unlock(&kv_header->lock);
+        file->mutexUnlock();
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                       "Failed to create KV Store '%s' as it already exists.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
+    }
+
+    // create a kvs_node and insert
+    node = (struct kvs_node *)calloc(1, sizeof(struct kvs_node));
+    node->id = kv_header->id_counter++;
+    node->seqnum = 0;
+    node->flags = 0x0;
+    node->op_stat.reset();
+    // search fhandle's custom cmp func list first
+    node->custom_cmp = root_handle->fhandle->getCmpFunctionByName((char *)kvs_name);
+    if (node->custom_cmp == NULL && kvs_config->custom_cmp) {
+        // follow kvs_config's custom cmp next
+        node->custom_cmp = kvs_config->custom_cmp;
+        // if custom cmp function is given by user but
+        // there is no corresponding function in fhandle's list
+        // add it into the list
+        root_handle->fhandle->addCmpFunction((char*) kvs_name,
+                                             kvs_config->custom_cmp);
+    }
+    if (node->custom_cmp) { // custom cmp function is used
+        node->flags |= KVS_FLAG_CUSTOM_CMP;
+        kv_header->custom_cmp_enabled = 1;
+    }
+    kv_ins_name_len = strlen(kvs_name)+1;
+    node->kvs_name = (char *)malloc(kv_ins_name_len);
+    strcpy(node->kvs_name, kvs_name);
+
+    avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
+    avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
+    ++kv_header->num_kv_stores;
+    spin_unlock(&kv_header->lock);
+
+    // if compaction is in-progress,
+    // create a same kvs_node for the new file
+    if (file->getFileStatus() == FILE_COMPACT_OLD) {
+
+        FileMgr *new_file = FileMgrMap::get()->fetchEntry(
+                                                    file->getNewFileName());
+
+        if (new_file) {
+            struct kvs_node *node_new;
+            KvsHeader *kv_header_new;
+
+            kv_header_new = new_file->getKVHeader_UNLOCKED();
+            node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
+            *node_new = *node;
+            node_new->kvs_name = (char*)malloc(kv_ins_name_len);
+            strcpy(node_new->kvs_name, kvs_name);
+
+            // insert into new file's kv_header
+            spin_lock(&kv_header_new->lock);
+            if (node->custom_cmp) {
+                kv_header_new->custom_cmp_enabled = 1;
+            }
+            avl_insert(kv_header_new->idx_name, &node_new->avl_name, _kvs_cmp_name);
+            avl_insert(kv_header_new->idx_id, &node_new->avl_id, _kvs_cmp_id);
+            spin_unlock(&kv_header_new->lock);
+        } else {
+            // new_file should have been found if compaction is in progress
+            fdb_assert(new_file, new_file, nullptr);
+        }
+    }
+
+    // since this function calls FileMgr::commit() and appends a new DB header,
+    // we should finalize & flush the previous dirty update before commit.
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    struct filemgr_dirty_update_node *prev_node = NULL;
+    struct filemgr_dirty_update_node *new_node = NULL;
+
+    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
+
+    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
+
+    // append system doc
+    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
+
+    // if no compaction is being performed, append header and commit
+    if (root_handle->file == file) {
+        uint64_t cur_bmp_revnum = 0;
+        if (file->getSb()) {
+            cur_bmp_revnum = file->getSb()->getBmpRevnum();
+        }
+        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
+        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
+        fs = root_handle->file->commitBid(
+                                root_handle->last_hdr_bid,
+                                cur_bmp_revnum,
+                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                                &root_handle->log_callback);
+        root_handle->bhandle->resetSubblockInfo();
+    }
+
+    file->mutexUnlock();
+
+    return fs;
+}
+
+// 1) identify whether the requested handle is for default KVS or not.
+// 2) if the requested handle is for the default KVS,
+//   2-1) if the requested handle is the root handle,
+//        -> just clear the OPENED flag.
+//   2-2) if the requested handle is not the root handle,
+//        -> call FdbEngine::getInstance()->closeKVHandle(),
+//        -> remove the corresponding node from fhandle->handles list,
+//        -> free the memory for the handle.
+// 3) if the requested handle is for non-default KVS,
+//    -> call FdbEngine::closeKvsInternal(),
+//       -> this will remove the node from fhandle->handles list.
+//    -> free the memory for the handle.
+fdb_status FdbEngine::closeKvs(FdbKvsHandle *handle)
+{
+    fdb_status fs;
+
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (handle->num_iterators) {
+        // There are still active iterators created from this handle
+        return FDB_RESULT_KV_STORE_BUSY;
+    }
+
+    if (handle->shandle && handle->kvs == NULL) {
+        // snapshot of the default KV store + single KV store mode
+        // directly close handle
+        // (snapshot of the other KV stores will be closed
+        //  using closeKvsInternal() below)
+        fs = FdbEngine::getInstance()->closeKVHandle(handle);
+        if (fs == FDB_RESULT_SUCCESS) {
+            delete handle;
+        }
+        return fs;
+    }
+
+    if (handle->kvs == NULL ||
+        handle->kvs->getKvsType() == KVS_ROOT) {
+        // the default KV store handle
+
+        if (handle->fhandle->getRootHandle() == handle) {
+            // do nothing for root handle
+            // the root handle will be closed with fdb_close() API call.
+            handle->fhandle->setFlags(handle->fhandle->getFlags() & ~FHANDLE_ROOT_OPENED); // remove flag
+            return FDB_RESULT_SUCCESS;
+
+        } else {
+            // the default KV store but not the root handle .. normally close
+            fs = FdbEngine::getInstance()->closeKVHandle(handle);
+            if (fs == FDB_RESULT_SUCCESS) {
+                // remove from 'handles' list in the root node
+                handle->fhandle->removeKVHandle(&handle->node->le);
+                free(handle->node);
+                delete handle;
+            }
+            return fs;
+        }
+    }
+
+    if (handle->kvs && handle->kvs->getRootHandle() == NULL) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    fs = closeKvsInternal(handle);
+    if (fs == FDB_RESULT_SUCCESS) {
+        delete handle;
+    }
+    return fs;
+}
+
+// 1) remove corresponding node from fhandle->handles list.
+// 2) call FdbEngine::getInstance()->closeKVHandle().
+fdb_status FdbEngine::closeKvsInternal(FdbKvsHandle *handle)
+{
+    FdbKvsHandle *root_handle = handle->kvs->getRootHandle();
+    fdb_status fs;
+
+    if (handle->node) {
+        root_handle->fhandle->removeKVHandle(&handle->node->le);
+        free(handle->node);
+    } // 'handle->node == NULL' happens only during rollback
+
+    fs = FdbEngine::getInstance()->closeKVHandle(handle);
+    return fs;
+}
+
+fdb_status FdbEngine::removeKvs(fdb_file_handle *fhandle,
+                                const char *kvs_name)
+{
+    return removeKvs(fhandle, kvs_name, false);
+}
+
+fdb_status FdbEngine::removeKvs(FdbFileHandle *fhandle,
+                                const char *kvs_name,
+                                bool rollback_recreate)
+{
+    size_t size_chunk, size_id;
+    uint8_t *_kv_id;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    fdb_kvs_id_t kv_id = 0;
+    FdbKvsHandle *root_handle;
+    struct avl_node *a = NULL;
+    FileMgr *file;
+    struct kvs_node *node, query;
+    KvsHeader *kv_header;
+
+    if (!fhandle || !fhandle->getRootHandle()) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    root_handle = fhandle->getRootHandle();
+
+    if (root_handle->config.multi_kv_instances == false) {
+        // cannot remove the KV instance under single DB instance mode
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+fdb_kvs_remove_start:
+    if (!rollback_recreate) {
+        fs = fdb_check_file_reopen(root_handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+        root_handle->file->mutexLock();
+        fdb_sync_db_header(root_handle);
+
+        if (root_handle->file->isRollbackOn()) {
+            root_handle->file->mutexUnlock();
+            return FDB_RESULT_FAIL_BY_ROLLBACK;
+        }
+    } else {
+        root_handle->file->mutexLock();
+    }
+
+    file = root_handle->file;
+
+    file_status_t fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        // we must not write into this file
+        // file status was changed by other thread .. start over
+        file->mutexUnlock();
+        goto fdb_kvs_remove_start;
+    } else if (fMgrStatus == FILE_COMPACT_OLD) {
+        // Cannot remove existing KV store during compaction.
+        // To remove a KV store, the corresponding first chunk in HB+trie
+        // should be unlinked. This can be possible in the old file during
+        // compaction, but impossible in the new file, since existing documents
+        // (including docs belonging to the KV store to be removed) are being moved.
+        file->mutexUnlock();
+        return FDB_RESULT_FAIL_BY_COMPACTION;
+    }
+
+    // find the kvs_node and remove
+
+    // search by name to get ID
+    if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
+        if (!rollback_recreate) {
+            // default KV store .. KV ID = 0
+            kv_id = 0;
+            if (isAnyKvsHandleOpened(fhandle, kv_id)) {
+                // there is an opened handle
+                file->mutexUnlock();
+                return FDB_RESULT_KV_STORE_BUSY;
+            }
+        }
+        // reset KVS stats (excepting for WAL stats)
+        file->accessHeader()->stat.ndocs = 0;
+        file->accessHeader()->stat.nlivenodes = 0;
+        file->accessHeader()->stat.datasize = 0;
+        file->accessHeader()->stat.deltasize = 0;
+
+        // reset seqnum
+        file->setSeqnum(0);
+    } else {
+        kv_header = file->getKVHeader_UNLOCKED();
+        spin_lock(&kv_header->lock);
+        query.kvs_name = (char*)kvs_name;
+        a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
+        if (a == NULL) { // KV name doesn't exist
+            spin_unlock(&kv_header->lock);
+            file->mutexUnlock();
+            return FDB_RESULT_KV_STORE_NOT_FOUND;
+        }
+        node = _get_entry(a, struct kvs_node, avl_name);
+        kv_id = node->id;
+
+        if (!rollback_recreate) {
+            spin_unlock(&kv_header->lock);
+            if (isAnyKvsHandleOpened(fhandle, kv_id)) {
+                // there is an opened handle
+                file->mutexUnlock();
+                return FDB_RESULT_KV_STORE_BUSY;
+            }
+            spin_lock(&kv_header->lock);
+
+            avl_remove(kv_header->idx_name, &node->avl_name);
+            avl_remove(kv_header->idx_id, &node->avl_id);
+            --kv_header->num_kv_stores;
+            spin_unlock(&kv_header->lock);
+
+            kv_id = node->id;
+
+            // free node
+            free(node->kvs_name);
+            free(node);
+        } else {
+            // reset all stats except for WAL
+            node->stat.ndocs = 0;
+            node->stat.nlivenodes = 0;
+            node->stat.datasize = 0;
+            node->stat.deltasize = 0;
+            node->seqnum = 0;
+            spin_unlock(&kv_header->lock);
+        }
+    }
+
+    // discard all WAL entries
+    file->getWal()->closeKvs_Wal(kv_id, &root_handle->log_callback);
+
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
+
+    size_id = sizeof(fdb_kvs_id_t);
+    size_chunk = root_handle->trie->getChunkSize();
+
+    // remove from super handle's HB+trie
+    _kv_id = alca(uint8_t, size_chunk);
+    kvid2buf(size_chunk, kv_id, _kv_id);
+    root_handle->trie->removePartial(_kv_id, size_chunk);
+    root_handle->bhandle->flushBuffer();
+
+    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        _kv_id = alca(uint8_t, size_id);
+        kvid2buf(size_id, kv_id, _kv_id);
+        root_handle->seqtrie->removePartial(_kv_id, size_id);
+        root_handle->bhandle->flushBuffer();
+    }
+
+    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
+
+    // append system doc
+    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
+
+    // if no compaction is being performed, append header and commit
+    if (root_handle->file == file) {
+        uint64_t cur_bmp_revnum = 0;
+        if (file->getSb()) {
+            cur_bmp_revnum = file->getSb()->getBmpRevnum();
+        }
+        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
+        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
+        fs = root_handle->file->commitBid(
+                                root_handle->last_hdr_bid,
+                                cur_bmp_revnum,
+                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                                &root_handle->log_callback);
+        root_handle->bhandle->resetSubblockInfo();
+    }
+
+    file->mutexUnlock();
+
+    return fs;
+}
+
+bool FdbEngine::isAnyKvsHandleOpened(FdbFileHandle *fhandle,
+                                     fdb_kvs_id_t kv_id)
+{
+    FileMgr *file = fhandle->getRootHandle()->file;
+    struct avl_node *a;
+    struct filemgr_fhandle_idx_node *fhandle_node;
+    fdb_file_handle *file_handle;
+
+    file->acquireHandleIdxLock();
+    struct avl_tree *handle_idx = file->getHandleIdx();
+    a = avl_first(handle_idx);
+    while (a) {
+        fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
+        file_handle = (fdb_file_handle *) fhandle_node->fhandle;
+        if (file_handle->checkAnyActiveKVHandle(kv_id)) {
+            file->releaseHandleIdxLock();
+            return true;
+        }
+    }
+    file->releaseHandleIdxLock();
+
+    return false;
 }

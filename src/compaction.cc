@@ -744,11 +744,11 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     config.compaction_mode = FDB_COMPACTION_MANUAL;
     if (rhandle->kvs) {
         // sub-handle in multi KV instance mode
-        fs = _fdb_kvs_open(NULL,
-                           &config, &kvs_config, file,
-                           file->getFileName(),
-                           NULL,
-                           &handle);
+        fs = FdbEngine::getInstance()->openKvs(NULL,
+                                               &config, &kvs_config, file,
+                                               file->getFileName(),
+                                               NULL,
+                                               &handle);
     } else {
         fs = FdbEngine::getInstance()->openFdb(&handle, file->getFileName(),
                                                FDB_AFILENAME, &config);

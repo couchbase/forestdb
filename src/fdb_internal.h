@@ -151,13 +151,6 @@ const char* _fdb_kvs_extract_name_off(FdbKvsHandle *handle, void *keybuf,
 
 fdb_status _fdb_kvs_clone_snapshot(FdbKvsHandle *handle_in,
                                    FdbKvsHandle *handle_out);
-fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
-                         fdb_config *config,
-                         fdb_kvs_config *kvs_config,
-                         FileMgr *file,
-                         const char *filename,
-                         const char *kvs_name,
-                         FdbKvsHandle *handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
                                 fdb_kvs_id_t id);
@@ -166,8 +159,6 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle);
 void fdb_kvs_set_seqnum(FileMgr *file,
                         fdb_kvs_id_t id,
                         fdb_seqnum_t seqnum);
-
-fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum);
 
 /**
  * Return the smallest commit revision number that are currently being referred.

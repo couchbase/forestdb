@@ -18,10 +18,16 @@
 #include <stdlib.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_engine.h"
 #include "fdb_internal.h"
 
 LIBFDB_API
 const char* fdb_error_msg(fdb_status err_code)
+{
+    return FdbEngine::getErrorMsg(err_code);
+}
+
+const char* FdbEngine::getErrorMsg(fdb_status err_code)
 {
     switch (err_code)
     {
