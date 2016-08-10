@@ -22,6 +22,7 @@
 
 enum type_id_t {
     COMPACTOR_ID,
+    BGFLUSHER_ID,
     MAX_TYPE_ID // Keep this as the last enum value
 };
 
@@ -34,6 +35,7 @@ public:
 
     // Priorities for Read-Write tasks
     static const Priority CompactorPriority;
+    static const Priority BgFlusherPriority;
 
     // Priorities for NON-IO tasks
 
