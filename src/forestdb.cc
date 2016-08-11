@@ -2409,9 +2409,9 @@ fdb_status FdbEngine::destroyInstance() {
         }
         CompactionManager::destroyInstance();
         BgFlusher::destroyBgFlusher();
-        ExecutorPool::shutdown();
         fdb_status ret = FileMgr::shutdown();
         if (ret == FDB_RESULT_SUCCESS) {
+            ExecutorPool::shutdown();
             // Shutdown HBtrie's memory pool
             HBTrie::shutdownMemoryPool();
             delete tmp;
