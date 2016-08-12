@@ -758,11 +758,11 @@ bool _validate_range_limits(fdb_iterator *iterator,
     return true;
 }
 
-LIBFDB_API
-fdb_status fdb_iterator_seek(fdb_iterator *iterator,
-                             const void *seek_key,
-                             const size_t seek_keylen,
-                             const fdb_iterator_seek_opt_t seek_pref)
+static fdb_status _fdb_iterator_seek(fdb_iterator *iterator,
+                                     const void *seek_key,
+                                     const size_t seek_keylen,
+                                     const fdb_iterator_seek_opt_t seek_pref,
+                                     bool seek_min_max)
 {
     if (!iterator || !iterator->handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -815,8 +815,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                                     (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
             // seek the end key at this time,
-            // and call prev() next.
-            next_op = -1;
+            // and call prev() next iff caller is seek_to_max()
+            if (seek_min_max) {
+                next_op = -1;
+            }
         }
         if (cmp < 0) {
             atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
@@ -832,8 +834,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                                   (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) {
             // seek the start key at this time,
-            // and call next() next.
-            next_op = 1;
+            // and call next() next iff caller is seek_to_min()
+            if (seek_min_max) {
+                next_op = 1;
+            }
         }
         if (cmp > 0) {
             atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
@@ -1233,6 +1237,15 @@ fetch_hbtrie:
 }
 
 LIBFDB_API
+fdb_status fdb_iterator_seek(fdb_iterator *iterator,
+                             const void *seek_key,
+                             const size_t seek_keylen,
+                             const fdb_iterator_seek_opt_t seek_pref) {
+    return _fdb_iterator_seek(iterator, seek_key, seek_keylen, seek_pref,
+                              false /*not seek_to_min() or seek_to_max()*/);
+}
+
+LIBFDB_API
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
 {
     if (!iterator || !iterator->handle) {
@@ -1254,16 +1267,19 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
     if (iterator->start_keylen > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterator->opt & FDB_ITR_SKIP_MIN_KEY) ?
                                       FDB_ITR_SEEK_HIGHER : FDB_ITR_SEEK_LOWER;
-        fdb_status status = fdb_iterator_seek(iterator,
+        fdb_status status = _fdb_iterator_seek(iterator,
                 (uint8_t *)iterator->start_key + size_chunk,
-                iterator->start_keylen - size_chunk, dir);
+                iterator->start_keylen - size_chunk,
+                dir, true);// not regular seek
+
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_LOWER) {
             dir = FDB_ITR_SEEK_HIGHER;
             // It is possible that the min key specified during init does not
             // exist, so retry the seek with the HIGHER key
-            return fdb_iterator_seek(iterator,
+            return _fdb_iterator_seek(iterator,
                 (uint8_t *)iterator->start_key + size_chunk,
-                iterator->start_keylen - size_chunk, dir);
+                iterator->start_keylen - size_chunk,
+                dir, true);// not regular seek
         }
         return status;
     }
@@ -1306,17 +1322,19 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
     if (iterator->end_keylen > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterator->opt & FDB_ITR_SKIP_MAX_KEY) ?
                                       FDB_ITR_SEEK_LOWER : FDB_ITR_SEEK_HIGHER;
-        fdb_status status = fdb_iterator_seek(iterator,
+        fdb_status status = _fdb_iterator_seek(iterator,
                 (uint8_t *)iterator->end_key + size_chunk,
-                iterator->end_keylen - size_chunk, dir);
+                iterator->end_keylen - size_chunk,
+                dir, true);// not regular seek
 
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_HIGHER) {
             dir = FDB_ITR_SEEK_LOWER;
             // It is possible that the max key specified during init does not
             // exist, so retry the seek with the LOWER key
-            return fdb_iterator_seek(iterator,
+            return _fdb_iterator_seek(iterator,
                     (uint8_t *)iterator->end_key + size_chunk,
-                    iterator->end_keylen - size_chunk, dir);
+                    iterator->end_keylen - size_chunk,
+                    dir, true);// not regular seek
         }
         return status;
     }
