@@ -473,7 +473,8 @@ fdb_status FdbIterator::destroyIterator(fdb_iterator *iterator) {
 
 fdb_status FdbIterator::seek(const void *seek_key,
                              const size_t seek_keylen,
-                             const fdb_iterator_seek_opt_t seek_pref) {
+                             const fdb_iterator_seek_opt_t seek_pref,
+                             const bool seek_min_max) {
 
     int cmp, cmp2; // intermediate results of comparison
     int next_op = 0; // 0: none, -1: prev(), 1: next();
@@ -521,8 +522,10 @@ fdb_status FdbIterator::seek(const void *seek_key,
                            (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterOpt & FDB_ITR_SKIP_MAX_KEY) {
             // seek the end key at this time,
-            // and call prev() next.
-            next_op = -1;
+            // and call prev() next iff caller is seek_to_max()
+            if (seek_min_max) {
+                next_op = -1;
+            }
         }
         if (cmp < 0) {
             cond = 1;
@@ -537,8 +540,10 @@ fdb_status FdbIterator::seek(const void *seek_key,
                            (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterOpt & FDB_ITR_SKIP_MIN_KEY) {
             // seek the start key at this time,
-            // and call next() next.
-            next_op = 1;
+            // and call next() next iff caller is seek_to_min()
+            if (seek_min_max) {
+                next_op = 1;
+            }
         }
         if (cmp > 0) {
             cond = 1;
@@ -933,13 +938,15 @@ fdb_status FdbIterator::seekToMin() {
         fdb_iterator_seek_opt_t dir = (iterOpt & FDB_ITR_SKIP_MIN_KEY) ?
                                       FDB_ITR_SEEK_HIGHER : FDB_ITR_SEEK_LOWER;
         fdb_status status = seek((uint8_t *)startKey.data + size_chunk,
-                                 startKey.len - size_chunk, dir);
+                                 startKey.len - size_chunk,
+                                 dir, true);// not regular seek
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_LOWER) {
             dir = FDB_ITR_SEEK_HIGHER;
             // It is possible that the min key specified during init does not
             // exist, so retry the seek with the HIGHER key
             return seek((uint8_t *)startKey.data + size_chunk,
-                        startKey.len - size_chunk, dir);
+                        startKey.len - size_chunk,
+                        dir, true); // not a regular seek
         }
         return status;
     }
@@ -1401,7 +1408,7 @@ fdb_status FdbIterator::seekToMaxKey() {
                                             FDB_ITR_SEEK_HIGHER;
         fdb_status status = seek((uint8_t *)endKey.data + size_chunk,
                                  endKey.len - size_chunk,
-                                 dir);
+                                 dir, true); //not regular seek
 
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_HIGHER) {
             dir = FDB_ITR_SEEK_LOWER;
@@ -1409,7 +1416,7 @@ fdb_status FdbIterator::seekToMaxKey() {
             // exist, so retry the seek with the LOWER key
             return seek((uint8_t *)endKey.data + size_chunk,
                         endKey.len - size_chunk,
-                        dir);
+                        dir, true); // not a regular seek
         }
         return status;
     }
@@ -1917,8 +1924,12 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     if (!iterator || !iterator->getHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
+    if (seek_pref != FDB_ITR_SEEK_HIGHER && seek_pref != FDB_ITR_SEEK_LOWER) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
-    return iterator->seek(seek_key, seek_keylen, seek_pref);
+    return iterator->seek(seek_key, seek_keylen, seek_pref,
+                          false); // not from seek_to_min/max()
 }
 
 LIBFDB_API

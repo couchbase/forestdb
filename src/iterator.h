@@ -144,7 +144,8 @@ public:
 
     /* Moves the iterator to specified key */
     fdb_status seek(const void *seek_key, const size_t seek_keylen,
-                    const fdb_iterator_seek_opt_t seek_pref);
+                    const fdb_iterator_seek_opt_t seek_pref,
+                    const bool seek_min_max);
 
     /* Moves the iterator to smallest key */
     fdb_status seekToMin();
@@ -201,6 +202,7 @@ private:
 
     // ForestDB KV store handle
     FdbKvsHandle *iterHandle;
+
     // Was this iterator created on an pre-existing snapshot handle
     bool snapshotHandle;
     // HB+Trie iterator instance
