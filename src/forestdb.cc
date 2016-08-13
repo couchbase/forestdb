@@ -4411,22 +4411,9 @@ fdb_snapshot_open_start:
                 handle->bhandle->discardBlocks();
             }
             // Having synced the dirty root, make an in-memory WAL snapshot
-            // TODO: Re-enable WAL sharing once ready...
 #ifdef _MVCC_WAL_ENABLE
-            if (txn == handle_in->file->getGlobalTxn()) {
-
-                fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, seqnum,
-                                                 &cmp_info, &handle->shandle);
-            } else { // Snapshots from uncommitted transactions are isolated
-                fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
-                                                          &cmp_info, txn,
-                                                          &handle->shandle);
-                if (fs == FDB_RESULT_SUCCESS) {
-                    fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
-                                                      (bool)handle_in->kvs);
-                }
-                (void)kv_id;
-            }
+            fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, handle->seqnum,
+                                                  &cmp_info, &handle->shandle);
 #else
             fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
                                                       &cmp_info, txn,

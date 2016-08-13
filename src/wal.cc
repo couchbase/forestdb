@@ -184,6 +184,7 @@ Wal::Wal(FileMgr *_file, size_t nbucket)
     mem_overhead = 0;
     isPopulated = false;
     wal_dirty = FDB_WAL_CLEAN;
+    unFlushedTransactions = false;
 
     list_init(&txn_list);
     spin_init(&lock);
@@ -396,6 +397,61 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
 {
     struct wal_kvs_snaps *kvs_snapshots;
     struct snap_handle *_shandle;
+
+    // Forestdb supports 2 transaction isolation levels. For simplicity,
+    // mutations from uncommitted transactions are not inserted into any
+    // global shared snapshots.
+    // As a result when snapshots are taken from within transactions, we
+    // have to copy all mutations differently based on the isolation levels
+    //  Example database with only 1 key - "keyA":
+    //  1) SET keyA (non-transactional)
+    //  2) COMMIT (non-transactional)
+    //  3) SET keyA (non-transactional)
+    //  4) SNAPSHOT OPEN <<--- keyA from step 3) should be returned
+    //  5) BEGIN TRANSACTION1 (isolation=FDB_ISOLATION_READ_COMMITTED)
+    //  6)    SNAPSHOT OPEN <<--- only keyA from step 1) should be visible
+    //  7)    SET keyA (transaction1)
+    //  8)    SNAPSHOT OPEN <<--- only keyA from step 7) should be visible
+    //  9) BEGIN TRANSACTION2 (isolation=FDB_ISOLATION_READ_UNCOMMITTED)
+    //  10)    SNAPSHOT OPEN <<--- keyA from step 7) should be visible
+    //  11)    SET keyA (transaction2)
+    //
+    //  keyA inserted in step 7) and 11) are not inserted into the global
+    //  shared snapshot tree. Only keyA from step1 and step3 are inserted
+    //  into their latest mutable snapshot trees.
+    //  So, in order to support the snapshot creations at steps 6), 8) and 10)
+    //  we must copy the all the WAL items for transactional snapshots........
+    //
+    // Now, continuing the above example..
+    // 12) END TRANSACTION2
+    // 13) END TRANSACTION1 - Last write wins - keyA from step 11) is overriden
+    // 14) SNAPSHOT OPEN <<--older keyA from step 7) returned
+    //
+    // Since transactional items are not inserted into any global tree,
+    // and TRANSACTION1 ended after TRANSACTION2, snapshot open cannot
+    // rely on the global shared snapshot trees anymore, because as
+    // per the global snapshot tree keyA from step3 is the latest
+    // As a result, until keyA from step7 is reflected in main index,
+    // we must copy all WAL items when in-memory snapshots are taken......
+
+    if (txn != file->getGlobalTxn() || // Snapshot in uncommitted transaction
+        unFlushedTransactions) { // Transaction committed but yet to be flushed
+        // TODO: We plan to optimize transactions & their snapshots in the future
+        fdb_status fs;
+        fs = file->getWal()->snapshotOpenPersisted_Wal(seqnum,
+                                                       key_cmp_info, txn,
+                                                       shandle);
+        if (fs == FDB_RESULT_SUCCESS) {
+            fs = file->getWal()->copy2Snapshot_Wal(*shandle,
+                    (bool)key_cmp_info->kvs);
+        }
+        return fs;
+    } else { // In-memory snapshot using MVCC architecture..
+        // (handle->seqnum is only passed in for copying WAL
+        // For in-memory snapshots, correct seqnum will be obtained under the
+        // auspices of the WAL lock)
+        seqnum = FDB_SNAPSHOT_INMEM;
+    }
 
     spin_lock(&lock);
     kvs_snapshots = _wal_get_kvs_snaplist(kv_id);
@@ -1289,6 +1345,13 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
     uint64_t _mem_overhead = 0;
     LATENCY_STAT_START();
 
+    if (txn != file->getGlobalTxn()) {
+        // Since transactions change latest mutable snapshot state
+        // Set following flag to inform future snapshot open to copy all
+        // items as opposed to MVCC
+        unFlushedTransactions = true; // TODO: Make commit O(1) operation!
+    }
+
     e1 = list_begin(txn->items);
     while(e1) {
         item = _get_entry(e1, struct wal_item, list_elem_txn);
@@ -1562,6 +1625,11 @@ inline void Wal::_wal_snap_mark_flushed(void)
             shandle->is_flushed = true;
         }
     }
+
+    // Since all committed transactions are now reflected in main index, until
+    // the next transactional commit, we can still safely do MVCC for snapshots
+    unFlushedTransactions = false;
+
     spin_unlock(&lock);
 }
 
@@ -3089,6 +3157,7 @@ fdb_status Wal::shutdown_Wal(ErrLogCallback *log_callback)
     datasize = 0;
     mem_overhead = 0;
     isPopulated = false;
+    unFlushedTransactions = false;
     return wr;
 }
 
