@@ -1539,6 +1539,7 @@ void iterator_inmem_snapshot_seek_test(bool flush_wal)
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db;
     fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -1617,6 +1618,48 @@ void iterator_inmem_snapshot_seek_test(bool flush_wal)
     // seek to non-existent key that happens to be land on key larger than
     // end key which should not be returned.
     status = fdb_iterator_seek(iterator, "c3", 2, FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    fdb_iterator_close(iterator);
+
+    // create an iterator on the snapshot for just 3 items within range
+    fdb_iterator_init(snap_db, &iterator, (void*)"b0", 2, (void*)"e2", 2,
+                      FDB_ITR_NO_DELETES|
+                      FDB_ITR_SKIP_MAX_KEY|
+                      FDB_ITR_SKIP_MIN_KEY);
+
+    // seek to max key but skip max key
+    // should return a key for fdb_iterator_seek_to_max
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, "d2", rdoc->keylen);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // But same attempt with regular seek to max key
+    // no key should be returned since we want to skip max key
+    status = fdb_iterator_seek(iterator, "e2", 2, FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    // seek to min key but skip min key
+    // should return a key for fdb_iterator_seek_to_min
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, "c2", rdoc->keylen);
+    fdb_doc_free(rdoc);
+
+    // But same attempt with regular seek to min key
+    // no key should be returned since we want to skip min key
+    status = fdb_iterator_seek(iterator, "b0", 2, FDB_ITR_SEEK_LOWER);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    // seek to key outside the range that happens to land on non-existent key
+    // no key should be returned
+    status = fdb_iterator_seek(iterator, "b0", 2, FDB_ITR_SEEK_LOWER);
     TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
 
     fdb_iterator_close(iterator);
