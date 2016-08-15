@@ -1015,7 +1015,10 @@ static fdb_status _fdb_kvs_create(FdbKvsHandle *root_handle,
     }
 
 fdb_kvs_create_start:
-    fdb_check_file_reopen(root_handle, NULL);
+    fs = fdb_check_file_reopen(root_handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
     root_handle->file->mutexLock();
     fdb_sync_db_header(root_handle);
 
@@ -1344,7 +1347,10 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         config_local = get_default_kvs_config();
     }
 
-    fdb_check_file_reopen(root_handle, NULL);
+    fs = fdb_check_file_reopen(root_handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
     fdb_sync_db_header(root_handle);
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
@@ -1553,7 +1559,10 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
 
 fdb_kvs_remove_start:
     if (!rollback_recreate) {
-        fdb_check_file_reopen(root_handle, NULL);
+        fs = fdb_check_file_reopen(root_handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         root_handle->file->mutexLock();
         fdb_sync_db_header(root_handle);
 
@@ -1782,7 +1791,10 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     }
     if (fMgrStatus == FILE_REMOVED_PENDING) {
         handle_in->file->mutexUnlock();
-        fdb_check_file_reopen(handle_in, NULL);
+        fs = fdb_check_file_reopen(handle_in, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
     } else {
         handle_in->file->mutexUnlock();
     }
@@ -2194,6 +2206,7 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
     struct kvs_node *node, query;
     KvsHeader *kv_header;
     KvsStat stat;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2209,7 +2222,12 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
     }
 
     if (!handle->shandle) { // snapshot handle should be immutable
-        fdb_check_file_reopen(handle, NULL);
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return status;
+        }
         fdb_sync_db_header(handle);
     }
 
@@ -2277,7 +2295,7 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
     // in the line above before making this call
     fdb_get_kvs_seqnum(handle, &info->last_seqnum);
 
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info)
@@ -2286,6 +2304,7 @@ fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info
     FileMgr *file;
     KvsOpsStat stat;
     KvsOpsStat root_stat;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2301,7 +2320,10 @@ fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info
     // reader stats from the old file
     if (!handle->shandle) {
         // always get stats from the latest file
-        fdb_check_file_reopen(handle, NULL);
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            return status;
+        }
         fdb_sync_db_header(handle);
     }
 
@@ -2331,11 +2353,13 @@ fdb_status FdbEngine::getKvsOpsInfo(FdbKvsHandle *handle, fdb_kvs_ops_info *info
 
     info->num_commits = root_stat.num_commits.load(std::memory_order_relaxed);
     info->num_compacts = root_stat.num_compacts.load(std::memory_order_relaxed);
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 {
+    fdb_status status = FDB_RESULT_SUCCESS;
+
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
@@ -2354,7 +2378,12 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
         // return MAX_SEQNUM instead of the file's sequence number
         *seqnum = handle->max_seqnum;
     } else {
-        fdb_check_file_reopen(handle, NULL);
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return status;
+        }
         fdb_sync_db_header(handle);
 
         FileMgr *file;
@@ -2372,5 +2401,5 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_SUCCESS;
+    return status;
 }

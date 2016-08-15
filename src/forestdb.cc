@@ -2123,7 +2123,10 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
         return FDB_RESULT_FILE_NOT_OPEN;
     }
 
-    fdb_check_file_reopen(handle, &fMgrStatus);
+    status = fdb_check_file_reopen(handle, &fMgrStatus);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
     fdb_sync_db_header(handle);
 
     SuperblockBase *sb = handle->file->getSb();
@@ -3300,7 +3303,12 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
     }
 
     if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
+        wr = fdb_check_file_reopen(handle, NULL);
+        if (wr != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return wr;
+        }
 
         txn = handle->fhandle->getRootHandle()->txn;
         if (!txn) {
@@ -3444,7 +3452,12 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
     }
 
     if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
+        wr = fdb_check_file_reopen(handle, NULL);
+        if (wr != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return wr;
+        }
 
         txn = handle->fhandle->getRootHandle()->txn;
         if (!txn) {
@@ -3741,7 +3754,12 @@ fdb_status FdbEngine::set(FdbKvsHandle *handle, fdb_doc *doc)
     }
 
 fdb_set_start:
-    fdb_check_file_reopen(handle, NULL);
+    wr = fdb_check_file_reopen(handle, NULL);
+    if (wr != FDB_RESULT_SUCCESS) {
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return wr;
+    }
 
     size_t throttling_delay = handle->file->getThrottlingDelay();
     if (throttling_delay) {
@@ -4027,7 +4045,13 @@ fdb_status FdbEngine::commitWithKVHandle(FdbKvsHandle *handle,
     }
 
 fdb_commit_start:
-    fdb_check_file_reopen(handle, NULL);
+    wr = fdb_check_file_reopen(handle, NULL);
+    if (wr != FDB_RESULT_SUCCESS) {
+        cond = 1;
+        handle->handle_busy.compare_exchange_strong(cond, 0);
+        return wr;
+    }
+
     handle->file->mutexLock();
     fdb_sync_db_header(handle);
 
@@ -4261,7 +4285,10 @@ fdb_status FdbEngine::openSnapshot(FdbKvsHandle *handle_in,
 
 fdb_snapshot_open_start:
     if (!handle_in->shandle) {
-        fdb_check_file_reopen(handle_in, &fMgrStatus);
+        fs = fdb_check_file_reopen(handle_in, &fMgrStatus);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         fdb_sync_db_header(handle_in);
         file = handle_in->file;
 
@@ -4526,7 +4553,12 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     }
     if (fMgrStatus == FILE_REMOVED_PENDING) {
         handle_in->file->mutexUnlock();
-        fdb_check_file_reopen(handle_in, NULL);
+        fs = fdb_check_file_reopen(handle_in, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle_in->handle_busy.compare_exchange_strong(cond, 0);
+            return fs;
+        }
     } else {
         handle_in->file->mutexUnlock();
     }
@@ -4664,7 +4696,10 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
     }
     if (fMgrStatus == FILE_REMOVED_PENDING) {
         super_handle->file->mutexUnlock();
-        fdb_check_file_reopen(super_handle, NULL);
+        fs = fdb_check_file_reopen(super_handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
     } else {
         super_handle->file->mutexUnlock();
     }
@@ -4862,7 +4897,11 @@ size_t FdbEngine::estimateSpaceUsed(FdbFileHandle *fhandle)
 
     handle = fhandle->getRootHandle();
 
-    fdb_check_file_reopen(handle, NULL);
+    fdb_status fs = fdb_check_file_reopen(handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return ret;
+    }
+
     fdb_sync_db_header(handle);
 
     file = handle->file;
@@ -4913,7 +4952,10 @@ size_t FdbEngine::estimateSpaceUsedFrom(FdbFileHandle *fhandle,
         return 0;
     }
 
-    fdb_check_file_reopen(handle, &fMgrStatus);
+    status = fdb_check_file_reopen(handle, &fMgrStatus);
+    if (status != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
     fdb_sync_db_header(handle);
 
     // Start loading from current header
@@ -4980,6 +5022,7 @@ fdb_status FdbEngine::getFileInfo(FdbFileHandle *fhandle, fdb_file_info *info)
 {
     uint64_t ndocs, ndeletes;
     FdbKvsHandle *handle;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -4990,7 +5033,11 @@ fdb_status FdbEngine::getFileInfo(FdbFileHandle *fhandle, fdb_file_info *info)
     }
     handle = fhandle->getRootHandle();
 
-    fdb_check_file_reopen(handle, NULL);
+    status = fdb_check_file_reopen(handle, NULL);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
+
     fdb_sync_db_header(handle);
 
     if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
@@ -5046,7 +5093,7 @@ fdb_status FdbEngine::getFileInfo(FdbFileHandle *fhandle, fdb_file_info *info)
     }
     info->num_kv_stores = num;
 
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 fdb_status FdbEngine::getLatencyStats(FdbFileHandle *fhandle,

@@ -1193,8 +1193,10 @@ void wal_commit_test()
     fdb_close(dbfile);
 
     // reopen
-    fdb_open(&dbfile, "./func_test1", &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_open(&dbfile, "./func_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "wal_commit_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1880,8 +1882,10 @@ void multi_thread_test(
 
     // open db
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&dbfile, temp, &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_open(&dbfile, temp, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "multi_thread_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1900,10 +1904,12 @@ void multi_thread_test(
 
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(db, doc[i]);
+        status = fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
 
-    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     gettimeofday(&ts_cur, NULL);
     ts_gap = _utime_gap(ts_begin, ts_cur);
@@ -1959,9 +1965,12 @@ void multi_thread_test(
 
     // check sequence number
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&dbfile, temp, &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
-    fdb_get_kvs_info(db, &kvs_info);
+    status = fdb_open(&dbfile, temp, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(kvs_info.last_seqnum == ndocs+nwrites);
     fdb_kvs_close(db);
     fdb_close(dbfile);

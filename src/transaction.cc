@@ -44,6 +44,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     file_status_t fstatus;
     FdbKvsHandle *handle = fhandle->getRootHandle();
     FileMgr *file;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     if (handle->txn) {
         // transaction already exists
@@ -62,7 +63,12 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     }
 
     do { // repeat until file status is not REMOVED_PENDING
-        fdb_check_file_reopen(handle, NULL);
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return status;
+        }
         handle->file->mutexLock();
         fdb_sync_db_header(handle);
 
@@ -108,7 +114,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 LIBFDB_API
@@ -129,6 +135,7 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
 
     file_status_t fstatus;
     FileMgr *file;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     if (handle->txn == NULL) {
         // there is no transaction started
@@ -147,7 +154,12 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
     }
 
     do { // repeat until file status is not REMOVED_PENDING
-        fdb_check_file_reopen(handle, NULL);
+        status = fdb_check_file_reopen(handle, NULL);
+        if (status != FDB_RESULT_SUCCESS) {
+            cond = 1;
+            handle->handle_busy.compare_exchange_strong(cond, 0);
+            return status;
+        }
 
         file = handle->file;
         file->mutexLock();
@@ -173,7 +185,7 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
 
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 LIBFDB_API
@@ -209,7 +221,10 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
     if (fs == FDB_RESULT_SUCCESS) {
 
         do { // repeat until file status is not REMOVED_PENDING
-            fdb_check_file_reopen(handle, NULL);
+            fs = fdb_check_file_reopen(handle, NULL);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
 
             file = handle->file;
             file->mutexLock();

@@ -509,14 +509,20 @@ fdb_status Compaction::checkCompactionReadiness(FdbKvsHandle *handle,
     // First of all, update the handle for the case
     // that compaction by other thread is already done
     // (REMOVED_PENDING status).
-    fdb_check_file_reopen(handle, NULL);
+    fdb_status fs = fdb_check_file_reopen(handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
     fdb_sync_db_header(handle);
 
     // if the file is already compacted by other thread
     if (handle->file->getFileStatus() != FILE_NORMAL ||
         !handle->file->getNewFileName().empty()) {
         // update handle and return
-        fdb_check_file_reopen(handle, NULL);
+        fs = fdb_check_file_reopen(handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         fdb_sync_db_header(handle);
 
         return FDB_RESULT_COMPACTION_FAIL;

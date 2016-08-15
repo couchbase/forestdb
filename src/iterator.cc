@@ -335,6 +335,8 @@ fdb_status FdbIterator::initIterator(FdbKvsHandle *handle,
                                      size_t end_keylen,
                                      fdb_iterator_opt_t opt) {
 
+    fdb_status fs = FDB_RESULT_SUCCESS;
+
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
@@ -356,7 +358,10 @@ fdb_status FdbIterator::initIterator(FdbKvsHandle *handle,
     if (!handle->shandle) {
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
-        fdb_check_file_reopen(handle, NULL);
+        fs = fdb_check_file_reopen(handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         fdb_sync_db_header(handle);
     }
 
@@ -367,7 +372,7 @@ fdb_status FdbIterator::initIterator(FdbKvsHandle *handle,
         // snapshot handle doesn't exist
         // open a new handle to make the iterator handle as a snapshot
         FdbKvsHandle *new_handle;
-        fdb_status fs = fdb_snapshot_open(handle, &new_handle, FDB_SNAPSHOT_INMEM);
+        fs = fdb_snapshot_open(handle, &new_handle, FDB_SNAPSHOT_INMEM);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(&handle->log_callback, fs,
                     "Failed to create an iterator instance due to the failure of "
@@ -401,6 +406,8 @@ fdb_status FdbIterator::initSeqIterator(FdbKvsHandle *handle,
                                         const fdb_seqnum_t end_seq,
                                         fdb_iterator_opt_t opt) {
 
+    fdb_status fs = FDB_RESULT_SUCCESS;
+
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
@@ -417,7 +424,10 @@ fdb_status FdbIterator::initSeqIterator(FdbKvsHandle *handle,
     if (!handle->shandle) {
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
-        fdb_check_file_reopen(handle, NULL);
+        fs = fdb_check_file_reopen(handle, NULL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         fdb_sync_db_header(handle);
     }
 
@@ -429,7 +439,7 @@ fdb_status FdbIterator::initSeqIterator(FdbKvsHandle *handle,
         // snapshot handle doesn't exist
         // open a new handle to make the iterator handle as a snapshot
         FdbKvsHandle *new_handle;
-        fdb_status fs = fdb_snapshot_open(handle, &new_handle, FDB_SNAPSHOT_INMEM);
+        fs = fdb_snapshot_open(handle, &new_handle, FDB_SNAPSHOT_INMEM);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(&handle->log_callback, fs,
                     "Failed to create an sequence iterator instance due to the "
