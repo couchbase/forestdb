@@ -65,7 +65,6 @@ struct btree_meta{
     void *data;
 };
 
-typedef void* voidref;
 typedef struct bnode* bnoderef;
 typedef int btree_cmp_func(void *key1, void *key2, void *aux);
 

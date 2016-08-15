@@ -103,6 +103,17 @@ target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(btreeblock_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
+add_executable(commit_log_test
+               commit_log_test.cc
+               ${ROOT_SRC}/commit_log.cc
+               ${ROOT_SRC}/docio.cc
+               $<TARGET_OBJECTS:FILEMGR_DEPS_CORE>)
+target_link_libraries(commit_log_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(commit_log_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 add_executable(docio_test
                docio_test.cc
                ${ROOT_SRC}/docio.cc

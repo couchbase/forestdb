@@ -77,6 +77,8 @@
 #define FDB_BGFLUSHER_DIRTY_THRESHOLD (1024) //if more than this 4MB dirty
                                              // wake up any sleeping bgflusher
 
+#define FDB_DEFAULT_COMMIT_LOG_SIZE (16777216) // 16MB
+
 #define BCACHE_NBUCKET (4099) // a prime number
 #define BCACHE_NDICBUCKET (4099) // a prime number
 #define BCACHE_FLUSH_UNIT (1048576) // 1MB

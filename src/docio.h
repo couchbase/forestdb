@@ -190,6 +190,10 @@ public:
         return compress_document_body;
     }
 
+    static struct docio_length encodeLength_Docio(struct docio_length length);
+
+    static struct docio_length decodeLength_Docio(struct docio_length length);
+
 private:
     fdb_status _fillZero_Docio(bid_t bid, size_t pos);
 

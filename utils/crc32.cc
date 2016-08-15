@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include "crc32.h"
-#include "arch.h"
+#include "common.h"
 
 
 /// look-up table, already declared above

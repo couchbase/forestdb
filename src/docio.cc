@@ -478,10 +478,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
     return 0;
 }
 
-#ifdef __ENDIAN_SAFE
-inline struct docio_length
-DocioHandle::_encodeLength_Docio(struct docio_length length)
-{
+static struct docio_length _encode_length(struct docio_length length) {
     struct docio_length ret;
     ret = length;
     ret.keylen = _endian_encode(length.keylen);
@@ -491,9 +488,7 @@ DocioHandle::_encodeLength_Docio(struct docio_length length)
     return ret;
 }
 
-inline struct docio_length
-DocioHandle::_decodeLength_Docio(struct docio_length length)
-{
+static struct docio_length _decode_length(struct docio_length length) {
     struct docio_length ret;
     ret = length;
     ret.keylen = _endian_decode(length.keylen);
@@ -501,6 +496,27 @@ DocioHandle::_decodeLength_Docio(struct docio_length length)
     ret.bodylen = _endian_decode(length.bodylen);
     ret.bodylen_ondisk = _endian_decode(length.bodylen_ondisk);
     return ret;
+}
+
+struct docio_length DocioHandle::encodeLength_Docio(struct docio_length length) {
+    return _encode_length(length);
+}
+
+struct docio_length DocioHandle::decodeLength_Docio(struct docio_length length) {
+    return _decode_length(length);
+}
+
+#ifdef __ENDIAN_SAFE
+inline struct docio_length
+DocioHandle::_encodeLength_Docio(struct docio_length length)
+{
+    return _encode_length(length);
+}
+
+inline struct docio_length
+DocioHandle::_decodeLength_Docio(struct docio_length length)
+{
+    return _decode_length(length);
 }
 #else
 #define _encodeLength_Docio(a)

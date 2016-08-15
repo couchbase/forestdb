@@ -126,6 +126,17 @@ void _get_errno_str_cb(void *ctx, struct filemgr_ops *normal_ops,
     normal_ops->get_errno_str(fops_handle, buf, size);
 }
 
+void* _mmap_cb(void *ctx, struct filemgr_ops *normal_ops,
+               fdb_fileops_handle fops_handle, size_t length, void **aux)
+{
+    return normal_ops->mmap(fops_handle, length, aux);
+}
+int _munmap_cb(void *ctx, struct filemgr_ops *normal_ops,
+               fdb_fileops_handle fops_handle, void *addr, size_t length, void *aux)
+{
+    return normal_ops->munmap(fops_handle, addr, length, aux);
+}
+
 int _aio_init_cb(void *ctx, struct filemgr_ops *normal_ops,
                  fdb_fileops_handle fops_handle,
                  struct async_io_handle *aio_handle)
@@ -195,6 +206,8 @@ struct anomalous_callbacks default_callbacks = {
     _fdatasync_cb,
     _fsync_cb,
     _get_errno_str_cb,
+    _mmap_cb,
+    _munmap_cb,
     _aio_init_cb,
     _aio_prep_read_cb,
     _aio_submit_cb,
@@ -284,6 +297,22 @@ void _filemgr_anomalous_get_errno_str(fdb_fileops_handle fileops_handle,
                                       buf, size);
 }
 
+void *_filemgr_anomalous_mmap(fdb_fileops_handle fileops_handle,
+                              size_t length, void **aux)
+{
+    (void) aux;
+    return anon_cbs->mmap_cb(anon_ctx, normal_filemgr_ops, fileops_handle, length, aux);
+}
+
+int _filemgr_anomalous_munmap(fdb_fileops_handle fileops_handle,
+                              void *addr, size_t length, void *aux)
+{
+    (void) fileops_handle;
+    (void) aux;
+    return anon_cbs->munmap_cb(anon_ctx, normal_filemgr_ops,
+                               fileops_handle, addr, length, aux);
+}
+
 int _filemgr_anomalous_aio_init(fdb_fileops_handle fileops_handle,
                                 struct async_io_handle *aio_handle)
 {
@@ -351,6 +380,8 @@ struct filemgr_ops anomalous_ops = {
     _filemgr_anomalous_fdatasync,
     _filemgr_anomalous_fsync,
     _filemgr_anomalous_get_errno_str,
+    _filemgr_anomalous_mmap,
+    _filemgr_anomalous_munmap,
     _filemgr_anomalous_aio_init,
     _filemgr_anomalous_aio_prep_read,
     _filemgr_anomalous_aio_submit,

@@ -229,6 +229,34 @@ void _filemgr_win_get_errno_str(fdb_fileops_handle fileops_handle,
     LocalFree(win_msg);
 }
 
+void *_filemgr_win_mmap(fdb_fileops_handle fileops_handle, size_t length, void **aux)
+{
+    int fd = handle_to_fd(fileops_handle);
+    HANDLE file = handle_to_win(fd);
+    HANDLE map = CreateFileMapping(file, NULL, PAGE_READWRITE, 0, length, NULL);
+    if (map == NULL) {
+        return NULL;
+    }
+    void *addr = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, length);
+    *aux = map;
+    return addr;
+}
+
+int _filemgr_win_munmap(fdb_fileops_handle fileops_handle,
+                        void *addr, size_t length, void *aux)
+{
+    (void) fileops_handle;
+    int ret;
+    ret = UnmapViewOfFile(addr);
+    if (ret) {
+        HANDLE map = aux;
+        CloseHandle(map);
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
 int _filemgr_aio_init(fdb_fileops_handle fileops_handle,
                       struct async_io_handle *aio_handle)
 {
@@ -290,6 +318,8 @@ struct filemgr_ops win_ops = {
     _filemgr_win_fdatasync,
     _filemgr_win_fsync,
     _filemgr_win_get_errno_str,
+    _filemgr_win_mmap,
+    _filemgr_win_munmap,
     // Async I/O operations
     _filemgr_aio_init,
     _filemgr_aio_prep_read,
