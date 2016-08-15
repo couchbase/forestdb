@@ -13,6 +13,7 @@
 #include <malloc.h>
 #endif
 
+#include "option.h"
 #include "arch.h"
 
 #define _MALLOC_OVERRIDE

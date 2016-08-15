@@ -363,10 +363,14 @@ typedef enum {
      * ForestDB engine is not instantiated yet
      */
     FDB_RESULT_ENGINE_NOT_INSTANTIATED = -74,
+    /**
+     * Fail to read the log file for the given log ID.
+     */
+    FDB_RESULT_LOG_FILE_NOT_FOUND = -75,
 
     // Any new error codes can be added here.
 
-    FDB_RESULT_LAST = FDB_RESULT_ENGINE_NOT_INSTANTIATED // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_LOG_FILE_NOT_FOUND // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

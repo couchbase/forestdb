@@ -100,6 +100,11 @@ struct timeval _utime_gap(struct timeval a, struct timeval b)
     return ret;
 }
 
+uint64_t timeval_to_us(struct timeval tv)
+{
+    return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+}
+
 void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
     usleep(*sleep_time);
     *sleep_time = *sleep_time << 1;

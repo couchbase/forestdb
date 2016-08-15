@@ -239,6 +239,8 @@ const char* FdbEngine::getErrorMsg(fdb_status err_code)
             return "Execution cancelled";
         case FDB_RESULT_ENGINE_NOT_INSTANTIATED:
             return "ForestDB engine not instantiated yet";
+        case FDB_RESULT_LOG_FILE_NOT_FOUND:
+            return "Log file not found";
 
         default:
             return "unknown error";

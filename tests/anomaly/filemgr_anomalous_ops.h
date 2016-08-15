@@ -52,6 +52,11 @@ struct anomalous_callbacks {
                     fdb_fileops_handle fileops_handle);
     void (*get_errno_str_cb)(void *ctx, struct filemgr_ops *normal_ops,
                              fdb_fileops_handle fileops_handle, char *buf, size_t size);
+    voidref (*mmap_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                       fdb_fileops_handle fops_handle, size_t length, void **aux);
+    int (*munmap_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                     fdb_fileops_handle fops_handle, void *addr,
+                     size_t length, void *aux);
     int (*aio_init_cb)(void *ctx, struct filemgr_ops *normal_ops,
                        fdb_fileops_handle fops_handle, struct async_io_handle *aio_handle);
     int (*aio_prep_read_cb)(void *ctx, struct filemgr_ops *normal_ops,

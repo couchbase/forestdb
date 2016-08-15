@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/mman.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -172,6 +173,26 @@ void _filemgr_linux_get_errno_str(fdb_fileops_handle fileops_handle, char *buf,
         snprintf(buf, size, "errno = %d: '%s'", errno, tbuf);
 #endif
     }
+}
+
+void *_filemgr_linux_mmap(fdb_fileops_handle fileops_handle, size_t length, void **aux)
+{
+    (void) aux;
+    void *addr = mmap(0, length, PROT_READ|PROT_WRITE, MAP_SHARED,
+                      handle_to_fd(fileops_handle), 0);
+    if (addr == MAP_FAILED) {
+        return NULL;
+    } else {
+        return addr;
+    }
+}
+
+int _filemgr_linux_munmap(fdb_fileops_handle fileops_handle,
+                          void *addr, size_t length, void *aux)
+{
+    (void) fileops_handle;
+    (void) aux;
+    return munmap(addr, length);
 }
 
 int _filemgr_aio_init(fdb_fileops_handle fileops_handle,
@@ -482,6 +503,8 @@ struct filemgr_ops linux_ops = {
     _filemgr_linux_fdatasync,
     _filemgr_linux_fsync,
     _filemgr_linux_get_errno_str,
+    _filemgr_linux_mmap,
+    _filemgr_linux_munmap,
     // Async I/O operations
     _filemgr_aio_init,
     _filemgr_aio_prep_read,

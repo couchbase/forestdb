@@ -335,6 +335,7 @@ typedef struct fdb_fileops_handle_opaque* fdb_fileops_handle;
     typedef ssize_t fdb_ssize_t;
 #endif
 
+typedef void* voidref;
 /**
  * This structure can be used to perform custom operations by
  * the external client before performing a file operation on
@@ -365,6 +366,8 @@ typedef struct filemgr_ops {
     int (*fdatasync)(fdb_fileops_handle fops_handle);
     int (*fsync)(fdb_fileops_handle fops_handle);
     void (*get_errno_str)(fdb_fileops_handle fops_handle, char *buf, size_t size);
+    voidref (*mmap)(fdb_fileops_handle fops_handle, size_t length, void **aux);
+    int (*munmap)(fdb_fileops_handle fops_handle, void *addr, size_t length, void *aux);
 
     // Async I/O operations
     int (*aio_init)(fdb_fileops_handle fops_handle, struct async_io_handle *aio_handle);

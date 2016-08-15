@@ -25,6 +25,7 @@
 #include <unistd.h>
 #endif
 #include <time.h>
+#include "stdint.h"
 
 #ifndef hrtime_t
 #include <stdint.h>
@@ -41,6 +42,7 @@ ts_nsec get_monotonic_ts();
 ts_nsec ts_diff(ts_nsec start, ts_nsec end);
 
 struct timeval _utime_gap(struct timeval a, struct timeval b);
+uint64_t timeval_to_us(struct timeval tv);
 
 #if defined(WIN32) || defined(_WIN32)
 #ifdef _PLATFORM_LIB_AVAILABLE
