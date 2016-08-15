@@ -231,10 +231,13 @@ private:
     ts_nsec scheduleTime;
 };
 
+std::atomic<int> recurringTaskIterations(0);
+
 class RecurringTask : public GlobalTask {
 public:
     RecurringTask(EngineTaskable& e, TaskTracker *tt,
-                  const Priority &p, double sleep = 0.0/*seconds*/)
+                  const Priority &p, double sleep = 0.0/*seconds*/,
+                  bool incrementCounter = false)
         : GlobalTask(e      /*Taskable:EngineTaskable*/,
                      p      /*Task priority*/,
                      sleep  /*Snooze after exec*/,
@@ -242,12 +245,17 @@ public:
           taskTrack(tt),
           priority(p.getPriorityValue()),
           snoozeFor(sleep),
+          doIncrementIterationCounter(incrementCounter),
           scheduleTime(get_monotonic_ts())
     { }
 
     bool run() {
         taskTrack->addEntry(RECURRING_TASK, getId(), priority,
                             scheduleTime, snoozeFor, get_monotonic_ts());
+        if (doIncrementIterationCounter) {
+            ++recurringTaskIterations;
+        }
+        snooze(snoozeFor);
         scheduleTime = get_monotonic_ts();
         return true;
     }
@@ -262,6 +270,7 @@ private:
     TaskTracker *taskTrack;
     int priority;
     double snoozeFor;
+    bool doIncrementIterationCounter;
     ts_nsec scheduleTime;
 };
 
@@ -336,6 +345,42 @@ void regular_task_behavior_test(size_t num_threads,
     TEST_RESULT(title.c_str());
 }
 
+void recurring_task_behavior_test(int runCount) {
+    TEST_INIT();
+    TaskTracker *tracker = new TaskTracker();
+
+    WorkLoadPolicy wlp(1, 1);
+    FileEngine *fe = new FileEngine("RECURRING_TASK_ENGINE",
+                                    LOW_BUCKET_PRIORITY,
+                                    &wlp);
+
+    threadpool_config config = {1   /*one writer thread*/};
+    ExecutorPool::initExPool(config);
+    ExecutorPool::get()->registerTaskable(fe->getTaskable());
+
+    recurringTaskIterations = 0;
+    ExTask task = new RecurringTask(fe->getTaskable(),
+                                    tracker,
+                                    Priority::BgFlusherPriority,
+                                    1   /*1 second*/,
+                                    true /*increment iteration count*/);
+    ExecutorPool::get()->schedule(task, WRITER_TASK_IDX);
+
+    // Wait till the recurring task runs the desired number of times
+    while (recurringTaskIterations.load() < runCount);
+
+    /* Force shutdown */
+    ExecutorPool::get()->unregisterTaskable(fe->getTaskable(), true/*force*/);
+    ExecutorPool::shutdown();
+
+    /* Terminate file engine */
+    delete fe;
+
+    delete tracker;
+
+    TEST_RESULT("Recurring task behavior test");
+}
+
 void mixed_task_behavior_test(size_t num_threads,
                               size_t num_regular_tasks,
                               size_t num_recurring_tasks,
@@ -350,7 +395,7 @@ void mixed_task_behavior_test(size_t num_threads,
 
     WorkLoadPolicy wlp(static_cast<int>(num_threads),
                        static_cast<int>(num_threads));
-    FileEngine *fe = new FileEngine("REGULAR_TASK_ENGINE",
+    FileEngine *fe = new FileEngine("MULTI_TASK_ENGINE",
                                     LOW_BUCKET_PRIORITY,
                                     &wlp);
 
@@ -426,6 +471,8 @@ int main() {
     regular_task_behavior_test(4        /* num threads */,
                                100      /* num tasks */,
                                true     /* check task ordering */);
+
+    recurring_task_behavior_test(10);   /* desired number of iterations */
 
     mixed_task_behavior_test(4          /* num threads */,
                              50         /* num regular tasks */,
