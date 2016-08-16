@@ -4973,7 +4973,7 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
-            if ((ret = rename(vfilename, nextfile.c_str()) < 0)) {
+            if ((ret = rename(vfilename, nextfile.c_str())) < 0) {
                 return FDB_RESULT_FILE_RENAME_FAIL;
             }
             config.compaction_mode = FDB_COMPACTION_AUTO;
