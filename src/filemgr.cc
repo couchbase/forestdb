@@ -1849,7 +1849,6 @@ fdb_status FileMgr::shutdown()
         open_file = FileMgrMap::get()->scan(_filemgr_is_closed, nullptr);
         spin_unlock(&fileMgrOpenlock);
         if (!open_file) {
-            ExecutorPool::shutdown();
             FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
             FileMgrMap::shutdown();
             if (global_config.getNcacheBlock() > 0) {
