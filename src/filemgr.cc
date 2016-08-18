@@ -31,6 +31,7 @@
 #include "filemgr_ops.h"
 #include "hash_functions.h"
 #include "blockcache.h"
+#include "compactor.h"
 #include "wal.h"
 #include "list.h"
 #include "fdb_internal.h"
@@ -274,6 +275,18 @@ void FileMgrMap::freeEntries(filemgr_factory_free_cb free_callback) {
         free_callback(it.second/*FileMgr* */);
     }
     spin_unlock(&fileMapLock);
+}
+
+bool FileMgrMap::isStringMatchFound(const std::string &searchPattern) {
+    spin_lock(&fileMapLock);
+    for (auto &it : fileMap) {
+        if (it.first.compare(0, searchPattern.length(), searchPattern) == 0) {
+            spin_unlock(&fileMapLock);
+            return true;
+        }
+    }
+    spin_unlock(&fileMapLock);
+    return false;
 }
 
 FileMgr::FileMgr()
@@ -2931,6 +2944,25 @@ fdb_status FileMgr::destroyFile(std::string filename,
 
     if (!destroy_file_set) { // top level or non-recursive call
         destroy_set->clear();
+    }
+
+    return status;
+}
+
+// Note: fileMgrOpenlock should be held before calling this function.
+fdb_status
+FileMgr::destroyFileInAutoCompactionMode(const std::string &fname_prefix) {
+    // Look for possibly open FileMgr instances in the FileMgrMap,
+    // that match the name prefix suffixed with a ".", if an open handle
+    // is found, return FILE_IS_BUSY.
+    std::string fname(fname_prefix + ".");
+    fdb_status status = FDB_RESULT_SUCCESS;
+    bool ret = FileMgrMap::get()->isStringMatchFound(fname);
+    if (ret) {
+        status = FDB_RESULT_FILE_IS_BUSY;
+    } else {
+        status = CompactionManager::getInstance()->
+                                    searchAndDestroyFiles(fname_prefix.c_str());
     }
 
     return status;

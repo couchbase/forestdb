@@ -175,16 +175,6 @@ public:
                                const fdb_config &config);
 
     /**
-     * Remove a given file from the file system and free its allocated resources.
-     *
-     * @param fname_prefix Prefix of a file name to be removed
-     * @config Pointer to a forestdb config instance
-     * @return FDB_RESULT_SUCCESS if the operation is completed successfully
-     */
-    fdb_status destroyFile(const std::string &fname_prefix,
-                           const fdb_config &config);
-
-    /**
      * Set the daemon compaction interval for a given file.
      *
      * @param file Pointer to a file manager instance
@@ -193,6 +183,15 @@ public:
      */
     fdb_status setCompactionInterval(FileMgr *file,
                                      size_t interval);
+
+    /**
+     * Search the list of files that have a given file name as a prefix, and remove them
+     * from the file system.
+     *
+     * @param filename File name to be searched
+     * @return FDB_RESULT_SUCCESS upon successful operation
+     */
+    fdb_status searchAndDestroyFiles(const char *filename);
 
 private:
 
@@ -234,15 +233,6 @@ private:
     struct compactor_meta* readMetaFile(const char *metafile,
                                         struct compactor_meta *metadata,
                                         ErrLogCallback *log_callback);
-
-    /**
-     * Search the list of files that have a given file name as a prefix, and remove them
-     * from the file system.
-     *
-     * @param filename File name to be searched
-     * @return FDB_RESULT_SUCCESS upon successful operation
-     */
-    fdb_status searchAndDestroyFiles(const char *filename);
 
     // Singleton compaction manager and mutex guarding it's creation.
     static std::atomic<CompactionManager *> instance;

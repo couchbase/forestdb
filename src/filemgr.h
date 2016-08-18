@@ -29,6 +29,12 @@
 #endif
 #endif
 
+#include <atomic>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+
 #include "libforestdb/fdb_errors.h"
 
 #include "internal_types.h"
@@ -42,12 +48,6 @@
 #include "superblock.h"
 #include "staleblock.h"
 #include "taskable.h"
-
-#include <atomic>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 #ifdef _PLATFORM_LIB_AVAILABLE
 #include <platform/histogram.h>
@@ -334,9 +334,13 @@ public:
        entry obtained as return value from the callback invocation */
     void* scan(filemgr_factory_scan_cb *scan_callback, void *ctx);
 
-    /* Iterates through all the entries of the map and invokes the
+    /* Iterates through all the entries of the unordered map and invokes the
        free callback function for each */
     void freeEntries(filemgr_factory_free_cb iter_callback);
+
+    /* Iterates through all the entries of the map and returns true
+       if the name string contains the provided string in it */
+    bool isStringMatchFound(const std::string &searchPattern);
 
     /* Returns a singleton instance for the class */
     static FileMgrMap* get(void);
@@ -991,9 +995,28 @@ public:
 
     static void removeFile(FileMgr *file, ErrLogCallback *log_callback);
 
+    /**
+     * This method recursively removes files and frees their allocated
+     * resources in manual compaction mode.
+     *
+     * @param filename name of the FileMgr instance
+     * @param config File manager config
+     * @param destroy_set To be set to NULL
+     * @return fdb_status: FDB_RESULT_SUCCESS on success
+     */
     static fdb_status destroyFile(std::string filename,
                                   FileMgrConfig *config,
                                   std::unordered_set<std::string> *destroy_set);
+
+    /**
+     * Removes files from the file system and frees their allocated resources
+     * in auto compaction mode
+     *
+     * @param fname_prefix Prefix of a file name to be removed
+     * @return FDB_RESULT_SUCCESS if the operation is completed successfully
+     */
+    static fdb_status destroyFileInAutoCompactionMode(
+                                                const std::string &fname_prefix);
 
     static char* redirectOldFile(FileMgr *very_old_file,
                                  FileMgr *new_file,

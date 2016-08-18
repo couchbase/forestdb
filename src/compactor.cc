@@ -1255,39 +1255,3 @@ fdb_status CompactionManager::searchAndDestroyFiles(const char *filename) {
 #endif
     return fs;
 }
-
-fdb_status CompactionManager::destroyFile(const std::string &fname_prefix,
-                                          const fdb_config &config) {
-    size_t strcmp_len;
-    fdb_status status = FDB_RESULT_SUCCESS;
-    char fname[MAX_FNAMELEN];
-
-    strcpy(fname, fname_prefix.c_str());
-    strcmp_len = fname_prefix.length();
-    fname[strcmp_len] = '.'; // add '.' suffix in place
-    strcmp_len++;
-    fname[strcmp_len] = '\0';
-
-    cptLock.lock();
-    auto entry = openFiles.lower_bound(std::string(fname));
-    if (entry != openFiles.end()) {
-        FileCompactionEntry *file_entry = entry->second;
-        if (strncmp(fname, file_entry->getFileName().c_str(), strcmp_len) == 0) {
-            if (file_entry->isDaemonCompactRunning()) {
-                // This file is being compacted by compactor.
-                // Return a temporary failure, user must retry after sometime
-                status = FDB_RESULT_IN_USE_BY_COMPACTOR;
-            } else { // File handle not closed, fail operation
-                status = FDB_RESULT_FILE_IS_BUSY;
-            }
-        }
-    }
-
-    cptLock.unlock(); // Releasing the lock here should be OK as file
-                      // deletions doesn't require strict synchronization.
-    if (status == FDB_RESULT_SUCCESS) {
-        status = searchAndDestroyFiles(fname_prefix.c_str());
-    }
-
-    return status;
-}

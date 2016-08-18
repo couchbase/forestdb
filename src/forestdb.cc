@@ -5161,7 +5161,7 @@ fdb_status FdbEngine::destroyFile(const char *fname,
 
     if (config.compaction_mode == FDB_COMPACTION_AUTO) {
         // Destroy all files whose prefix is matched in the auto compaction mode.
-        status = CompactionManager::getInstance()->destroyFile(filename, config);
+        status = FileMgr::destroyFileInAutoCompactionMode(filename);
         if (status != FDB_RESULT_SUCCESS) {
             FileMgr::mutexOpenunlock();
             return status;
