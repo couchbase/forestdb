@@ -15,6 +15,8 @@
  *   limitations under the License.
  */
 
+#include <vector>
+
 #include "libforestdb/forestdb.h"
 #include "test.h"
 
@@ -416,7 +418,8 @@ void destroy_log_test()
     }
 
     // destroy logs upto (log_id - 1)
-    clog->destroyLogUpto(log_id - 1);
+    // (force to remove uncommitted files)
+    clog->destroyLogUpto(log_id - 1, true);
 
     // close, re-open, and reconstruct
     delete clog;
@@ -562,6 +565,87 @@ void commit_log_compression_test()
     TEST_RESULT("commit log compression test");
 }
 
+void transaction_removable_file_test()
+{
+    TEST_INIT();
+
+    int i, r, n=1000000;
+    int num_txns = 10;
+    CommitLog *clog;
+    CommitLogConfig *config;
+    char keybuf[256], valuebuf[256];
+    void *ret, *ret_entry;
+    struct filemgr_ops *ops = get_filemgr_ops();
+    CommitLogEntry entry;
+
+    r = system(SHELL_DEL" commit_log_testfile* > errorlog.txt");
+    (void)r;
+
+    config = new CommitLogConfig(ops);
+    clog = new CommitLog(std::string("commit_log_testfile"), config);
+
+    // log file ID that last log entry for the transaction is stored.
+    std::vector<uint64_t> last_log_id(num_txns);
+    uint64_t txn_id;
+    uint64_t log_id, max_log_id = 0;
+
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "key%06d", i);
+        sprintf(valuebuf, "value%06d", i);
+        entry.clear();
+        entry.setSeqnum(i+1);
+        entry.setKey(keybuf, strlen(keybuf)+1);
+        entry.setBody(valuebuf, strlen(valuebuf)+1);
+        txn_id = i / (n/num_txns);
+        entry.setTxnId(txn_id);
+        clog->appendLogEntry(&entry, ret, ret_entry, log_id, false);
+        last_log_id[txn_id] = log_id;
+        max_log_id = log_id;
+    }
+
+    for (i=0; i<num_txns; ++i) {
+        clog->commitLog(i, i);
+        log_id = clog->getMaxRemovableLogId();
+        if (log_id != COMMIT_LOG_ID_NOT_FOUND) {
+            // the log file right before the last log entry
+            // for the transaction should be removable.
+            TEST_CHK(last_log_id[i] - 1 == log_id);
+        } else {
+            TEST_CHK(last_log_id[i] == 0);
+        }
+    }
+
+    // append more entries with new txn ID
+    for (i=0; i<n/2; ++i) {
+        sprintf(keybuf, "key%06d", i);
+        sprintf(valuebuf, "value%06d", i);
+        entry.clear();
+        entry.setSeqnum(i+1);
+        entry.setKey(keybuf, strlen(keybuf)+1);
+        entry.setBody(valuebuf, strlen(valuebuf)+1);
+        txn_id = num_txns;
+        entry.setTxnId(txn_id);
+        clog->appendLogEntry(&entry, ret, ret_entry, log_id, false);
+        max_log_id = log_id;
+    }
+
+    // try to delete all log files,
+    // but last a few log files should not be destroyed
+    // as they are not removable yet.
+    clog->destroyLogUpto(max_log_id);
+
+    // now, only log files
+    // from 'last_log_id[num_txns-1]' to 'max_log_id'
+    // should exist.
+    TEST_CHK( clog->getNumOpenedLogFiles() ==
+              (max_log_id - last_log_id[num_txns-1] + 1) );
+
+    delete clog;
+    delete config;
+
+    TEST_RESULT("transaction removable file test");
+}
+
 int main()
 {
     basic_operation_test();
@@ -572,6 +656,7 @@ int main()
     destroy_log_test();
     read_log_test();
     commit_log_compression_test();
+    transaction_removable_file_test();
 
     return 0;
 }

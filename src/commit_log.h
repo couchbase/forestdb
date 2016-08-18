@@ -20,6 +20,7 @@
 #include <string>
 #include <list>
 #include <mutex>
+#include <set>
 
 #include "libforestdb/forestdb.h"
 #include "common.h"
@@ -155,6 +156,24 @@ public:
         return id;
     }
 
+    /**
+     * Check if the log file is removable or not.
+     * A log file is removable when there is no log entry corresponding to
+     * live transaction.
+     *
+     * @return True if removable.
+     */
+    bool isRemovable();
+
+    void addTransaction(uint64_t txn_id);
+
+    /**
+     * Remove transaction info from the active transaction set.
+     *
+     * @param txnId Transaction ID.
+     */
+    void removeTransaction(uint64_t txn_id);
+
 private:
     // Log ID.
     uint64_t id;
@@ -164,6 +183,8 @@ private:
     std::atomic<uint64_t> curOffset;
     // Flag that indicates if the log file is writable.
     std::atomic<bool> writable;
+    // Flag that indicates if the log file is flushed.
+    std::atomic<bool> flushed;
     // Pointer to memory-mapped location.
     void *addr;
     // Used for windows mmap handle.
@@ -178,6 +199,13 @@ private:
     fdb_fileops_handle fopsHandle;
     // CRC mode.
     crc_mode_e crcMode;
+    // Set of on-going transactions in this log file.
+    std::set<uint64_t> liveTxns;
+    // Lock for management of transactions.
+    std::mutex txnLock;
+    // Flag that indicates if there are any dirty entries for global transaction.
+    // Special handling for global transaction to reduce lock contention.
+    std::atomic<bool> globalTxnDirty;
 };
 
 
@@ -491,6 +519,7 @@ public:
 };
 
 
+#define COMMIT_LOG_ID_NOT_FOUND ((uint64_t)(-1))
 
 /**
  * Commit log class definition.
@@ -602,12 +631,31 @@ public:
     fdb_status readLog(uint64_t log_id, CommitLogScanCallback cb, void *ctx);
 
     /**
+     * Get the greatest ID of log file that can be removable.
+     *
+     * @return Last removable log file ID.
+     */
+    uint64_t getMaxRemovableLogId();
+
+    /**
      * Destroy log files up to the given ID.
      *
      * @param log_id Maximum ID of the log file to destroy.
+     * @param force Force to destroy non-removable log files.
      * @return FDB_RESULT_SUCCESS on success.
      */
-    fdb_status destroyLogUpto(uint64_t log_id_upto);
+    fdb_status destroyLogUpto(uint64_t log_id_upto,
+                              bool force = false);
+
+    /**
+     * Get the number of currently opened commit log files.
+     *
+     * @return Number of opened files.
+     */
+    size_t getNumOpenedLogFiles() {
+        std::lock_guard<std::mutex> lock(logManagementLock);
+        return files.size();
+    }
 
 private:
     // Commit log configuration.
@@ -616,9 +664,14 @@ private:
     std::string dbName;
     // Atomic counter for commit log ID.
     std::atomic<uint64_t> idCounter;
-    // List of commit log files.
+    // ID of log file last synced (fsync).
+    std::atomic<uint64_t> lastSyncedId;
+    // List of currently opened (memory-mapped) commit log files.
     std::list<CommitLogFile *> files;
-    // List of dirty commit log files that need to be synchronized.
+    // List of dirty commit log files that contain more than one log entry
+    // which belongs to on-going transaction.
+    // Note: log files which are already immutable and fsynced can exist in
+    //       'dirtyFiles' list, if there are any active transactions.
     std::list<CommitLogFile *> dirtyFiles;
     // Pointer to the latest commit log file.
     std::atomic<CommitLogFile *> curFile;

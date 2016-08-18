@@ -40,7 +40,8 @@ CommitLogFile::CommitLogFile(uint64_t _id,
                              struct filemgr_ops *_file_ops,
                              crc_mode_e _crc_mode) :
     id(_id), curOffset(0), writable(true), addr(nullptr), parent(_parent),
-    fileSizeLimit(_size_limit), fileOps(_file_ops), crcMode(_crc_mode)
+    fileSizeLimit(_size_limit), fileOps(_file_ops), crcMode(_crc_mode),
+    globalTxnDirty(false)
 {
     char id_cstr[64];
     fdb_status fs;
@@ -138,6 +139,7 @@ fdb_status CommitLogFile::writeEntry(CommitLogEntry *entry,
 
     ptr_entry = static_cast<uint8_t*>(addr) + offset;
 
+    addTransaction(entry->getTxnId());
     entry->exportRawData(ptr_entry, ptr_value, crcMode);
 
     if (sync) {
@@ -172,7 +174,8 @@ void CommitLogFile::scanLogFile(CommitLogScanCallback cb, void *ctx)
             return;
         }
 
-        is_valid = CommitLogEntry::isValidEntry((uint8_t*)addr + offset, crcMode, raw_size);
+        is_valid = CommitLogEntry::isValidEntry(
+                       (uint8_t*)addr + offset, crcMode, raw_size);
         if (!is_valid) {
             // no more docs .. abort scanning
             return;
@@ -207,6 +210,52 @@ fdb_status CommitLogFile::fsyncLogFile()
 {
     return static_cast<fdb_status>(fileOps->fsync(fopsHandle));
 }
+
+bool CommitLogFile::isRemovable()
+{
+    if (writable) {
+        // this file is still writable
+        return false;
+    }
+
+    size_t numLiveTxns;
+    numLiveTxns = (globalTxnDirty) ? (1) : (0);
+    if (!numLiveTxns) {
+        std::lock_guard<std::mutex> lock(txnLock);
+        numLiveTxns += liveTxns.size();
+    }
+
+    if (numLiveTxns) {
+        return false;
+    }
+
+    return true;
+}
+
+void CommitLogFile::addTransaction(uint64_t txn_id)
+{
+    if (txn_id) {
+        std::lock_guard<std::mutex> lock(txnLock);
+        // insert into live transaction set.
+        liveTxns.insert(txn_id);
+    } else {
+        // global transaction
+        globalTxnDirty = true;
+    }
+}
+
+void CommitLogFile::removeTransaction(uint64_t txn_id)
+{
+    // remove committed transaction from the set
+    if (txn_id) {
+        std::lock_guard<std::mutex> lock(txnLock);
+        liveTxns.erase(txn_id);
+    } else {
+        // global transaction
+        globalTxnDirty = false;
+    }
+}
+
 
 
 CommitLogEntry::CommitLogEntry(struct docio_object *doc)
@@ -684,6 +733,7 @@ void CommitLogEntry::setCommitMarker(uint64_t revnum, uint64_t txn_id)
 
     setKey(localKeyBuf, strlen(localKeyBuf)+1);
     setBody(localValueBuf, offset);
+    setTxnId(txn_id);
     setFlag(DOCIO_SYSTEM);
 }
 
@@ -724,14 +774,15 @@ bool CommitLogEntry::getCommitMarker(uint64_t& revnum, uint64_t& txn_id)
 
 
 CommitLog::CommitLog() :
-    config(), dbName(nullptr)
+    config(), dbName(nullptr),
+    idCounter(0), lastSyncedId(0), curFile(nullptr)
 {
 }
 
 CommitLog::CommitLog(std::string _dbname,
                      CommitLogConfig *_config) :
     config(_config), dbName(_dbname),
-    idCounter(0), curFile(nullptr)
+    idCounter(0), lastSyncedId(0), curFile(nullptr)
 {
 }
 
@@ -821,13 +872,22 @@ fdb_status CommitLog::_appendLogEntry(CommitLogEntry *entry,
                     break;
                 }
 
-                // remove from 'dirtyFiles' and insert into 'sync_list'.
-                log_file_entry = dirtyFiles.erase(log_file_entry);
-                sync_list.push_back(log_file);
+                log_file->removeTransaction(entry->getTxnId());
+
+                // remove from 'dirtyFiles' if no transaction is active.
+                if (log_file->isRemovable()) {
+                    log_file_entry = dirtyFiles.erase(log_file_entry);
+                } else {
+                    log_file_entry++;
+                }
+
+                // insert into 'sync_list' if fsync() is necessary.
+                if ( log_file->getLogId() >= lastSyncedId ) {
+                    sync_list.push_back(log_file);
+                }
             }
         }
 
-        // TODO: what if log files are destroyed by other thread?
         auto sync_entry = sync_list.begin();
         while ( sync_entry != sync_list.end() ) {
             log_file = *sync_entry;
@@ -840,7 +900,12 @@ fdb_status CommitLog::_appendLogEntry(CommitLogEntry *entry,
     }
 
     log_id = target_file->getLogId();
-    return target_file->writeEntry(entry, offset, ptr_value, ptr_entry, sync);
+
+    fs = target_file->writeEntry(entry, offset, ptr_value, ptr_entry, sync);
+    if (fs == FDB_RESULT_SUCCESS && sync) {
+        lastSyncedId = log_id;
+    }
+    return fs;
 }
 
 fdb_status CommitLog::appendLogEntry(CommitLogEntry *entry,
@@ -1088,35 +1153,60 @@ fdb_status CommitLog::readLog(uint64_t log_id, CommitLogScanCallback cb, void *c
     return FDB_RESULT_LOG_FILE_NOT_FOUND;
 }
 
-fdb_status CommitLog::destroyLogUpto(uint64_t log_id_upto)
+uint64_t CommitLog::getMaxRemovableLogId()
+{
+    std::lock_guard<std::mutex> lock(logManagementLock);
+    CommitLogFile *log_file;
+    uint64_t max_id = COMMIT_LOG_ID_NOT_FOUND;
+
+    for (auto &log_entry : files) {
+        log_file = log_entry;
+        if ( log_file->isRemovable() ) {
+            max_id = log_file->getLogId();
+        } else {
+            break;
+        }
+    }
+
+    return max_id;
+}
+
+fdb_status CommitLog::destroyLogUpto(uint64_t log_id_upto,
+                                     bool force)
 {
 
     CommitLogFile *log_file;
     std::string log_filename;
     std::list<CommitLogFile*> destroy_list;
+    uint64_t actual_destroy_upto = 0;
 
     // erase from each list with lock, and then
     // remove file without the lock.
     {
         std::lock_guard<std::mutex> lock(logManagementLock);
 
-        auto dirtyLogEntry = dirtyFiles.begin();
-        while (dirtyLogEntry != dirtyFiles.end()) {
-            log_file = *dirtyLogEntry;
-            if (log_file->getLogId() <= log_id_upto) {
-                dirtyLogEntry = dirtyFiles.erase(dirtyLogEntry);
+        auto logEntry = files.begin();
+        while (logEntry != files.end()) {
+            log_file = *logEntry;
+            // 1) Log file ID is less than or equal to 'log_id_upto' AND
+            // 2) a) Log file is removable OR
+            //    b) Force flag is set.
+            if (   log_file->getLogId() <= log_id_upto &&
+                 ( log_file->isRemovable() || force ) ) {
+                // erase from 'files' and insert into 'destroy_list'.
+                logEntry = files.erase(logEntry);
+                destroy_list.push_back(log_file);
+                actual_destroy_upto = log_file->getLogId();
             } else {
                 break;
             }
         }
 
-        auto logEntry = files.begin();
-        while (logEntry != files.end()) {
-            log_file = *logEntry;
-            if (log_file->getLogId() <= log_id_upto) {
-                // erase from 'files' and insert into 'destroy_list'.
-                logEntry = files.erase(logEntry);
-                destroy_list.push_back(log_file);
+        auto dirtyLogEntry = dirtyFiles.begin();
+        while (dirtyLogEntry != dirtyFiles.end()) {
+            log_file = *dirtyLogEntry;
+            if (log_file->getLogId() <= actual_destroy_upto) {
+                dirtyLogEntry = dirtyFiles.erase(dirtyLogEntry);
             } else {
                 break;
             }
