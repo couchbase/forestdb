@@ -717,7 +717,6 @@ bool CommitLogEntry::getCommitMarker(uint64_t& revnum, uint64_t& txn_id)
     // transaction ID
     memcpy(&dummy64, (uint8_t*)body + offset, sizeof(dummy64));
     txn_id = _endian_decode(dummy64);
-    offset += sizeof(dummy64);
 
     return true;
 }
