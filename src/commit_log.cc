@@ -38,10 +38,17 @@ CommitLogFile::CommitLogFile(uint64_t _id,
                              CommitLog *_parent,
                              uint64_t _size_limit,
                              struct filemgr_ops *_file_ops,
-                             crc_mode_e _crc_mode) :
-    id(_id), curOffset(0), writable(true), addr(nullptr), parent(_parent),
-    fileSizeLimit(_size_limit), fileOps(_file_ops), crcMode(_crc_mode),
-    globalTxnDirty(false)
+                             crc_mode_e _crc_mode)
+    : id(_id),
+      curOffset(0),
+      writable(true),
+      addr(nullptr),
+      aux(nullptr),
+      parent(_parent),
+      fileSizeLimit(_size_limit),
+      fileOps(_file_ops),
+      crcMode(_crc_mode),
+      globalTxnDirty(false)
 {
     char id_cstr[64];
     fdb_status fs;
@@ -268,6 +275,8 @@ CommitLogEntry::CommitLogEntry(struct docio_object *doc)
     meta = doc->meta;
     body = doc->body;
     localKeyBuf = localValueBuf = nullptr;
+    compBuf = uncompBuf = nullptr;
+    compBufLen = 0;
 }
 
 CommitLogEntry::CommitLogEntry(void *_key, size_t _keylen,
@@ -287,6 +296,8 @@ CommitLogEntry::CommitLogEntry(void *_key, size_t _keylen,
     timestamp = _timestamp;
     txnId = _txn_id;
     localKeyBuf = localValueBuf = nullptr;
+    compBuf = uncompBuf = nullptr;
+    compBufLen = 0;
 }
 
 CommitLogEntry::CommitLogEntry(void *_key, size_t _keylen,
@@ -771,20 +782,21 @@ bool CommitLogEntry::getCommitMarker(uint64_t& revnum, uint64_t& txn_id)
     return true;
 }
 
-
-
-CommitLog::CommitLog() :
-    config(), dbName(nullptr),
-    idCounter(0), lastSyncedId(0), curFile(nullptr)
-{
-}
+CommitLog::CommitLog()
+    : config(),
+      idCounter(0),
+      lastSyncedId(0),
+      curFile(nullptr)
+{ }
 
 CommitLog::CommitLog(std::string _dbname,
-                     CommitLogConfig *_config) :
-    config(_config), dbName(_dbname),
-    idCounter(0), lastSyncedId(0), curFile(nullptr)
-{
-}
+                     CommitLogConfig *_config)
+    : config(_config),
+      dbName(_dbname),
+      idCounter(0),
+      lastSyncedId(0),
+      curFile(nullptr)
+{ }
 
 CommitLog::~CommitLog()
 {
