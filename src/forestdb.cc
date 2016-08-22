@@ -4769,7 +4769,7 @@ fdb_status FdbEngine::getAllSnapMarkers(FdbFileHandle *fhandle,
     SuperblockBase *sb = handle->file->getSb();
     uint64_t sb_min_live_revnum = 0;
     if (sb) {
-        sb->getMinLiveHdrRevnum();
+        sb_min_live_revnum = sb->getMinLiveHdrRevnum();
     }
 
     // There are as many DB headers in a file as the file's header revision num
