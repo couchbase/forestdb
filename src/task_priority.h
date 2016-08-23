@@ -21,8 +21,9 @@
 #include "common.h"
 
 enum type_id_t {
-    COMPACTOR_ID,
     BGFLUSHER_ID,
+    FILEREMOVAL_ID,
+    COMPACTOR_ID,
     MAX_TYPE_ID // Keep this as the last enum value
 };
 
@@ -34,8 +35,9 @@ public:
     // Priorities for Read-only tasks
 
     // Priorities for Read-Write tasks
-    static const Priority CompactorPriority;
     static const Priority BgFlusherPriority;
+    static const Priority FileRemovalPriority;
+    static const Priority CompactorPriority;
 
     // Priorities for NON-IO tasks
 

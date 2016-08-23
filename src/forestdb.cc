@@ -1943,7 +1943,6 @@ fdb_status FdbEngine::init(fdb_config *config) {
             }
 #endif
 
-            compactor_config c_config;
             bgflusher_config bgf_config;
             threadpool_config thrd_config;
             FileMgrConfig f_config;
@@ -1961,10 +1960,7 @@ fdb_status FdbEngine::init(fdb_config *config) {
                 Superblock::initBmpMask();
             }
 
-            // Initialize compaction daemon manager
-            c_config.sleep_duration = _config.compactor_sleep_duration;
-            c_config.num_threads = _config.num_compactor_threads;
-            CompactionManager::init(c_config);
+            CompactionManager::init();
             // Initialize background flusher daemon
             // Temporarily disable background flushers until blockcache contention
             // issue is resolved.

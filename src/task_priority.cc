@@ -24,17 +24,20 @@
 // Priorities for Auxiliary IO tasks
 
 // Priorities for Read-Write IO tasks
-const Priority Priority::CompactorPriority(COMPACTOR_ID, 2);
 const Priority Priority::BgFlusherPriority(BGFLUSHER_ID, 1);
+const Priority Priority::FileRemovalPriority(FILEREMOVAL_ID, 2);
+const Priority Priority::CompactorPriority(COMPACTOR_ID, 3);
 
 // Priorities for NON-IO tasks
 
 const char *Priority::getTypeName(const type_id_t i) {
     switch (i) {
-        case COMPACTOR_ID:
-            return "compactor_tasks";
         case BGFLUSHER_ID:
             return "bgflusher_tasks";
+        case FILEREMOVAL_ID:
+            return "file_removal_tasks";
+        case COMPACTOR_ID:
+            return "compactor_tasks";
         default: break;
     }
 

@@ -19,11 +19,12 @@
 
 #include <time.h>
 
+#include <algorithm>
 #include <atomic>
 #include <map>
-#include <vector>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 
 #include "globaltask.h"
 #include "taskable.h"
@@ -35,8 +36,6 @@ struct compactor_config {
     size_t num_threads;
 };
 
-class FileCompactionEntry;
-class CompactorThread;
 struct compactor_meta;
 class CompactionManager;
 
@@ -139,8 +138,25 @@ private:
     uint32_t openHandles;
 };
 
-// Compaction file map with a file name as a key.
-typedef std::map<std::string, FileCompactionEntry *> compaction_file_map;
+class FileRemovalTask : public GlobalTask {
+public:
+    FileRemovalTask(CompactionMgrTaskable &e,
+                    FileMgr *file,
+                    ErrLogCallback *log_callback);
+
+    bool run();
+
+    std::string getDescription() {
+        return desc;
+    }
+
+private:
+    CompactionManager *compMgr;
+    FileMgr *fileToRemove;
+    ErrLogCallback *logCallback;
+    std::string filename;
+    std::string desc;
+};
 
 /**
  * Compaction manager that monitors the fragmentation degree of each registered
@@ -154,10 +170,9 @@ public:
      * Instantiate the compaction manager that performs the database compaction
      * through the daemon threads.
      *
-     * @param config Compaction manager configurations
      * @return Pointer to the compaction manager instantiated
      */
-    static CompactionManager* init(const struct compactor_config &config);
+    static CompactionManager* init();
 
     /**
      * Get the singleton instance of the compaction manager.
@@ -199,6 +214,11 @@ public:
      * @return True if a given file is already removed
      */
     bool isFileRemoved(const std::string &filename);
+
+    /**
+     * Remove entry from the file removal list
+     */
+    void removeFromFileRemovalList(const std::string &filename);
 
     /**
      * Deregister a give file from the compaction list.
@@ -283,7 +303,9 @@ public:
     static bool isValidCompactionMode(const std::string &filename,
                                       const fdb_config &config);
 
-    // Create the meta file for a given forestdb file.
+    /*
+     * Create the meta file for a given forestdb file.
+     */
     static fdb_status storeMetaFile(const std::string &filename,
                                     ErrLogCallback*log_callback);
 
@@ -298,28 +320,11 @@ public:
 
 private:
 
-    friend class CompactorThread;
-
-    /**
-     * Constructor
-     *
-     * @param config Compaction manager configurations
-     */
-    CompactionManager(const struct compactor_config &config);
+     // Constructor
+    CompactionManager();
 
     // Destructor
     ~CompactionManager();
-
-    // Spawn compactor threads
-    void spawnCompactorThreads();
-
-    /**
-     * Check if a given file is waiting for being removed
-     *
-     * @param entry Pointer to FileCompactionEntry instance
-     * @return True if a given file is waiting for removal
-     */
-    bool checkFileRemoval(FileCompactionEntry *entry);
 
     /**
      * Read the metadata from a given meta file.
@@ -339,17 +344,6 @@ private:
 
     // Lock to synchronize an access to the compaction manager's internal states
     std::mutex cptLock;
-    // Lock to synchronize and notify the compactor threads
-    SyncObject syncMutex;
-
-    // Number of daemon compactor threads
-    size_t numThreads;
-    // List of compactor threads
-    std::vector<CompactorThread *> compactorThreads;
-    // Compactor thread sleep time
-    size_t sleepDuration;
-    // Flag indicating if a compaction termination signal is received
-    std::atomic<uint8_t> terminateSignal;
 
     // Compaction Taskable context
     CompactionMgrTaskable compactionTaskable;
@@ -357,8 +351,8 @@ private:
     // Map of files registered for compaction
     std::map<std::string, ExTask> pendingCompactions;
 
-    // List of files registered for compaction
-    compaction_file_map openFiles;
+    // Unordered_set of files registered for file removal
+    std::unordered_set<std::string> fileRemovalList;
 
     DISALLOW_COPY_AND_ASSIGN(CompactionManager);
 };

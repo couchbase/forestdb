@@ -70,212 +70,6 @@
 std::atomic<CompactionManager *> CompactionManager::instance(nullptr);
 std::mutex CompactionManager::instanceMutex;
 
-/**
- * File compaction task entry for daemon compaction
- */
-class FileCompactionEntry {
-public:
-    FileCompactionEntry(const std::string &_filename,
-                        FileMgr *_file,
-                        fdb_config &_config,
-                        ErrLogCallback *_log_callback,
-                        struct timeval _last_compaction_timestamp,
-                        size_t _interval,
-                        size_t _register_count,
-                        bool _compaction_flag,
-                        bool _daemon_compact_in_progress,
-                        bool _removal_activated) :
-        filename(_filename), file(_file), config(_config), logCallback(_log_callback),
-        lastCompactionTimestamp(_last_compaction_timestamp), interval(_interval),
-        registerCount(_register_count), compactionFlag(_compaction_flag),
-        daemonCompactInProgress(_daemon_compact_in_progress),
-        removalActivated(_removal_activated) { }
-
-    const std::string& getFileName() const {
-        return filename;
-    }
-
-    void setFileName(const std::string &_filename) {
-        filename = _filename;
-    }
-
-    FileMgr* getFileManager() const {
-        return file;
-    }
-
-    void setFileManager(FileMgr *_file) {
-        file = _file;
-    }
-
-    fdb_config& getFdbConfig() {
-        return config;
-    }
-
-    void setCleanupCacheOnClose(bool cleanup) {
-        config.cleanup_cache_onclose = cleanup;
-    }
-
-    void setCompactionThreshold (size_t threshold) {
-        config.compaction_threshold = threshold;
-    }
-
-    ErrLogCallback* getLogCallback() const {
-        return logCallback;
-    }
-
-    struct timeval getLastCompactionTimestamp() const {
-        return lastCompactionTimestamp;
-    }
-
-    void setLastCompactionTimestamp(struct timeval &timestamp) {
-        lastCompactionTimestamp = timestamp;
-    }
-
-    size_t getCompactionInterval() const {
-        return interval;
-    }
-
-    void setCompactionInterval(size_t _interval) {
-        interval = _interval;
-    }
-
-    uint32_t getRegisterCount() const {
-        return registerCount;
-    }
-
-    void setRegisterCount(uint32_t count) {
-        registerCount = count;
-    }
-
-    uint32_t incrRegisterCount() {
-        return ++registerCount;
-    }
-
-    uint32_t decrRegisterCount() {
-        return --registerCount;
-    }
-
-    bool getCompactionFlag() const {
-        return compactionFlag;
-    }
-
-    void setCompactionFlag(bool flag) {
-        compactionFlag = flag;
-    }
-
-    bool isDaemonCompactRunning() const {
-        return daemonCompactInProgress;
-    }
-
-    void setDaemonCompactRunning(bool in_progress) {
-        daemonCompactInProgress = in_progress;
-    }
-
-    bool isFileRemovalActivated() const {
-        return removalActivated;
-    }
-
-    void setFileRemovalActivated(bool removal_activated) {
-        removalActivated = removal_activated;
-    }
-
-    bool isCompactionThresholdSatisfied();
-
-private:
-    uint64_t estimateActiveSpace();
-
-    std::string filename;
-    FileMgr *file;
-    fdb_config config;
-    ErrLogCallback *logCallback;
-    struct timeval lastCompactionTimestamp;
-    size_t interval;
-    uint32_t registerCount;
-    bool compactionFlag; // set when the file is being compacted
-    bool daemonCompactInProgress;
-    bool removalActivated;
-};
-
-uint64_t FileCompactionEntry::estimateActiveSpace() {
-    uint64_t ret = 0;
-    uint64_t datasize;
-    uint64_t nlivenodes;
-
-    datasize = file->getKvsStatOps()->statGetSum(KVS_STAT_DATASIZE);
-    nlivenodes = file->getKvsStatOps()->statGetSum(KVS_STAT_NLIVENODES);
-
-    ret = datasize;
-    ret += nlivenodes * config.blocksize;
-    ret += file->getWal()->getDataSize_Wal();
-
-    return ret;
-}
-
-bool FileCompactionEntry::isCompactionThresholdSatisfied() {
-    uint64_t filesize;
-    uint64_t active_data;
-    int threshold;
-
-    if (compactionFlag || file->isRollbackOn()) {
-        // do not perform compaction if the file is already being compacted or
-        // in rollback.
-        return false;
-    }
-
-    struct timeval curr_time, gap;
-    gettimeofday(&curr_time, NULL);
-    gap = _utime_gap(lastCompactionTimestamp, curr_time);
-    uint64_t elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
-    if (elapsed_us < (interval * 1000000)) {
-        return false;
-    }
-
-    threshold = config.compaction_threshold;
-    if (config.compaction_mode == FDB_COMPACTION_AUTO &&
-        threshold > 0) {
-        filesize = file->getPos();
-        active_data = estimateActiveSpace();
-        if (active_data == 0 || active_data >= filesize ||
-            filesize < config.compaction_minimum_filesize) {
-            return false;
-        }
-
-        return ((filesize / 100.0 * threshold) < (filesize - active_data));
-    } else {
-        return false;
-    }
-}
-
-class CompactorThread {
-public:
-    // Start a thread
-    void start();
-    // Main function for a thread
-    void run();
-    // Stop a thread
-    void stop();
-
-private:
-    thread_t threadId;
-};
-
-extern "C" {
-    static void* launch_compactor_thread(void *arg) {
-        CompactorThread *compactor = (CompactorThread*) arg;
-        compactor->run();
-        return NULL;
-    }
-}
-
-void CompactorThread::start() {
-    thread_create(&threadId, launch_compactor_thread, (void *)this);
-}
-
-void CompactorThread::stop() {
-    void *ret;
-    thread_join(threadId, &ret);
-}
-
 CompactionTask::CompactionTask(CompactionMgrTaskable &e,
                                CompactionManager *compactMgr,
                                FileMgr *file,
@@ -397,101 +191,54 @@ bool CompactionTask::run() {
     return false; // so return false here to end current task
 }
 
-void CompactorThread::run() {
-    CompactionManager *manager = CompactionManager::getInstance();
+FileRemovalTask::FileRemovalTask(CompactionMgrTaskable &e,
+                                 FileMgr *file,
+                                 ErrLogCallback *log_callback)
+    : GlobalTask(e, Priority::FileRemovalPriority, 0, true),
+      compMgr(e.getCompactionMgr()),
+      fileToRemove(file),
+      logCallback(log_callback),
+      filename(std::string(file->getFileName()))
+{
+    desc = "Running file removal task for file: " + filename;
+}
 
-    while (true) {
-        manager->cptLock.lock();
-        auto entry = manager->openFiles.begin();
-        while (entry != manager->openFiles.end()) {
-            FileCompactionEntry *file_entry = entry->second;
-            FileMgr *file = file_entry->getFileManager();
-            if (!file) {
-                entry = manager->openFiles.erase(entry);
-                delete file_entry;
-                continue;
-            }
+bool FileRemovalTask::run() {
+    int ret;
 
-            if (manager->checkFileRemoval(file_entry)) {
-                // remove file
-                int ret;
-
-                // set activation flag to prevent other compactor threads attempting
-                // to remove the same file and double free the file_entry instance,
-                // during 'cpt_lock' is released.
-                file_entry->setFileRemovalActivated(true);
-                // Copy the file name and log callback as they are accessed after
-                // releasing the lock.
-                std::string file_name = file_entry->getFileName();
-                ErrLogCallback* log_callback = file_entry->getLogCallback();
-                manager->cptLock.unlock();
-
-                // As the file is already unlinked, just close it.
-                ret = FileMgr::fileClose(file->getOps(),
-                                         file->getFopsHandle());
+    // As the file is already unlinked, just close it
+    ret = FileMgr::fileClose(fileToRemove->getOps(),
+                             fileToRemove->getFopsHandle());
 #if defined(WIN32) || defined(_WIN32)
-                // For Windows, we need to manually remove the file.
-                ret = remove(file->getFileName());
+    // For windows, we need to manually remove the file
+    ret = remove(filename.c_str());
 #endif
-                file->removeAllBufferBlocks();
-                manager->cptLock.lock();
+    fileToRemove->removeAllBufferBlocks();
 
-                if (log_callback && ret != 0) {
-                    char errno_msg[512];
-                    file->getOps()->get_errno_str(file->getFopsHandle(), errno_msg, 512);
+    if (logCallback && ret != 0) {
+        char errno_msg[512];
+        fileToRemove->getOps()->get_errno_str(fileToRemove->getFopsHandle(),
+                                              errno_msg, 512);
 
-                    if (_last_errno_ == ENOENT) {
-                        // Ignore 'No such file or directory' error as the file
-                        // must've been removed already
-                    } else {
-                        // As a workaround for MB-17009, call fprintf instead of fdb_log
-                        // until c->cgo->go callback trace issue is resolved.
-                        fprintf(stderr,
-                                "Error status code: %d, Error in REMOVE on a "
-                                "database file '%s', %s",
-                                ret, file->getFileName(), errno_msg);
-                    }
-                }
-
-                // free filemgr structure
-                FileMgr::freeFunc(file);
-                // As cptLock was released and grabbed again in the above,
-                // the iterator entry should be refreshed again in case other
-                // threads modified the map structure between them.
-                entry = manager->openFiles.find(file_name);
-                if (entry != manager->openFiles.end()) {
-                    file_entry = entry->second;
-                    // remove & free elem
-                    entry = manager->openFiles.erase(entry);
-                    delete file_entry;
-                }
-            } else {
-                // Get the next file for compaction
-                ++entry;
-            }
-            if (manager->terminateSignal) {
-                manager->cptLock.unlock();
-                return;
-            }
-        }
-        manager->cptLock.unlock();
-
-        {
-            UniqueLock lh(manager->syncMutex);
-            if (manager->terminateSignal) {
-                break;
-            }
-            // As each database file can be opened at different times, we need to
-            // wake up each compaction thread with a shorter interval to check if
-            // the time since the last compaction of a given file is already passed
-            // by a configured compaction interval and consequently the file should
-            // be compacted or not.
-            manager->syncMutex.wait_for(lh, static_cast<double>(15)); // Wait for 15 secs
-            if (manager->terminateSignal) {
-                break;
-            }
+        if (_last_errno_ == ENOENT) {
+            // Ignore 'No such file or directory' error as the file
+            // must've been removed already
+        } else {
+            // TODO: As a workaround for MB-17009, call fprintf instead of
+            // fdb_log until c->cgo->go callback trace issue is resolved.
+            fprintf(stderr,
+                    "Error status code: %d, Error in REMOVE on a "
+                    "database file '%s', %s",
+                    ret, filename.c_str(), errno_msg);
         }
     }
+
+    // free filemgr structure
+    FileMgr::freeFunc(fileToRemove);
+
+    compMgr->removeFromFileRemovalList(filename);
+
+    return false;
 }
 
 struct compactor_meta {
@@ -512,14 +259,6 @@ static bool does_file_exist(const char *filename) {
 }
 #endif
 
-bool CompactionManager::checkFileRemoval(FileCompactionEntry *entry) {
-    if (entry->getFileManager()->getFlags() & FILEMGR_REMOVAL_IN_PROG &&
-        !entry->isFileRemovalActivated()) {
-        return true;
-    }
-    return false;
-}
-
 bool compactor_is_file_removed(const char *filename) {
     std::string file_name(filename);
     return CompactionManager::getInstance()->isFileRemoved(file_name);
@@ -527,11 +266,17 @@ bool compactor_is_file_removed(const char *filename) {
 
 bool CompactionManager::isFileRemoved(const std::string &filename) {
     LockHolder lock(cptLock);
-    if (openFiles.find(filename) != openFiles.end()) {
+    if (fileRemovalList.find(filename) != fileRemovalList.end()) {
         // exist .. old file is not removed yet
         return false;
     }
     return true;
+}
+
+void CompactionManager::removeFromFileRemovalList(const std::string &filename) {
+    LockHolder lock(cptLock);
+    fileRemovalList.erase(filename);
+
 }
 
 // return the location of '.'
@@ -639,31 +384,21 @@ std::string CompactionManager::getNextFileName(const std::string &filename) {
     return std::string(nextfile);
 }
 
-CompactionManager::CompactionManager(const struct compactor_config &config) :
-    numThreads(config.num_threads), sleepDuration(config.sleep_duration),
-    terminateSignal(0), compactionTaskable(this) {
-        ExecutorPool::get()->registerTaskable(compactionTaskable);
+CompactionManager::CompactionManager()
+    : compactionTaskable(this)
+{
+    ExecutorPool::get()->registerTaskable(compactionTaskable);
 }
 
-void CompactionManager::spawnCompactorThreads() {
-     // create worker threads
-    for (size_t i = 0; i < numThreads; ++i) {
-        CompactorThread *thread = new CompactorThread();
-        compactorThreads.push_back(thread);
-        thread->start();
-    }
-}
-
-CompactionManager* CompactionManager::init(const struct compactor_config &config) {
+CompactionManager* CompactionManager::init() {
     CompactionManager* tmp = instance.load();
     if (tmp == nullptr) {
         // Ensure two threads don't both create an instance.
         LockHolder lock(instanceMutex);
         tmp = instance.load();
         if (tmp == nullptr) {
-            tmp = new CompactionManager(config);
+            tmp = new CompactionManager();
             instance.store(tmp);
-            tmp->spawnCompactorThreads();
         }
     }
     return tmp;
@@ -672,10 +407,8 @@ CompactionManager* CompactionManager::init(const struct compactor_config &config
 CompactionManager* CompactionManager::getInstance() {
     CompactionManager* compaction_manager = instance.load();
     if (compaction_manager == nullptr) {
-        // Create the compaction manager with default configs.
-        struct compactor_config config =
-            {FDB_COMPACTOR_SLEEP_DURATION, DEFAULT_NUM_COMPACTOR_THREADS};
-        return init(config);
+        // Create the compaction manager
+        return init();
     }
     return compaction_manager;
 }
@@ -690,31 +423,9 @@ void CompactionManager::destroyInstance() {
 }
 
 CompactionManager::~CompactionManager() {
-    // set terminate signal
-    syncMutex.lock();
-    terminateSignal.store(1);
-    syncMutex.notify_all();
-    syncMutex.unlock();
-
-    for (auto &thread : compactorThreads) {
-        thread->stop();
-        delete thread;
-    }
-
-    UniqueLock lock(cptLock);
-    for (auto &entry : openFiles) {
-        FileCompactionEntry *file_entry = entry.second;
-        if (checkFileRemoval(file_entry)) {
-            // remove file if removal is pended.
-            remove(file_entry->getFileName().c_str());
-            FileMgr::freeFunc(file_entry->getFileManager());
-        }
-        delete file_entry;
-    }
     // Tasks queued inside pendingCompactions will be cancelled by the call
     // below since we specify blockShutdown = false
     // They will be released as part of the destructor of CompactionManager
-    lock.unlock();
     // Wait for all unfinished tasks, cancelling them if needed.
     ExecutorPool::get()->unregisterTaskable(compactionTaskable, false /*!force*/);
 }
@@ -818,48 +529,22 @@ fdb_status compactor_register_file_removing(FileMgr *file,
 
 fdb_status CompactionManager::registerFileRemoval(FileMgr *file,
                                                   ErrLogCallback *log_callback) {
-    fdb_status fs = FDB_RESULT_SUCCESS;
-
-    // first search the existing file
-    std::string filename(file->getFileName());
-    cptLock.lock();
-    auto entry = openFiles.find(filename);
-    if (entry == openFiles.end()) {
-        // doesn't exist
-        // create a fake & temporary element for the file to be removed.
-        struct timeval timestamp;
-        fdb_config config;
-
-        gettimeofday(&timestamp, NULL);
-        FileCompactionEntry *file_entry =
-            new FileCompactionEntry(filename, file,
-                                    config, log_callback,
-                                    timestamp,
-                                    sleepDuration, 1 /* register count */,
-                                    // To prevent this file from being compacted,
-                                    // set compaction-related flags to true
-                                    true /* compaction flag*/,
-                                    true /* daemon compaction in progress */,
-                                    false /* removal activated */);
-        // set flag
-        file->addToFlags(FILEMGR_REMOVAL_IN_PROG);
-        openFiles.insert(std::make_pair(file_entry->getFileName(), file_entry));
-
-        cptLock.unlock(); // Releasing the lock here should be OK as
-                          // subsequent registration attempts for the same file
-                          // will be simply processed by incrementing its
-                          // counter below.
-
-        // wake up any sleeping thread
-        syncMutex.lock();
-        syncMutex.notify_one();
-        syncMutex.unlock();
-
-    } else {
-        // already exists .. just ignore
-        cptLock.unlock();
+    std::string file_name = std::string(file->getFileName());
+    UniqueLock lh(cptLock);
+    if (fileRemovalList.find(file_name) != fileRemovalList.end()) {
+        // File Removal already scheduled
+        return FDB_RESULT_SUCCESS;
     }
-    return fs;
+
+    ExTask fileRemovalTask = new FileRemovalTask(compactionTaskable,
+                                                 file,
+                                                 log_callback);
+    fileRemovalList.insert(file_name);
+    lh.unlock();
+
+    ExecutorPool::get()->schedule(fileRemovalTask, WRITER_TASK_IDX);
+
+    return FDB_RESULT_SUCCESS;
 }
 
 fdb_status CompactionManager::setCompactionThreshold(FileMgr *file,
