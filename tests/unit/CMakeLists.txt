@@ -25,16 +25,12 @@ set_target_properties(mempool_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTI
 
 add_executable(execpool_test
                execpool_test.cc
-               ${ROOT_SRC}/executorpool.cc
-               ${ROOT_SRC}/executorthread.cc
-               ${ROOT_SRC}/globaltask.cc
-               ${ROOT_SRC}/task_priority.cc
-               ${ROOT_SRC}/taskqueue.cc
-               ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
-               ${ROOT_UTILS}/time_utils.cc
                $<TARGET_OBJECTS:TEST_STAT_AGG>)
-target_link_libraries(execpool_test ${PTHREAD_LIB} ${LIBM}
+target_link_libraries(execpool_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})

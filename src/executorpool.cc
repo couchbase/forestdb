@@ -21,6 +21,7 @@
 #include <queue>
 #include <sstream>
 
+#include "fdb_internal.h"
 #include "taskqueue.h"
 #include "executorpool.h"
 #include "executorthread.h"
@@ -268,8 +269,9 @@ void ExecutorPool::addWork(size_t newWork, task_type_t qType) {
 
 void ExecutorPool::lessWork(task_type_t qType) {
     if (numReadyTasks[qType].load() == 0) {
-        throw std::logic_error("ExecutorPool::lessWork: number of ready "
-                "tasks on qType " + std::to_string(qType) + " is zero");
+        fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                "Number of ready tasks on qType:%d is zero!\n", qType);
+        fdb_assert(false, qType, 0);
     }
     numReadyTasks[qType]--;
     totReadyTasks--;
@@ -324,9 +326,10 @@ bool ExecutorPool::_cancel(size_t taskId, bool eraseTask) {
 
     if (eraseTask) { // only internal threads can erase tasks
         if (!task->isdead()) {
-            throw std::logic_error("ExecutorPool::_cancel: task '"
-                    + task->getDescription() + "' is not dead after calling "
-                            "cancel() on it");
+            fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                    "Task (%s) is not dead after cancelling it!\n",
+                    task->getDescription().c_str());
+            fdb_assert(false, 0, 0);
         }
         taskLocator.erase(itr);
         tMutex.notify_all();
@@ -381,9 +384,10 @@ TaskQueue* ExecutorPool::_getTaskQueue(const Taskable& t,
     bucket_priority_t bucketPriority = t.getWorkloadPriority();
 
     if (qidx < 0 || static_cast<size_t>(qidx) >= numTaskSets) {
-        throw std::invalid_argument("ExecutorPool::_getTaskQueue: qidx "
-                "(which is " + std::to_string(qidx) + ") is outside the range [0,"
-                + std::to_string(numTaskSets) + ")");
+        fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                "Invalid args: qidx(%d) is outside the range [0, %" _F64 "]!\n",
+                qidx, static_cast<uint64_t>(numTaskSets));
+        fdb_assert(false, 0, 0);
     }
 
     curNumThreads = threadQ.size();
@@ -404,27 +408,32 @@ TaskQueue* ExecutorPool::_getTaskQueue(const Taskable& t,
         switch (bucketPriority) {
         case LOW_BUCKET_PRIORITY:
             if (lpTaskQ.size() != numTaskSets) {
-                throw std::logic_error("ExecutorPool::_getTaskQueue: At "
-                        "maximum capacity but low-priority taskQ size "
-                        "(which is " + std::to_string(lpTaskQ.size()) +
-                        ") is not " + std::to_string(numTaskSets));
+                fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                        "TaskQueue at maximum capacity but low-priority taskQ "
+                        "size (%" _F64 "), is not %" _F64 "!\n",
+                        static_cast<uint64_t>(lpTaskQ.size()),
+                        static_cast<uint64_t>(numTaskSets));
+                fdb_assert(false, lpTaskQ.size(), numTaskSets);
             }
             q = lpTaskQ[qidx];
             break;
 
         case HIGH_BUCKET_PRIORITY:
             if (hpTaskQ.size() != numTaskSets) {
-                throw std::logic_error("ExecutorPool::_getTaskQueue: At "
-                        "maximum capacity but high-priority taskQ size "
-                        "(which is " + std::to_string(lpTaskQ.size()) +
-                        ") is not " + std::to_string(numTaskSets));
+                fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                        "TaskQueue at maximum capacity but high-priority taskQ "
+                        "size (%" _F64 "), is not %" _F64 "!\n",
+                        static_cast<uint64_t>(hpTaskQ.size()),
+                        static_cast<uint64_t>(numTaskSets));
+                fdb_assert(false, hpTaskQ.size(), numTaskSets);
             }
             q = hpTaskQ[qidx];
             break;
 
         default:
-            throw std::logic_error("ExecutorPool::_getTaskQueue: Invalid "
-                    "bucketPriority " + std::to_string(bucketPriority));
+            fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                    "Invalid bucket priority: %d!\n", bucketPriority);
+            fdb_assert(false, 0, 0);
         }
     }
     return q;
@@ -601,9 +610,11 @@ void ExecutorPool::_unregisterTaskable(Taskable& taskable, bool force) {
     taskOwners.erase(&taskable);
     if (!(--numBuckets)) {
         if (taskLocator.size()) {
-            throw std::logic_error("ExecutorPool::_unregisterTaskable: "
-                    "Attempting to unregister taskable '" +
-                    taskable.getName() + "' but taskLocator is not empty");
+            fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                    "Attempting to unregister taskable (%s), but "
+                    "taskLocator is not empty!\n",
+                    taskable.getName().c_str());
+            fdb_assert(false, 0, 0);
         }
         for (unsigned int idx = 0; idx < numTaskSets; idx++) {
             TaskQueue *sleepQ = getSleepQ(idx);
