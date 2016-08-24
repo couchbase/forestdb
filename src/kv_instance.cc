@@ -353,8 +353,8 @@ void fdb_kvs_header_copy(FdbKvsHandle *handle,
     // copy all in-memory custom cmp function pointers & seqnums
     new_file->getKVHeader_UNLOCKED()->default_kvs_cmp =
         handle->file->getKVHeader_UNLOCKED()->default_kvs_cmp;
-    new_file->getKVHeader_UNLOCKED()->custom_cmp_enabled =
-        handle->file->getKVHeader_UNLOCKED()->custom_cmp_enabled;
+    new_file->getKVHeader_UNLOCKED()->custom_cmp_enabled.store(
+        handle->file->getKVHeader_UNLOCKED()->custom_cmp_enabled);
     a = avl_first(handle->file->getKVHeader_UNLOCKED()->idx_id);
     while (a) {
         node_old = _get_entry(a, struct kvs_node, avl_id);

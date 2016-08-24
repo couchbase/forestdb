@@ -387,7 +387,7 @@ public:
     /**
      * Boolean to determine if custom compare function for a KV store is set.
      */
-    uint8_t custom_cmp_enabled;
+    std::atomic<uint8_t> custom_cmp_enabled;
     /**
      * Number of KV store instances
      */
