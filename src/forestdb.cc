@@ -638,6 +638,14 @@ fdb_filemgr_ops_t* fdb_get_default_file_ops(void) {
 }
 
 LIBFDB_API
+fdb_status fdb_fetch_handle_stats(fdb_kvs_handle *handle,
+                                  fdb_handle_stats_cb callback,
+                                  void *ctx)
+{
+    return FdbEngine::fetchHandleStats(handle, callback, ctx);
+}
+
+LIBFDB_API
 fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
                     const char *filename,
                     fdb_config *fconfig)
@@ -5180,6 +5188,40 @@ const char* FdbEngine::getFileVersion(fdb_file_handle *fhandle)
 
 fdb_filemgr_ops_t* FdbEngine::getDefaultFileOps(void) {
     return (fdb_filemgr_ops_t *) get_filemgr_ops();
+}
+
+fdb_status FdbEngine::fetchHandleStats(fdb_kvs_handle *handle,
+                                       fdb_handle_stats_cb stat_callback,
+                                       void *ctx) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    } else if (!handle->file) {
+        return FDB_RESULT_FILE_NOT_OPEN;
+    }
+
+    stat_callback(handle, "Curr_header_revnum",
+                  static_cast<uint64_t>(handle->cur_header_revnum.load()),
+                  ctx);
+    stat_callback(handle, "Last_header_bid",
+                  static_cast<uint64_t>(handle->last_hdr_bid),
+                  ctx);
+    stat_callback(handle, "Last_wal_flush_header_bid",
+                  static_cast<uint64_t>(handle->last_wal_flush_hdr_bid),
+                  ctx);
+    stat_callback(handle, "Num_wal_shards",
+                  static_cast<uint64_t>(handle->file->getConfig()->getNumWalShards()),
+                  ctx);
+    stat_callback(handle, "Num_bcache_shards",
+                  static_cast<uint64_t>(handle->file->getConfig()->getNumBcacheShards()),
+                  ctx);
+    stat_callback(handle, "Block_cache_hits",
+                  static_cast<uint64_t>(handle->file->fetchBlockCacheHits()),
+                  ctx);
+    stat_callback(handle, "Block_cache_misses",
+                  static_cast<uint64_t>(handle->file->fetchBlockCacheMisses()),
+                  ctx);
+
+    return FDB_RESULT_SUCCESS;
 }
 
 // Delta changes in KV store stats during the WAL flush

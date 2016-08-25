@@ -26,6 +26,7 @@
 #endif
 
 #include <string>
+#include <map>
 #include <vector>
 
 #include "libforestdb/forestdb.h"
@@ -5254,6 +5255,10 @@ void latency_stats_histogram_test() {
 
     memleak_start();
 
+    // remove previous func_test files
+    int r = system(SHELL_DEL" func_test* > errorlog.txt");
+    (void)r;
+
     // open db
     status = fdb_open(&dbfile, "./func_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -5300,7 +5305,102 @@ void latency_stats_histogram_test() {
     TEST_RESULT("latency stats with histogram test");
 }
 
-int main(){
+struct stats_ctx {
+    stats_ctx() : db(nullptr) { }
+
+    fdb_kvs_handle *db;
+    std::map<std::string, uint64_t> stats;
+};
+
+void stats_callback(fdb_kvs_handle *handle, const char *stat,
+                    uint64_t value, void *ctx) {
+    stats_ctx *ptr = static_cast<stats_ctx*>(ctx);
+    fdb_assert(ptr->db == handle, ptr->db, handle);
+    ptr->stats[stat] = value;
+}
+
+void handle_stats_test() {
+    TEST_INIT();
+
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 10240;   // 10KB
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_status status;
+
+    // remove previous func_test files
+    int r = system(SHELL_DEL" func_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./func_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // issue a few sets
+    char keybuf[32], bodybuf[32];
+    int count = 100;
+    for (int i = 0; i < count; ++i) {
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "val%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // commit normal
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    void *value;
+    size_t valuesize;
+
+    status = fdb_get_kv(db, "key99", 5, &value, &valuesize);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(valuesize == 5);
+    TEST_CMP(value, "val99", 5);
+    fdb_free_block(value);
+
+    status = fdb_get_kv(db, "key1", 4, &value, &valuesize);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(valuesize == 4);
+    TEST_CMP(value, "val1", 4);
+    fdb_free_block(value);
+
+    stats_ctx cb_ctx;
+    cb_ctx.db = db;
+
+    // fetch handle stats
+    status = fdb_fetch_handle_stats(db, stats_callback, &cb_ctx);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    uint64_t last_header_bid = cb_ctx.stats["Last_header_bid"];
+    TEST_CHK(cb_ctx.stats["Last_wal_flush_header_bid"] == static_cast<uint64_t>(-1));
+    TEST_CHK(cb_ctx.stats["Block_cache_hits"] + cb_ctx.stats["Block_cache_misses"] > 0);
+
+    // commit with wal flush
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // fetch handle stats again
+    status = fdb_fetch_handle_stats(db, stats_callback, &cb_ctx);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(cb_ctx.stats["Last_header_bid"] > last_header_bid);
+    TEST_CHK(cb_ctx.stats["Last_wal_flush_header_bid"] == cb_ctx.stats["Last_header_bid"]);
+    TEST_CHK(cb_ctx.stats["Block_cache_hits"] + cb_ctx.stats["Block_cache_misses"] > 0);
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    TEST_RESULT("KVS handle stats test");
+}
+
+int main() {
+
     basic_test();
     init_test();
     set_get_max_keylen();
@@ -5366,6 +5466,7 @@ int main(){
     changes_since_test("kvs");
 
     latency_stats_histogram_test();
+    handle_stats_test();
 
     return 0;
 }
