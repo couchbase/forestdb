@@ -287,14 +287,17 @@ void _fdb_kvs_header_create(KvsHeader **kv_header_ptr)
 
 void fdb_kvs_header_create(FileMgr *file)
 {
+    file->acquireSpinLock();
     KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
     if (kv_header) {
-        return; // already exist
+        file->releaseSpinLock();
+        return; // already exists
     }
 
     _fdb_kvs_header_create(&kv_header);
     file->setKVHeader_UNLOCKED(kv_header);
     file->setFreeKVHeaderCB(fdb_kvs_header_free);
+    file->releaseSpinLock();
 }
 
 void fdb_kvs_header_reset_all_stats(FileMgr *file)
@@ -956,12 +959,15 @@ void _fdb_kvs_header_free(KvsHeader *kv_header)
 
 void fdb_kvs_header_free(FileMgr *file)
 {
+    file->acquireSpinLock();
     if (file->getKVHeader_UNLOCKED() == NULL) {
+        file->releaseSpinLock();
         return;
     }
 
     _fdb_kvs_header_free(file->getKVHeader_UNLOCKED());
     file->setKVHeader_UNLOCKED(NULL);
+    file->releaseSpinLock();
 }
 
 // this function just returns pointer
