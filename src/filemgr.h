@@ -1183,6 +1183,22 @@ public:
         spin_unlock(&handleIdxLock);
     }
 
+    void incrBlockCacheHits() {
+        ++bcacheHits;
+    }
+
+    size_t fetchBlockCacheHits() {
+        return bcacheHits.load();
+    }
+
+    void incrBlockCacheMisses() {
+        ++bcacheMisses;
+    }
+
+    size_t fetchBlockCacheMisses() {
+        return bcacheMisses.load();
+    }
+
     // variables related to prefetching
     std::atomic<uint8_t> prefetchStatus;
     thread_t prefetchTid;
@@ -1359,6 +1375,11 @@ private:
     static check_file_removal_func isFileRemoved;
     // Pointer to the superblock init function
     static superblock_init_cb sbInitializer;
+
+    // Block cache hit count for read ops
+    std::atomic<size_t> bcacheHits;
+    // Block cache miss count for read ops
+    std::atomic<size_t> bcacheMisses;
 };
 
 /**

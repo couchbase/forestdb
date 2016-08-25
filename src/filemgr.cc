@@ -284,7 +284,8 @@ FileMgr::FileMgr()
       inPlaceCompaction(false),
       fsType(0), kvHeader(nullptr), throttlingDelay(0), fMgrVersion(0),
       fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
-      staleData(nullptr), latestDirtyUpdate(nullptr)
+      staleData(nullptr), latestDirtyUpdate(nullptr),
+      bcacheHits(0), bcacheMisses(0)
 {
 
     fMgrHeader.bid = 0;
@@ -2048,6 +2049,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
         r = BlockCacheManager::getInstance()->read(this, bid, buf);
         if (r == 0) {
             // cache miss
+            incrBlockCacheMisses();
             if (!read_on_cache_miss) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2140,7 +2142,10 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                 }
                 return status;
             }
+        } else {
+            incrBlockCacheHits();
         }
+
         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
             plock_unlock(&fMgrPlock, plock_entry);

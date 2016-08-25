@@ -814,6 +814,19 @@ public:
      */
     static fdb_filemgr_ops_t* getDefaultFileOps();
 
+    /**
+     * Fetch handle stats for the ForestDB KV store instance
+     *
+     * @param handle Pointer to the KV store instance
+     * @param callback Callback that is invoked for every stat fetched
+     * @param ctx Client context that is passed to the callback
+     *
+     * @return FDB_RESULT_SUCCESS on success
+     */
+    static fdb_status fetchHandleStats(fdb_kvs_handle *handle,
+                                       fdb_handle_stats_cb callback,
+                                       void *ctx);
+
 private:
 
     friend class Compaction;

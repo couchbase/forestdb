@@ -928,6 +928,20 @@ typedef struct {
     fdb_kvs_commit_marker_t *kvs_markers;
 } fdb_snapshot_info_t;
 
+/**
+ * The callback function is used by fdb_fetch_handle_stats.
+ *
+ * @param handle Pointer to ForestDB KV store instance
+ * @param stat stat name
+ * @param value stat value
+ * @param ctx Client context
+ */
+typedef void (*fdb_handle_stats_cb)(fdb_kvs_handle *handle,
+                                    const char *stat,
+                                    uint64_t value,
+                                    void *ctx);
+
+
 #ifdef __cplusplus
 }
 #endif

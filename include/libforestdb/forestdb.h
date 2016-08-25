@@ -1161,6 +1161,20 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle);
 LIBFDB_API
 fdb_filemgr_ops_t* fdb_get_default_file_ops();
 
+/**
+ * Fetch select stats for the ForestDB KV store handle.
+ *
+ * @param handle Pointer to ForestDB KV store instance
+ * @param callback Callback function that the caller will register, this callback
+ *                 function is invoked for every stat of the KV store handle
+ * @param ctx Client context that is passed to the callback
+ *
+ */
+LIBFDB_API
+fdb_status fdb_fetch_handle_stats(fdb_kvs_handle *handle,
+                                  fdb_handle_stats_cb callback,
+                                  void *ctx);
+
 #ifdef __cplusplus
 }
 #endif
