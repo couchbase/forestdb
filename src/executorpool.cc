@@ -24,6 +24,7 @@
 #include "taskqueue.h"
 #include "executorpool.h"
 #include "executorthread.h"
+#include "fdb_internal.h"
 
 #define LOG(...)
 
@@ -279,6 +280,12 @@ void ExecutorPool::doneWork(task_type_t &curTaskType) {
     if (curTaskType != NO_TASK_TYPE) {
         LOG(EXTENSION_LOG_DEBUG, "Done with Task Type %d capacity = %d",
                 curTaskType, curWorkers[curTaskType].load());
+        if (curWorkers[curTaskType].load() == 0) {
+            fdb_log(NULL, FDB_RESULT_INVALID_CONFIG,
+                "Underflow in task count on qType:%d!\n", curTaskType);
+            fdb_assert(false, curTaskType, curWorkers[curTaskType].load());
+        }
+
         curWorkers[curTaskType]--;
         curTaskType = NO_TASK_TYPE;
     }

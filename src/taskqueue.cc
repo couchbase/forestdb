@@ -192,24 +192,17 @@ void TaskQueue::_checkPendingQueue(void) {
     }
 }
 
-hrtime_t TaskQueue::_reschedule(ExTask &task, task_type_t &curTaskType) {
-    hrtime_t wakeTime;
-    manager->doneWork(curTaskType);
-
+hrtime_t TaskQueue::_reschedule(ExTask &task) {
     LockHolder lh(mutex);
 
     futureQueue.push(task);
-    if (curTaskType == queueType) {
-        wakeTime = futureQueue.top()->getWaketime();
-    } else {
-        wakeTime = hrtime_t(-1);
-    }
+    hrtime_t wakeTime = futureQueue.top()->getWaketime();
 
     return wakeTime;
 }
 
-hrtime_t TaskQueue::reschedule(ExTask &task, task_type_t &curTaskType) {
-    hrtime_t rv = _reschedule(task, curTaskType);
+hrtime_t TaskQueue::reschedule(ExTask &task) {
+    hrtime_t rv = _reschedule(task);
     return rv;
 }
 

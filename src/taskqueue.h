@@ -40,7 +40,7 @@ public:
 
     void schedule(ExTask &task);
 
-    hrtime_t reschedule(ExTask &task, task_type_t &curTaskType);
+    hrtime_t reschedule(ExTask &task);
 
     void checkPendingQueue(void);
 
@@ -68,7 +68,7 @@ public:
 
 private:
     void _schedule(ExTask &task);
-    hrtime_t _reschedule(ExTask &task, task_type_t &curTaskType);
+    hrtime_t _reschedule(ExTask &task);
     void _checkPendingQueue(void);
     bool _fetchNextTask(ExecutorThread &thread, bool toSleep);
     void _wake(ExTask &task);

@@ -110,7 +110,8 @@ void ExecutorThread::run() {
 
                 // release capacity back to TaskQueue ..
                 manager->doneWork(curTaskType);
-                new_waketime = q->reschedule(currentTask, curTaskType);
+                // reschedule this task back into the queue it was fetched from
+                new_waketime = q->reschedule(currentTask);
                 // record min waketime ...
                 if (new_waketime < waketime) {
                     waketime = new_waketime;
