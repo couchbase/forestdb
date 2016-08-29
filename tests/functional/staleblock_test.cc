@@ -1176,7 +1176,6 @@ void reuse_on_delete_test() {
         status = fdb_set_kv(db, keybuf, strlen(keybuf),
                             bodybuf, strlen(bodybuf));
         TEST_STATUS(status);
-        i++;
     }
 
     // expect to still be in reuse mode
