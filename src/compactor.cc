@@ -1168,7 +1168,7 @@ static fdb_status _compactor_search_n_destroy(const char *filename)
     char query_str[MAX_FNAMELEN];
 
     // find all files start with 'prefix'
-    sprintf(query_str, "%s*", prefix);
+    sprintf(query_str, "%s.*", filename);
     hfind = FindFirstFile(query_str, &filedata);
     while (hfind != INVALID_HANDLE_VALUE) {
         if (!strncmp(filedata.cFileName, prefix, strlen(prefix))) {
