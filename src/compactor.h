@@ -132,7 +132,7 @@ private:
     CompactionManager *compMgr;
     FileMgr *fileToCompact;
     fdb_config fdbConfig;
-    double sleepTime;
+    std::atomic<double> sleepTime;
     bool compactionFlag; // set when the file is being compacted
     std::string desc;
     uint32_t openHandles;
