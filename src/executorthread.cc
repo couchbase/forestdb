@@ -92,8 +92,11 @@ void ExecutorThread::run() {
             currentTask->setState(TASK_RUNNING, TASK_SNOOZED);
             bool again = currentTask->run();
 
+            // Update current time of thread after task run..
+            now = gethrtime();
+
             // Task done, log it ...
-            hrtime_t runtime((gethrtime() - taskStart) / 1000);
+            hrtime_t runtime((now - taskStart) / 1000);
             currentTask->getTaskable().logRunTime(currentTask->getTypeId(),
                                                   runtime);
 

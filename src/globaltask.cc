@@ -22,10 +22,15 @@
 std::atomic<size_t> GlobalTask::task_id_counter(1);
 
 GlobalTask::GlobalTask(Taskable& t, const Priority &p,
-           double sleeptime, bool completeBeforeShutdown) :
-      RCValue(), priority(p),
+                       double sleeptime, bool completeBeforeShutdown)
+    : RCValue(),
+      priority(p),
       blockShutdown(completeBeforeShutdown),
-      state(TASK_RUNNING), taskId(nextTaskId()), taskable(t) {
+      state(TASK_RUNNING),
+      taskId(nextTaskId()),
+      enqueueTick(0),
+      taskable(t)
+{
     snooze(sleeptime);
 }
 

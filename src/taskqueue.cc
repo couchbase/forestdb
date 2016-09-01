@@ -20,7 +20,7 @@
 #include "executorthread.h"
 
 TaskQueue::TaskQueue(ExecutorPool *m, task_type_t t, const char *nm) :
-    name(nm), queueType(t), manager(m), sleepers(0)
+    name(nm), queueType(t), manager(m), sleepers(0), queueTick(0)
 {
     // EMPTY
 }
@@ -170,6 +170,7 @@ size_t TaskQueue::_moveReadyTasks(hrtime_t tv) {
         ExTask tid = futureQueue.top();
         if (tid->getWaketime() <= tv) {
             futureQueue.pop();
+            tid->setEnqueueTick(++queueTick);
             readyQueue.push(tid);
             numReady++;
         } else {
@@ -186,6 +187,7 @@ size_t TaskQueue::_moveReadyTasks(hrtime_t tv) {
 void TaskQueue::_checkPendingQueue(void) {
     if (!pendingQueue.empty()) {
         ExTask runnableTask = pendingQueue.front();
+        runnableTask->setEnqueueTick(++queueTick);
         readyQueue.push(runnableTask);
         manager->addWork(1, queueType);
         pendingQueue.pop_front();

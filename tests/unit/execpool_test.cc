@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -78,8 +79,10 @@ typedef void task_vector_scan_cb(TaskEntry *te, void *ctx);
  */
 class TaskTracker {
 public:
-    TaskTracker() {
-        spin_init(&task_vector_lock);
+    TaskTracker(bool _track_run_count = false)
+        : track_run_count(_track_run_count)
+    {
+        spin_init(&task_lock);
     }
 
     ~TaskTracker() {
@@ -87,35 +90,57 @@ public:
             delete it;
         }
 
-        spin_destroy(&task_vector_lock);
+        spin_destroy(&task_lock);
     }
 
     void addEntry(test_task_type_t type, size_t id, int priority,
                   ts_nsec scheduletime, double initialsnooze,
                   ts_nsec runtime) {
+
+        spin_lock(&task_lock);
         TaskEntry *te = new TaskEntry(type, id, priority,
                                       scheduletime, initialsnooze, runtime);
-        spin_lock(&task_vector_lock);
         task_vector.push_back(te);
-        spin_unlock(&task_vector_lock);
+
+        if (track_run_count) {
+            if (task_map.find(id) != task_map.end()) {
+                task_map[id] = task_map[id] + 1;
+            } else {
+                task_map[id] = 1;
+            }
+        }
+        spin_unlock(&task_lock);
     }
 
-    void scan(task_vector_scan_cb *scan_callback,
-              void *ctx) {
-        spin_lock(&task_vector_lock);
+    void scanVector(task_vector_scan_cb *scan_callback,
+                    void *ctx) {
+        spin_lock(&task_lock);
         std::vector<TaskEntry *> task_vector_copy(task_vector);
-        spin_unlock(&task_vector_lock);
+        spin_unlock(&task_lock);
 
         for (auto &it : task_vector_copy) {
             scan_callback(it, ctx);
         }
     }
 
+    std::map<size_t, size_t> fetchTaskMap() {
+        spin_lock(&task_lock);
+        std::map<size_t, size_t> task_map_copy(task_map);
+        spin_unlock(&task_lock);
+
+        return task_map_copy;
+    }
+
 private:
     // Vector to track order of task execution
     std::vector<TaskEntry *> task_vector;
-    // Spin lock for task_vector access
-    spin_t task_vector_lock;
+    // Flag whether to or not to track run count
+    bool track_run_count;
+    // Map of task id to run count
+    std::map<size_t, size_t> task_map;
+
+    // Spin lock for task_vector/map access
+    spin_t task_lock;
 };
 
 class FileEngine;
@@ -237,7 +262,8 @@ class RecurringTask : public GlobalTask {
 public:
     RecurringTask(EngineTaskable& e, TaskTracker *tt,
                   const Priority &p, double sleep = 0.0/*seconds*/,
-                  bool incrementCounter = false)
+                  bool incrementCounter = false,
+                  bool simulateRunTimes = false)
         : GlobalTask(e      /*Taskable:EngineTaskable*/,
                      p      /*Task priority*/,
                      sleep  /*Snooze after exec*/,
@@ -246,6 +272,7 @@ public:
           priority(p.getPriorityValue()),
           snoozeFor(sleep),
           doIncrementIterationCounter(incrementCounter),
+          doSimulateRunTimes(simulateRunTimes),
           scheduleTime(get_monotonic_ts())
     { }
 
@@ -254,6 +281,9 @@ public:
                             scheduleTime, snoozeFor, get_monotonic_ts());
         if (doIncrementIterationCounter) {
             ++recurringTaskIterations;
+        }
+        if (doSimulateRunTimes) {
+            usleep(100000);        // 100 ms
         }
         snooze(snoozeFor);
         scheduleTime = get_monotonic_ts();
@@ -271,6 +301,7 @@ private:
     int priority;
     double snoozeFor;
     bool doIncrementIterationCounter;
+    bool doSimulateRunTimes;
     ts_nsec scheduleTime;
 };
 
@@ -324,7 +355,7 @@ void regular_task_behavior_test(size_t num_threads,
     /* Terminate file engine */
     delete fe;
 
-    tracker->scan(task_entry_scanner, sa);
+    tracker->scanVector(task_entry_scanner, sa);
     if (check_task_order) {
         sa->aggregateAndPrintStats("REGULAR_TASK_TEST (wait times)", samples, "ms");
     } else {
@@ -440,7 +471,7 @@ void mixed_task_behavior_test(size_t num_threads,
     /* Terminate file engine */
     delete fe;
 
-    tracker->scan(task_entry_scanner, sa);
+    tracker->scanVector(task_entry_scanner, sa);
     if (check_task_order) {
         sa->aggregateAndPrintStats("MIXED_TASK_TEST (wait times)", samples, "ms");
     } else {
@@ -462,27 +493,113 @@ void mixed_task_behavior_test(size_t num_threads,
     TEST_RESULT(title.c_str());
 }
 
+void heavy_recurring_task_behavior_test(size_t num_threads,
+                                        size_t num_recurring_tasks,
+                                        double snooze_time,
+                                        int run_time) {
+    TEST_INIT();
+
+    TaskTracker *tracker = new TaskTracker(true);
+    StatAggregator *sa = new StatAggregator(2, 1);
+    sa->t_stats[REGULAR_TASK][0].name = "regular_task";
+    sa->t_stats[RECURRING_TASK][0].name = "recurring_task";
+    samples = 0;
+
+    WorkLoadPolicy wlp(static_cast<int>(num_threads),
+                       static_cast<int>(num_threads));
+    FileEngine *fe = new FileEngine("RECURRING_TASK_ENGINE",
+                                    LOW_BUCKET_PRIORITY,
+                                    &wlp);
+
+    threadpool_config config = {num_threads/*all writer threads*/};
+    ExecutorPool::initExPool(config);
+    ExecutorPool::get()->registerTaskable(fe->getTaskable());
+
+    std::vector<ExTask> tasks;
+    for (size_t i = 0; i < num_recurring_tasks; ++i) {
+        ExTask task = new RecurringTask(fe->getTaskable(),
+                                        tracker,
+                                        Priority::BgFlusherPriority,
+                                        snooze_time,
+                                        false,
+                                        true    /* simulate fixed run time */);
+        tasks.push_back(task);
+    }
+    for (auto &task : tasks) {
+        ExecutorPool::get()->schedule(task, WRITER_TASK_IDX);
+    }
+    tasks.clear();
+
+    // Sleep for the specified amount of time
+    sleep(run_time);
+
+    /* Force shutdown */
+    ExecutorPool::get()->unregisterTaskable(fe->getTaskable(), true/*force*/);
+    ExecutorPool::shutdown();
+
+    /* Terminate file engine */
+    delete fe;
+
+    // Analyze stats
+    std::map<size_t, size_t> taskMap = tracker->fetchTaskMap();
+    for (auto &it : taskMap) {
+        fprintf(stderr, "%5d :: %d\n", static_cast<int>(it.first),
+                                       static_cast<int>(it.second));
+    }
+
+    tracker->scanVector(task_entry_scanner, sa);
+    sa->aggregateAndPrintStats("HEAVY_RECURRING_TASK_TEST (wait times)", samples, "ms");
+
+    delete sa;
+    delete tracker;
+
+    // Check task run count, variance should not be by more than 30%
+    // in any scenario
+    size_t prev = 0;
+    for (auto &it : taskMap) {
+        if (prev != 0) {
+            if (it.second < (prev * 0.7) ||
+                it.second > (prev * 1.3)) {
+                abort();
+            }
+        }
+        prev = it.second;
+    }
+
+    std::string title("Heavy recurring task behavior test - " +
+                      std::to_string(num_threads) + " threads, " +
+                      std::to_string(num_recurring_tasks) + " recur. tasks, " +
+                      std::to_string(snooze_time) + " snooze times, " +
+                      "test time: " + std::to_string(run_time) + "s");
+    TEST_RESULT(title.c_str());
+}
+
 int main() {
 
-    regular_task_behavior_test(4        /* num threads */,
-                               100      /* num tasks */,
-                               false    /* no check for task ordering */);
+    regular_task_behavior_test(4                /* num threads */,
+                               100              /* num tasks */,
+                               false            /* no check for task ordering */);
 
-    regular_task_behavior_test(4        /* num threads */,
-                               100      /* num tasks */,
-                               true     /* check task ordering */);
+    regular_task_behavior_test(4                /* num threads */,
+                               100              /* num tasks */,
+                               true             /* check task ordering */);
 
-    recurring_task_behavior_test(10);   /* desired number of iterations */
+    recurring_task_behavior_test(10);           /* desired number of iterations */
 
-    mixed_task_behavior_test(4          /* num threads */,
-                             50         /* num regular tasks */,
-                             10         /* num recurring tasks */,
-                             false      /* no check for task ordering */);
+    mixed_task_behavior_test(4                  /* num threads */,
+                             50                 /* num regular tasks */,
+                             10                 /* num recurring tasks */,
+                             false              /* no check for task ordering */);
 
-    mixed_task_behavior_test(4          /* num threads */,
-                             50         /* num regular tasks */,
-                             10         /* num recurring tasks */,
-                             true       /* check for task ordering */);
+    mixed_task_behavior_test(4                  /* num threads */,
+                             50                 /* num regular tasks */,
+                             10                 /* num recurring tasks */,
+                             true               /* check for task ordering */);
+
+    heavy_recurring_task_behavior_test(4        /* num threads */,
+                                       30       /* num recurring tasks */,
+                                       0.05     /* snooze times */,
+                                       10       /* test run time (seconds) */);
 
     return 0;
 }

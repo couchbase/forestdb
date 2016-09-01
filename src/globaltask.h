@@ -123,11 +123,16 @@ public:
         atomic_setIfBigger(waketime, to);
     }
 
+    void setEnqueueTick(uint64_t to) {
+        enqueueTick = to;
+    }
+
 protected:
     const Priority &priority;
     bool blockShutdown;
     std::atomic<task_state_t> state;
     const size_t taskId;
+    uint64_t enqueueTick;
     Taskable& taskable;
 
     static std::atomic<size_t> task_id_counter;
@@ -147,7 +152,7 @@ class CompareByPriority {
 public:
     bool operator()(ExTask &t1, ExTask &t2) {
         return (t1->priority == t2->priority) ?
-               (t1->taskId   > t2->taskId)    :
+               (t1->enqueueTick > t2->enqueueTick) :
                (t1->priority < t2->priority);
     }
 };
