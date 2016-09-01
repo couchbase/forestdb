@@ -66,6 +66,7 @@ void ExecutorThread::run() {
             break;
         }
 
+        now = gethrtime();
         if (TaskQueue *q = manager->nextTask(*this, tick)) {
             if (currentTask->isdead()) {
                 // release capacity back to TaskQueue
@@ -76,7 +77,6 @@ void ExecutorThread::run() {
 
             // Measure scheduling overhead as difference between the time
             // that the task wanted to wake up and the current time
-            now = gethrtime();
             hrtime_t woketime = currentTask->getWaketime();
             currentTask->getTaskable().logQTime(currentTask->getTypeId(),
                                                 now > woketime ?
