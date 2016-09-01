@@ -31,13 +31,8 @@
 std::mutex ExecutorPool::initGuard;
 std::atomic<ExecutorPool*> ExecutorPool::instance;
 
-static const size_t EP_MIN_READER_THREADS = 4;
 static const size_t EP_MIN_WRITER_THREADS = 4;
-
-static const size_t EP_MAX_READER_THREADS = 12;
 static const size_t EP_MAX_WRITER_THREADS = 8;
-static const size_t EP_MAX_AUXIO_THREADS  = 8;
-static const size_t EP_MAX_NONIO_THREADS  = 8;
 
 size_t ExecutorPool::getNumCPU(void) {
     size_t numCPU;
@@ -53,46 +48,17 @@ size_t ExecutorPool::getNumCPU(void) {
 }
 
 size_t ExecutorPool::getNumNonIO(void) {
-    // 1. compute: ceil of 10% of total threads
-    size_t count = maxGlobalThreads / 10;
-    if (!count || maxGlobalThreads % 10) {
-        count++;
-    }
-    // 2. adjust computed value to be within range
-    if (count > EP_MAX_NONIO_THREADS) {
-        count = EP_MAX_NONIO_THREADS;
-    }
-    // 3. pick user's value if specified
-    if (maxWorkers[NONIO_TASK_IDX]) {
-        count = maxWorkers[NONIO_TASK_IDX];
-    }
-    return count;
+    return maxWorkers[NONIO_TASK_IDX];
 }
 
 size_t ExecutorPool::getNumAuxIO(void) {
-    // 1. compute: ceil of 10% of total threads
-    size_t count = maxGlobalThreads / 10;
-    if (!count || maxGlobalThreads % 10) {
-        count++;
-    }
-    // 2. adjust computed value to be within range
-    if (count > EP_MAX_AUXIO_THREADS) {
-        count = EP_MAX_AUXIO_THREADS;
-    }
-    // 3. Override with user's value if specified
-    if (maxWorkers[AUXIO_TASK_IDX]) {
-        count = maxWorkers[AUXIO_TASK_IDX];
-    }
-    return count;
+    return maxWorkers[AUXIO_TASK_IDX];
 }
 
 size_t ExecutorPool::getNumWriters(void) {
     size_t count = 0;
-    // 1. compute: floor of Half of what remains after nonIO, auxIO threads
-    if (maxGlobalThreads > (getNumAuxIO() + getNumNonIO())) {
-        count = maxGlobalThreads - getNumAuxIO() - getNumNonIO();
-        count = count >> 1;
-    }
+    // 1. compute: All available threads are to be writer threads
+    count = maxGlobalThreads;
     // 2. adjust computed value to be within range
     if (count > EP_MAX_WRITER_THREADS) {
         count = EP_MAX_WRITER_THREADS;
@@ -107,24 +73,7 @@ size_t ExecutorPool::getNumWriters(void) {
 }
 
 size_t ExecutorPool::getNumReaders(void) {
-    size_t count = 0;
-    // 1. compute: what remains after writers, nonIO & auxIO threads are taken
-    if (maxGlobalThreads >
-            (getNumWriters() + getNumAuxIO() + getNumNonIO())) {
-        count = maxGlobalThreads
-              - getNumWriters() - getNumAuxIO() - getNumNonIO();
-    }
-    // 2. adjust computed value to be within range
-    if (count > EP_MAX_READER_THREADS) {
-        count = EP_MAX_READER_THREADS;
-    } else if (count < EP_MIN_READER_THREADS) {
-        count = EP_MIN_READER_THREADS;
-    }
-    // 3. Override with user's value if specified
-    if (maxWorkers[READER_TASK_IDX]) {
-        count = maxWorkers[READER_TASK_IDX];
-    }
-    return count;
+    return maxWorkers[READER_TASK_IDX];
 }
 
 ExecutorPool *ExecutorPool::initExPool(threadpool_config &config) {
@@ -133,7 +82,7 @@ ExecutorPool *ExecutorPool::initExPool(threadpool_config &config) {
         tmp = new ExecutorPool(config.num_threads,
                                FDB_EXPOOL_NUM_QUEUES,
                                0, // Bump on background reader queue
-                               FDB_EXPOOL_NUM_WRITERS,
+                               config.num_threads,
                                0, // Bump on background auxio queue
                                0); // Bump on background nonio queue
         instance.store(tmp);
