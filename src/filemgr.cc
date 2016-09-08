@@ -2928,8 +2928,8 @@ FileMgr::destroyFileInAutoCompactionMode(const std::string &fname_prefix) {
     if (ret) {
         status = FDB_RESULT_FILE_IS_BUSY;
     } else {
-        status = CompactionManager::getInstance()->
-                                    searchAndDestroyFiles(fname_prefix.c_str());
+        status = FdbEngine::getInstance()->
+            getCompactionManager().searchAndDestroyFiles(fname_prefix.c_str());
     }
 
     return status;

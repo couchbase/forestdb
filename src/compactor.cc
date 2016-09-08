@@ -67,9 +67,6 @@
 #define COMPACTOR_META_VERSION (1)
 #define MAX_FNAMELEN (FDB_MAX_FILENAME_LEN)
 
-std::atomic<CompactionManager *> CompactionManager::instance(nullptr);
-std::mutex CompactionManager::instanceMutex;
-
 CompactionTask::CompactionTask(CompactionMgrTaskable &e,
                                CompactionManager *compactMgr,
                                FileMgr *file,
@@ -265,11 +262,6 @@ static bool does_file_exist(const char *filename) {
 }
 #endif
 
-bool compactor_is_file_removed(const char *filename) {
-    std::string file_name(filename);
-    return CompactionManager::getInstance()->isFileRemoved(file_name);
-}
-
 bool CompactionManager::isFileRemoved(const std::string &filename) {
     LockHolder lock(cptLock);
     if (fileRemovalList.find(filename) != fileRemovalList.end()) {
@@ -282,7 +274,6 @@ bool CompactionManager::isFileRemoved(const std::string &filename) {
 void CompactionManager::removeFromFileRemovalList(const std::string &filename) {
     LockHolder lock(cptLock);
     fileRemovalList.erase(filename);
-
 }
 
 // return the location of '.'
@@ -394,38 +385,6 @@ CompactionManager::CompactionManager()
     : compactionTaskable(this)
 {
     ExecutorPool::get()->registerTaskable(compactionTaskable);
-}
-
-CompactionManager* CompactionManager::init() {
-    CompactionManager* tmp = instance.load();
-    if (tmp == nullptr) {
-        // Ensure two threads don't both create an instance.
-        LockHolder lock(instanceMutex);
-        tmp = instance.load();
-        if (tmp == nullptr) {
-            tmp = new CompactionManager();
-            instance.store(tmp);
-        }
-    }
-    return tmp;
-}
-
-CompactionManager* CompactionManager::getInstance() {
-    CompactionManager* compaction_manager = instance.load();
-    if (compaction_manager == nullptr) {
-        // Create the compaction manager
-        return init();
-    }
-    return compaction_manager;
-}
-
-void CompactionManager::destroyInstance() {
-    LockHolder lock(instanceMutex);
-    CompactionManager* tmp = instance.load();
-    if (tmp != nullptr) {
-        delete tmp;
-        instance = nullptr;
-    }
 }
 
 CompactionManager::~CompactionManager() {
@@ -542,11 +501,6 @@ bool CompactionManager::isPendingCompaction(const std::string &filename) {
     } else {
         return false;
     }
-}
-
-fdb_status compactor_register_file_removing(FileMgr *file,
-                                            ErrLogCallback *log_callback) {
-    return CompactionManager::getInstance()->registerFileRemoval(file, log_callback);
 }
 
 fdb_status CompactionManager::registerFileRemoval(FileMgr *file,

@@ -166,18 +166,11 @@ class CompactionManager {
 
 public:
 
-    /**
-     * Instantiate the compaction manager that performs the database compaction
-     * through the daemon threads.
-     *
-     * @return Pointer to the compaction manager instantiated
-     */
-    static CompactionManager* init();
+    // Constructor
+    CompactionManager();
 
-    /**
-     * Get the singleton instance of the compaction manager.
-     */
-    static CompactionManager* getInstance();
+    // Destructor
+    ~CompactionManager();
 
     /**
      * Register a given file in the compaction file list for auto compaction.
@@ -190,12 +183,6 @@ public:
     fdb_status registerFile(FileMgr *file,
                             fdb_config *config,
                             ErrLogCallback *log_callback);
-
-    /**
-     * Release all the resources including threads and memory allocated and
-     * destroy the compaction manager.
-     */
-    static void destroyInstance();
 
     /**
      * Register a given file for the removal from the file system.
@@ -328,12 +315,6 @@ public:
 
 private:
 
-     // Constructor
-    CompactionManager();
-
-    // Destructor
-    ~CompactionManager();
-
     /**
      * Read the metadata from a given meta file.
      *
@@ -345,10 +326,6 @@ private:
     static struct compactor_meta* readMetaFile(const char *metafile,
                                                struct compactor_meta *metadata,
                                                ErrLogCallback *log_callback);
-
-    // Singleton compaction manager and mutex guarding it's creation.
-    static std::atomic<CompactionManager *> instance;
-    static std::mutex instanceMutex;
 
     // Lock to synchronize an access to the compaction manager's internal states
     std::mutex cptLock;
@@ -364,10 +341,3 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(CompactionManager);
 };
-
-// TODO: Need to adapt 'FileMgr' in order to invoke
-// CompactionManager::registerFileRemoval and CompactionManager::isFileRemoved APIs
-// without going through these two wrapper functions.
-fdb_status compactor_register_file_removing(FileMgr *file,
-                                            ErrLogCallback *log_callback);
-bool compactor_is_file_removed(const char *filename);

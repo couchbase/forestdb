@@ -1926,7 +1926,22 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle)
     return nullptr;
 }
 
+static bool compactor_is_file_removed(const char *filename) {
+    std::string file_name(filename);
+    FdbEngine *engine = FdbEngine::getInstance();
+    fdb_assert(engine, engine, nullptr);
+    return engine->getCompactionManager().isFileRemoved(file_name);
+}
+
+static fdb_status compactor_register_file_removing(FileMgr *file,
+                                                   ErrLogCallback *log_callback) {
+    FdbEngine *engine = FdbEngine::getInstance();
+    fdb_assert(engine, engine, nullptr);
+    return engine->getCompactionManager().registerFileRemoval(file, log_callback);
+}
+
 FdbEngine::FdbEngine(const fdb_config &config) {
+    compManager = new CompactionManager();
    // Initialize breakpad
    _dbg_handle_crashes(config.breakpad_minidump_dir);
 }
@@ -1978,7 +1993,6 @@ fdb_status FdbEngine::init(fdb_config *config) {
                 Superblock::initBmpMask();
             }
 
-            CompactionManager::init();
             // Initialize background flusher daemon
             // Temporarily disable background flushers until blockcache contention
             // issue is resolved.
@@ -2007,24 +2021,38 @@ FdbEngine::~FdbEngine() {
     _dbg_destroy_altstack();
 }
 
+fdb_status FdbEngine::destroyDaemonTasksAndResources() {
+    if (compManager) {
+        delete compManager;
+        compManager = nullptr;
+    }
+
+    // TODO: Refactor BgFlusher and FileMgr to make them as FdbEngine's members.
+    BgFlusher::destroyBgFlusher();
+    fdb_status status = FileMgr::shutdown();
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
+    // Shutdown HBtrie's memory pool
+    HBTrie::shutdownMemoryPool();
+    return FDB_RESULT_SUCCESS;
+}
+
 fdb_status FdbEngine::destroyInstance() {
     LockHolder lock(instanceMutex);
-    FdbEngine* tmp = instance.load();
-    if (tmp != nullptr) {
-        if (tmp->getOpenInProgCounter()) {
+    FdbEngine* engine = instance.load();
+    if (engine != nullptr) {
+        if (engine->getOpenInProgCounter()) {
             return FDB_RESULT_FILE_IS_BUSY;
         }
-        CompactionManager::destroyInstance();
-        BgFlusher::destroyBgFlusher();
-        fdb_status ret = FileMgr::shutdown();
+        fdb_status ret = engine->destroyDaemonTasksAndResources();
         if (ret == FDB_RESULT_SUCCESS) {
             if (!ExecutorPool::shutdown()) {
                 // Open taskables
                 return FDB_RESULT_FILE_IS_BUSY;
             }
-            // Shutdown HBtrie's memory pool
-            HBTrie::shutdownMemoryPool();
-            delete tmp;
+            // Free the singleton FdbEngine instance
+            delete engine;
             instance = nullptr;
         } else {
             return ret;
@@ -2201,7 +2229,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     }
 
     if (filename_mode == FDB_VFILENAME &&
-        !CompactionManager::isValidCompactionMode(filename_str, *config)) {
+        !compManager->isValidCompactionMode(filename_str, *config)) {
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
@@ -2209,9 +2237,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
 
     if (filename_mode == FDB_VFILENAME) {
         actual_filename =
-            CompactionManager::getActualFileName(filename_str,
-                                                 config->compaction_mode,
-                                                 &handle->log_callback);
+            compManager->getActualFileName(filename_str,
+                                           config->compaction_mode,
+                                           &handle->log_callback);
     } else {
         actual_filename = filename_str;
     }
@@ -2226,7 +2254,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     } else {
         // otherwise (auto compaction mode + 'filename' is actual filename)
         // -> copy 'virtual_filename'
-        virtual_filename = CompactionManager::getVirtualFileName(filename_str);
+        virtual_filename = compManager->getVirtualFileName(filename_str);
         target_filename = virtual_filename;
     }
 
@@ -2259,8 +2287,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     if (handle->file->isInPlaceCompactionSet()) {
         // This file was in-place compacted.
         // set 'handle->filename' to the original filename to trigger file renaming
-        virtual_filename =
-            CompactionManager::getVirtualFileName(filename_str);
+        virtual_filename = compManager->getVirtualFileName(filename_str);
         target_filename = virtual_filename;
     }
 
@@ -2839,9 +2866,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
         if (config->compaction_mode == FDB_COMPACTION_AUTO) {
-           status = CompactionManager::getInstance()->registerFile(handle->file,
-                                                        (fdb_config *)config,
-                                                        &handle->log_callback);
+           status = compManager->registerFile(handle->file,
+                                              (fdb_config *)config,
+                                              &handle->log_callback);
         }
         if (status == FDB_RESULT_SUCCESS) {
             BgFlusher *bgf = BgFlusher::getBgfInstance();
@@ -4349,14 +4376,14 @@ fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
         // manual compaction
         if (!new_filename) { // In-place compaction.
             in_place_compaction = true;
-            nextfile = CompactionManager::getNextFileName(filename_str);
+            nextfile = compManager->getNextFileName(filename_str);
             new_filename = nextfile.c_str();
         }
         fs = Compaction::compactFile(fhandle, new_filename, in_place_compaction,
                                      (bid_t)marker, clone_docs, new_encryption_key);
     } else { // auto compaction mode.
         // get next filename
-        nextfile = CompactionManager::getNextFileName(filename_str);
+        nextfile = compManager->getNextFileName(filename_str);
         fs = Compaction::compactFile(fhandle, nextfile.c_str(), in_place_compaction,
                                      (bid_t)marker, clone_docs, new_encryption_key);
     }
@@ -4399,8 +4426,7 @@ fdb_status FdbEngine::setDaemonCompactionInterval(FdbFileHandle *fhandle,
     FdbKvsHandle *handle = fhandle->getRootHandle();
 
     if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        return CompactionManager::getInstance()->setCompactionInterval(
-                                                handle->file, interval);
+        return compManager->setCompactionInterval(handle->file, interval);
     } else {
         return FDB_RESULT_INVALID_CONFIG;
     }
@@ -4905,8 +4931,7 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
 
             // set compaction flag to avoid auto compaction.
             // Last file close will also kill the compaction task.
-            if (CompactionManager::getInstance()->switchCompactionFlag(
-                                            handle->file, true) == false) {
+            if (compManager->switchCompactionFlag(handle->file, true) == false) {
                 return FDB_RESULT_FILE_IS_BUSY;
             }
 
@@ -4954,8 +4979,7 @@ fdb_status FdbEngine::switchCompactionMode(FdbFileHandle *fhandle,
     } else {
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
             // change compaction threshold of the existing file
-            CompactionManager::getInstance()->setCompactionThreshold(
-                                                handle->file, new_threshold);
+            compManager->setCompactionThreshold(handle->file, new_threshold);
         }
     }
     return FDB_RESULT_SUCCESS;
@@ -5039,7 +5063,7 @@ fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
     if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
             // read-only file is not registered in compactor
-            CompactionManager::getInstance()->deregisterFile(handle->file);
+            compManager->deregisterFile(handle->file);
         }
         BgFlusher *bgf = BgFlusher::getBgfInstance();
         if (bgf) {

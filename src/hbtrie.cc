@@ -1496,6 +1496,7 @@ void HBTrie::shutdownMemoryPool()
 {
     if (hbtrieMP) {
         delete hbtrieMP;
+        hbtrieMP = nullptr;
     }
 }
 

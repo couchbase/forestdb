@@ -2547,11 +2547,12 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
     }
 
     if (handle->config.compaction_mode != FDB_COMPACTION_MANUAL) {
-        CompactionManager::getInstance()->removeCompactionTask(
-                                                 handle->file->getFileName());
-        status = CompactionManager::getInstance()->registerFile(new_file,
-                                                    &handle->config,
-                                                    &handle->log_callback);
+        FdbEngine *engine = FdbEngine::getInstance();
+        fdb_assert(engine, engine, nullptr); // Engine should be already instantiated
+        engine->getCompactionManager().removeCompactionTask(handle->file->getFileName());
+        status = engine->getCompactionManager().registerFile(new_file,
+                                                             &handle->config,
+                                                             &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             old_file->mutexUnlock();
             new_file->mutexUnlock();

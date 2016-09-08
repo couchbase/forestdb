@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "common.h"
+#include "compactor.h"
 #include "configuration.h"
 #include "internal_types.h"
 #include "filemgr.h"
@@ -835,6 +836,13 @@ public:
         return fileMap;
     }
 
+    /**
+     * Return the compaction manager instance
+     */
+    CompactionManager &getCompactionManager() {
+        return *compManager;
+    }
+
 private:
 
     friend class Compaction;
@@ -934,6 +942,11 @@ private:
     bool isAnyKvsHandleOpened(FdbFileHandle *fhandle,
                               fdb_kvs_id_t kv_id);
 
+    /**
+     * Destroy all daemon tasks and their resources
+     */
+    fdb_status destroyDaemonTasksAndResources();
+
     // Singleton ForestDB engine instance and mutex guarding it's creation.
     static std::atomic<FdbEngine *> instance;
     static std::mutex instanceMutex;
@@ -941,4 +954,5 @@ private:
     static volatile size_t fdbOpenInProg;
 
     FileMgrMap fileMap;
+    CompactionManager *compManager;
 };
