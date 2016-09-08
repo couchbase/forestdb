@@ -539,8 +539,8 @@ inline void Wal::_wal_update_stat(fdb_kvs_id_t kv_id,
 inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                                    struct _fdb_key_cmp_info *cmp_info,
                                    fdb_doc *doc,
-                                   uint64_t offset,
-                                   wal_insert_by caller,
+                                   union indexedValue value_in,
+                                   walInsertOption caller,
                                    bool immediate_remove)
 {
     struct wal_item *item;
@@ -553,9 +553,16 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
     size_t chk_sum;
     size_t shard_num;
     wal_snapid_t snap_tag;
+    uint64_t offset = 0;
+    void *doc_ptr = nullptr;
     fdb_kvs_id_t kv_id;
     LATENCY_STAT_START();
 
+    if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+        doc_ptr = value_in.doc_ptr;
+    } else {
+        offset = value_in.offset;
+    }
     if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
         buf2kvid(file->getConfig()->getChunkSize(), doc->key, &kv_id);
     } else {
@@ -567,7 +574,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
     query.keylen = keylen;
     chk_sum = get_checksum((uint8_t*)key, keylen);
     shard_num = chk_sum % num_shards;
-    if (caller == WAL_INS_WRITER) {
+    if (caller == INS_BY_WRITER) {
         spin_lock(&key_shards[shard_num].lock);
     }
 
@@ -590,30 +597,30 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             bool is_committed = item->flag & WAL_ITEM_COMMITTED;
 
             if (item->txn_id == txn->txn_id &&
-                !(is_committed || caller == WAL_INS_COMPACT_PHASE1) &&
+                !(is_committed || caller == INS_BY_COMPACT_PHASE1) &&
                 same_snap) {
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
 
                 if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                     // Re-index the item by new sequence number..
                     size_t seq_shard_num = item->seqnum % num_shards;
-                    if (caller == WAL_INS_WRITER) {
+                    if (caller == INS_BY_WRITER) {
                         spin_lock(&seq_shards[seq_shard_num].lock);
                     }
                     avl_remove(&seq_shards[seq_shard_num]._map,
                                &item->avl_seq);
-                    if (caller == WAL_INS_WRITER) {
+                    if (caller == INS_BY_WRITER) {
                         spin_unlock(&seq_shards[seq_shard_num].lock);
                     }
 
                     item->seqnum = doc->seqnum;
                     seq_shard_num = doc->seqnum % num_shards;
-                    if (caller == WAL_INS_WRITER) {
+                    if (caller == INS_BY_WRITER) {
                         spin_lock(&seq_shards[seq_shard_num].lock);
                     }
                     avl_insert(&seq_shards[seq_shard_num]._map,
                                &item->avl_seq, _wal_cmp_byseq);
-                    if (caller == WAL_INS_WRITER) {
+                    if (caller == INS_BY_WRITER) {
                         spin_unlock(&seq_shards[seq_shard_num].lock);
                     }
                     // Also need to re-index it by new seqnum in snapshot
@@ -630,9 +637,10 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 // mark previous doc region as stale
                 size_t doc_size_ondisk = doc->size_ondisk;
                 uint32_t stale_len = item->doc_size;
-                uint64_t stale_offset = item->offset;
-                if (item->action == WAL_ACT_INSERT ||
-                    item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if (!(item->flag & WAL_ITEM_OFFSET_IS_PTR) &&
+                    (item->action == WAL_ACT_INSERT ||
+                    item->action == WAL_ACT_LOGICAL_REMOVE)) {
+                    uint64_t stale_offset = item->offset;
                     // insert or logical remove
                     file->markStale(stale_offset, stale_len);
                 }
@@ -642,13 +650,14 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                         item->action == WAL_ACT_INSERT) {
                         _wal_update_stat(kv_id, _WAL_SET_TO_DEL);
                     }
-                    if (offset != BLK_NOT_FOUND && !immediate_remove) {
+                    if (!immediate_remove) {
                         // purge interval not met yet
                         item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
                     } else { // drop the deleted doc right away
                         item->action = WAL_ACT_REMOVE; // immediate prune index
 
-                        if (offset != BLK_NOT_FOUND) {
+                        if (!(doc->flags & FDB_DOC_MEMORY_SHARED) &&
+                            offset != BLK_NOT_FOUND) {
                             // immediately mark as stale if offset is given
                             // (which means that a deletion mark was appended into
                             //  the file before calling wal_insert()).
@@ -666,7 +675,12 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 datasize.fetch_add(doc_size_ondisk - item->doc_size,
                                    std::memory_order_relaxed);
                 item->doc_size = doc->size_ondisk;
-                item->offset = offset;
+                if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+                    item->doc_ptr = doc_ptr;
+                    item->flag |= WAL_ITEM_OFFSET_IS_PTR;
+                } else {
+                    item->offset = offset;
+                }
                 item->shandle = shandle;
 
                 // move the item to the front of the list (header)
@@ -700,13 +714,14 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 if (item->txn_id == file->getGlobalTxn()->txn_id) {
                     _wal_update_stat(kv_id, _WAL_NEW_DEL);
                 }
-                if (offset != BLK_NOT_FOUND && !immediate_remove) {
+                if (!immediate_remove) {
                     // purge interval not met yet
                     item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
                 } else { // compactor purge deleted doc
                     item->action = WAL_ACT_REMOVE; // immediate prune index
 
-                    if (offset != BLK_NOT_FOUND) {
+                    if (!(doc->flags & FDB_DOC_MEMORY_SHARED) &&
+                        offset != BLK_NOT_FOUND) {
                         // immediately mark as stale if offset is given
                         // (which means that a deletion mark was appended into
                         //  the file before calling insert_Wal()).
@@ -719,7 +734,12 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
                 item->action = WAL_ACT_INSERT;
             }
-            item->offset = offset;
+            if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+                item->flag |= WAL_ITEM_OFFSET_IS_PTR;
+                item->doc_ptr = doc_ptr;
+            } else {
+                item->offset = offset;
+            }
             item->doc_size = doc->size_ondisk;
             item->shandle = shandle;
             if (item->action != WAL_ACT_REMOVE) {
@@ -749,12 +769,12 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 
             if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                 size_t seq_shard_num = doc->seqnum % num_shards;
-                if (caller == WAL_INS_WRITER) {
+                if (caller == INS_BY_WRITER) {
                     spin_lock(&seq_shards[seq_shard_num].lock);
                 }
                 avl_insert(&seq_shards[seq_shard_num]._map,
                            &item->avl_seq, _wal_cmp_byseq);
-                if (caller == WAL_INS_WRITER) {
+                if (caller == INS_BY_WRITER) {
                     spin_unlock(&seq_shards[seq_shard_num].lock);
                 }
                 if (item->txn == file->getGlobalTxn()) {
@@ -777,15 +797,21 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         list_init(&header->items);
         header->chunksize = file->getConfig()->getChunkSize();
         header->keylen = keylen;
-        header->key = (void *)malloc(header->keylen);
-        memcpy(header->key, key, header->keylen);
+        if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+            header->flags |= FDB_DOC_MEMORY_SHARED;
+            header->key = doc->key;
+        } else {
+            header->key = (void *)malloc(header->keylen);
+            header->flags &= ~FDB_DOC_MEMORY_SHARED;
+            memcpy(header->key, key, header->keylen);
+        }
 
         avl_insert(&key_shards[shard_num]._map,
                    &header->avl_key, _wal_cmp_bykey);
 
         item = (struct wal_item *)malloc(sizeof(struct wal_item));
         // entries inserted by compactor is already committed
-        if (caller == WAL_INS_COMPACT_PHASE1) {
+        if (caller == INS_BY_COMPACT_PHASE1) {
             item->flag = WAL_ITEM_COMMITTED;
         } else {
             item->flag = 0x0;
@@ -806,12 +832,13 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             if (item->txn_id == file->getGlobalTxn()->txn_id) {
                 _wal_update_stat(kv_id, _WAL_NEW_DEL);
             }
-            if (offset != BLK_NOT_FOUND && !immediate_remove) {// purge interval not met yet
+            if (!immediate_remove) {// purge interval not met yet
                 item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
             } else { // compactor purge deleted doc
                 item->action = WAL_ACT_REMOVE; // immediate prune index
 
-                if (offset != BLK_NOT_FOUND) {
+                if (!(doc->flags & FDB_DOC_MEMORY_SHARED) &&
+                    offset != BLK_NOT_FOUND) {
                     // immediately mark as stale if offset is given
                     // (which means that an empty doc was appended before
                     //  calling insert_Wal()).
@@ -824,7 +851,12 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             }
             item->action = WAL_ACT_INSERT;
         }
-        item->offset = offset;
+        if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+            item->flag |= WAL_ITEM_OFFSET_IS_PTR;
+            item->doc_ptr = doc_ptr;
+        } else {
+            item->offset = offset;
+        }
         item->doc_size = doc->size_ondisk;
         item->shandle = shandle;
         if (item->action != WAL_ACT_REMOVE) {
@@ -834,12 +866,12 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 
         if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             size_t seq_shard_num = doc->seqnum % num_shards;
-            if (caller == WAL_INS_WRITER) {
+            if (caller == INS_BY_WRITER) {
                 spin_lock(&seq_shards[seq_shard_num].lock);
             }
             avl_insert(&seq_shards[seq_shard_num]._map,
                        &item->avl_seq, _wal_cmp_byseq);
-            if (caller == WAL_INS_WRITER) {
+            if (caller == INS_BY_WRITER) {
                 spin_unlock(&seq_shards[seq_shard_num].lock);
             }
             if (item->txn == file->getGlobalTxn()) {
@@ -850,7 +882,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 
         // insert into header's list
         list_push_front(&header->items, &item->list_elem);
-        if (caller == WAL_INS_WRITER || caller == WAL_INS_COMPACT_PHASE2) {
+        if (caller == INS_BY_WRITER || caller == INS_BY_COMPACT_PHASE2) {
             // also insert into transaction's list
             list_push_back(txn->items, &item->list_elem_txn);
         }
@@ -865,7 +897,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             std::memory_order_relaxed);
     }
 
-    if (caller == WAL_INS_WRITER) {
+    if (caller == INS_BY_WRITER) {
         spin_unlock(&key_shards[shard_num].lock);
     }
 
@@ -876,19 +908,19 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 fdb_status Wal::insert_Wal(fdb_txn *txn,
                            struct _fdb_key_cmp_info *cmp_info,
                            fdb_doc *doc,
-                           uint64_t offset,
-                           wal_insert_by caller)
+                           union indexedValue value_in,
+                           walInsertOption caller)
 {
-    return _insert_Wal(txn, cmp_info, doc, offset, caller, false);
+    return _insert_Wal(txn, cmp_info, doc, value_in, caller, false);
 }
 
 fdb_status Wal::immediateRemove_Wal(fdb_txn *txn,
                                     struct _fdb_key_cmp_info *cmp_info,
                                     fdb_doc *doc,
-                                    uint64_t offset,
-                                    wal_insert_by caller)
+                                    union indexedValue value_in,
+                                    walInsertOption caller)
 {
-    return _insert_Wal(txn, cmp_info, doc, offset, caller, true);
+    return _insert_Wal(txn, cmp_info, doc, value_in, caller, true);
 }
 
 inline bool Wal::_wal_item_partially_committed(fdb_txn *global_txn,
@@ -996,7 +1028,7 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
                           struct _fdb_key_cmp_info *cmp_info,
                           struct snap_handle *shandle,
                           fdb_doc *doc,
-                          uint64_t *offset)
+                          union indexedValue *value_out)
 {
     struct wal_item item_query, *item = NULL;
     struct wal_item_header query, *header = NULL;
@@ -1004,6 +1036,9 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
     struct avl_node *node = NULL;
     void *key = doc->key;
     size_t keylen = doc->keylen;
+    uint64_t *offset = &value_out->offset;
+    void **doc_ptr = &value_out->doc_ptr;
+
     LATENCY_STAT_START();
 
     if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
@@ -1066,7 +1101,13 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
                 } // done for all items in the header's list
             } // done for regular (non-snapshot) lookup
             if (item) {
-                *offset = item->offset;
+                if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                    doc->flags |= FDB_DOC_MEMORY_SHARED;
+                    *doc_ptr = item->doc_ptr;
+                } else {
+                    doc->flags &= ~FDB_DOC_MEMORY_SHARED;
+                    *offset = item->offset;
+                }
                 if (item->action == WAL_ACT_INSERT) {
                     doc->deleted = false;
                 } else {
@@ -1078,8 +1119,12 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
                         // prevent main index lookup. Also, it must set the
                         // offset to BLK_NOT_FOUND to ensure that caller
                         // does NOT attempt to fetch the doc OR its
-                        // metadata from file.
-                        *offset = BLK_NOT_FOUND;
+                        // metadata from file or nullptr if shared memory.
+                        if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                            *doc_ptr = nullptr;
+                        } else {
+                            *offset = BLK_NOT_FOUND;
+                        }
                     }
                 }
                 doc->seqnum = item->seqnum;
@@ -1112,7 +1157,13 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
             if ((item->flag & WAL_ITEM_COMMITTED) ||
                 (item->txn_id == txn->txn_id) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-                *offset = item->offset;
+                if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                    *doc_ptr = item->doc_ptr;
+                    doc->flags |= FDB_DOC_MEMORY_SHARED;
+                } else {
+                    doc->flags &= ~FDB_DOC_MEMORY_SHARED;
+                    *offset = item->offset;
+                }
                 if (item->action == WAL_ACT_INSERT) {
                     doc->deleted = false;
                 } else {
@@ -1125,7 +1176,11 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
                         // offset to BLK_NOT_FOUND to ensure that caller
                         // does NOT attempt to fetch the doc OR its
                         // metadata from file.
-                        *offset = BLK_NOT_FOUND;
+                        if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                            *doc_ptr = nullptr;
+                        } else {
+                            *offset = BLK_NOT_FOUND;
+                        }
                     }
                 }
                 spin_unlock(&seq_shards[shard_num].lock);
@@ -1142,14 +1197,15 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
 
 fdb_status Wal::find_Wal(fdb_txn *txn, struct _fdb_key_cmp_info *cmp_info,
                          struct snap_handle *shandle,
-                         fdb_doc *doc, uint64_t *offset)
+                         fdb_doc *doc,
+                         union indexedValue *value_out)
 {
     if (shandle) {
         if (shandle->is_persisted_snapshot) {
-            return _snapFind_Wal(shandle, doc, offset);
+            return _persistedSnapFind_Wal(shandle, doc, value_out);
         }
     }
-    return _find_Wal(txn, 0, cmp_info, shandle, doc, offset);
+    return _find_Wal(txn, 0, cmp_info, shandle, doc, value_out);
 }
 
 fdb_status Wal::findWithKvid_Wal(fdb_txn *txn,
@@ -1157,14 +1213,14 @@ fdb_status Wal::findWithKvid_Wal(fdb_txn *txn,
                                  struct _fdb_key_cmp_info *cmp_info,
                                  struct snap_handle *shandle,
                                  fdb_doc *doc,
-                                 uint64_t *offset)
+                                 union indexedValue *value_out)
 {
     if (shandle) {
         if (shandle->is_persisted_snapshot) {
-            return _snapFind_Wal(shandle, doc, offset);
+            return _persistedSnapFind_Wal(shandle, doc, value_out);
         }
     }
-    return _find_Wal(txn, kv_id, cmp_info, shandle, doc, offset);
+    return _find_Wal(txn, kv_id, cmp_info, shandle, doc, value_out);
 }
 
 // Pre-condition: writer lock (filemgr mutex) must be held for this call
@@ -1253,8 +1309,10 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     cmp_info.kvs_config = item->txn->handle->kvs_config;
                     cmp_info.kvs = item->txn->handle->kvs;
                     // insert into new_file's WAL
-                    new_file->getWal()->insert_Wal(item->txn, &cmp_info, &doc, offset,
-                               WAL_INS_WRITER);
+                    union indexedValue val;
+                    val.offset = offset;
+                    new_file->getWal()->insert_Wal(item->txn, &cmp_info, &doc,
+                                                   val, INS_BY_WRITER);
 
                     if (old_file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         // remove from seq map
@@ -1298,7 +1356,9 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                            &header->avl_key);
                 mem_overhead += header->keylen + sizeof(struct wal_item_header);
                 // free key & header
-                free(header->key);
+                if (!(header->flags & FDB_DOC_MEMORY_SHARED)) {
+                    free(header->key);
+                }
                 free(header);
             } else {
                 node = avl_next(node);
@@ -1500,27 +1560,29 @@ static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     } else if (aa->old_offset > bb->old_offset) {
         return 1;
     } else {
-        // old_offset can be 0 if the document was newly inserted
-        if (aa->offset < bb->offset) {
+        if (!(aa->flag & WAL_ITEM_OFFSET_IS_PTR) &&
+            !(bb->flag & WAL_ITEM_OFFSET_IS_PTR)) { // don't compare pointers
+            // old_offset can be 0 if the document was newly inserted
+            if (aa->offset < bb->offset) {
+                return -1;
+            } else if (aa->offset > bb->offset) {
+                return 1;
+            } // else aa->offset == bb->offset OR flag & WAL_ITEM_OFFSET_IS_PTR
+        }
+        // Note: get_old_offset() may return same old_offset on different keys;
+        // this is because hbtrie_find_offset() (internally called by
+        // get_old_offset()) does not compare entire key string but just prefix
+        // only due to performance issue.
+        // As a result, this case (keys are different but both old_offset and
+        // offset are same) very rarely happens and causes crash.
+        // In this case, we need to additionally compare sequence numbers
+        // to distinguish those two different items.
+        if (aa->seqnum < bb->seqnum) {
             return -1;
-        } else if (aa->offset > bb->offset) {
+        } else if (aa->seqnum > bb->seqnum) {
             return 1;
         } else {
-            // Note: get_old_offset() may return same old_offset on different keys;
-            // this is because hbtrie_find_offset() (internally called by
-            // get_old_offset()) does not compare entire key string but just prefix
-            // only due to performance issue.
-            // As a result, this case (keys are different but both old_offset and
-            // offset are same) very rarely happens and causes crash.
-            // In this case, we need to additionally compare sequence numbers
-            // to distinguish those two different items.
-            if (aa->seqnum < bb->seqnum) {
-                return -1;
-            } else if (aa->seqnum > bb->seqnum) {
-                return 1;
-            } else {
-                return 0;
-            }
+            return 0;
         }
     }
 }
@@ -1573,6 +1635,7 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
         item = NULL;
     } else {
         item->flag &= ~WAL_ITEM_FLUSH_READY;
+        // TODO: Deep-copy item->header->key & item->offset!
     }
     // try to cleanup items from prior snapshots as well..
     while (le) {
@@ -1589,6 +1652,7 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
         } else {
             item = sitem; // this is the latest and greatest item
             item->flag &= ~WAL_ITEM_FLUSH_READY;
+            // TODO: Deep-copy item->header->key & item->offset!
         }
     }
     if (list_begin(&header->items) == NULL) {
@@ -2117,11 +2181,15 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                              uint64_t *offset)
+fdb_status Wal::_persistedSnapFind_Wal(struct snap_handle *shandle,
+                                       fdb_doc *doc,
+                                       union indexedValue *value_out)
 {
     struct wal_item query, *item;
     struct avl_node *node;
+    uint64_t *offset = &value_out->offset;
+    void **doc_ptr = &value_out->doc_ptr;
+
     if (doc->seqnum == SEQNUM_NOT_USED || (doc->key && doc->keylen > 0)) {
         if (!shandle->key_tree.root) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -2137,13 +2205,25 @@ fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
             return FDB_RESULT_KEY_NOT_FOUND;
         } else {
             item = _get_entry(node, struct wal_item, avl_keysnap);
-            *offset = item->offset;
+            if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                doc->flags |= FDB_DOC_MEMORY_SHARED;
+                *doc_ptr = item->doc_ptr;
+            } else {
+                doc->flags &= ~FDB_DOC_MEMORY_SHARED;
+                *offset = item->offset;
+            }
             if (item->action == WAL_ACT_INSERT) {
                 doc->deleted = false;
             } else {
                 doc->deleted = true;
                 if (item->action == WAL_ACT_REMOVE) {
-                    *offset = BLK_NOT_FOUND;
+                    // Immediately deleted items are not persisted so their
+                    // doc body should not be read
+                    if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                        *doc_ptr = nullptr;
+                    } else {
+                        *offset = BLK_NOT_FOUND;
+                    }
                 }
             }
             doc->seqnum = item->seqnum;
@@ -2157,13 +2237,25 @@ fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
             return FDB_RESULT_KEY_NOT_FOUND;
         } else {
             item = _get_entry(node, struct wal_item, avl_seq);
-            *offset = item->offset;
+            if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                doc->flags |= FDB_DOC_MEMORY_SHARED;
+                *doc_ptr = item->doc_ptr;
+            } else {
+                doc->flags &= ~FDB_DOC_MEMORY_SHARED;
+                *offset = item->offset;
+            }
             if (item->action == WAL_ACT_INSERT) {
                 doc->deleted = false;
             } else {
                 doc->deleted = true;
                 if (item->action == WAL_ACT_REMOVE) {
-                    *offset = BLK_NOT_FOUND;
+                    // Immediately deleted items are not persisted so their
+                    // doc body should not be read
+                    if (item->flag & WAL_ITEM_OFFSET_IS_PTR) {
+                        *doc_ptr = nullptr;
+                    } else {
+                        *offset = BLK_NOT_FOUND;
+                    }
                 }
             }
             return FDB_RESULT_SUCCESS;
@@ -3132,7 +3224,9 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                            &header->avl_key);
                 _mem_overhead += sizeof(struct wal_item_header) +
                                  header->keylen;
-                free(header->key);
+                if (!(header->flags & FDB_DOC_MEMORY_SHARED)) {
+                    free(header->key);
+                }
                 free(header);
             }
         }

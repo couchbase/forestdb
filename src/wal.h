@@ -31,24 +31,19 @@ enum{
     WAL_ACT_LOGICAL_REMOVE, // An item is marked as "DELETED" by removing its doc body only.
     WAL_ACT_REMOVE // An item (key, metadata, body) is removed immediately.
 };
-typedef int wal_insert_by;
-enum {
-    WAL_INS_WRITER = 0, // normal writer inserting
-    WAL_INS_COMPACT_PHASE1, // compactor in first phase moving unique docs
-    WAL_INS_COMPACT_PHASE2 // compactor in delta phase (catchup, uncommitted)
-};
 
 struct wal_item_header{
     struct avl_node avl_key;
     void *key;
     uint16_t keylen;
     uint8_t chunksize;
+    uint8_t flags; // parameters like FDB_DOC_MEMORY_SHARED
     struct list items;
 };
 
 struct wal_kvs_snaps; // forward declaration for snap_handle
 typedef uint64_t wal_snapid_t;
-#define OPEN_SNAPSHOT_TAG ((wal_snapid_t)(-1)) // any latest snapshot item
+
 struct snap_handle {
     /**
      * Link to the list of snapshots for a kv store.
@@ -151,6 +146,8 @@ struct wal_kvs_snaps {
 // this flag is only set in those items which are inserted into their snapshot
 // It is used during updates when one item is replaced with another
 #define WAL_ITEM_IN_SNAP_TREE (0x10)
+// Flag to indicate that the offset field is actually a pointer to full doc
+#define WAL_ITEM_OFFSET_IS_PTR (0x20)
 
 struct wal_item{
     struct list_elem list_elem; // for wal_item_header's 'items'
@@ -162,7 +159,10 @@ struct wal_item{
     wal_item_action action;
     std::atomic<uint8_t> flag;
     uint32_t doc_size;
-    uint64_t offset;
+    union {
+        uint64_t offset;
+        void *doc_ptr;
+    };
     fdb_seqnum_t seqnum;
     uint64_t old_offset;
     union { // for offset-based sorting for WAL flush
@@ -229,14 +229,25 @@ public:
     Wal(FileMgr *file, size_t nbucket);
     ~Wal();
 
+    enum walInsertOption{
+        INS_BY_WRITER = 0x00, // normal writer inserting
+        INS_BY_COMPACT_PHASE1 = 0x01, // compactor in first phase moving unique docs
+        INS_BY_COMPACT_PHASE2 = 0x02, // compactor in delta phase (catchup, uncommitted)
+    };
+
+    union indexedValue {
+        uint64_t offset;
+        void *doc_ptr;
+    };
+
     /**
      * Index a mutation into the Write Ahead Log
      */
     fdb_status insert_Wal(fdb_txn *txn,
                           struct _fdb_key_cmp_info *cmp_info,
                           fdb_doc *doc,
-                          uint64_t offset,
-                          wal_insert_by caller);
+                          union indexedValue value_in,
+                          walInsertOption caller);
 
     /**
      * Insert a deleted item with action WAL_ACT_REMOVE
@@ -244,15 +255,15 @@ public:
     fdb_status immediateRemove_Wal(fdb_txn *txn,
                                    struct _fdb_key_cmp_info *cmp_info,
                                    fdb_doc *doc,
-                                   uint64_t offset,
-                                   wal_insert_by caller);
+                                   union indexedValue offset_ptr,
+                                   walInsertOption caller);
 
     /**
      * Search WAL item in default or single KV instance mode
      */
     fdb_status find_Wal(fdb_txn *txn, struct _fdb_key_cmp_info *cmp_info,
                         struct snap_handle *shandle,
-                        fdb_doc *doc, uint64_t *offset);
+                        fdb_doc *doc, union indexedValue *offset_or_ptr);
 
     /**
      * Search WAL item in a specific KV Store in multi kv instance mode
@@ -262,7 +273,7 @@ public:
                                 struct _fdb_key_cmp_info *cmp_info,
                                 struct snap_handle *shandle,
                                 fdb_doc *doc,
-                                uint64_t *offset);
+                                union indexedValue *offset_or_ptr);
 
     /**
      * Move uncommitted transaction items on compaction from old file
@@ -454,15 +465,15 @@ private:
     fdb_status _insert_Wal(fdb_txn *txn,
                            struct _fdb_key_cmp_info *cmp_info,
                            fdb_doc *doc,
-                           uint64_t offset,
-                           wal_insert_by caller,
+                           union indexedValue value_in,
+                           walInsertOption caller,
                            bool immediate_remove);
     fdb_status _find_Wal(fdb_txn *txn,
                          fdb_kvs_id_t kv_id,
                          struct _fdb_key_cmp_info *cmp_info,
                          struct snap_handle *shandle,
                          fdb_doc *doc,
-                         uint64_t *offset);
+                         union indexedValue *value_out);
 
     fdb_status _flush_Wal(void *dbhandle,
                           wal_flush_func *flush_func,
@@ -479,8 +490,8 @@ private:
     fdb_status _close_Wal(wal_discard_t type, void *aux,
                           ErrLogCallback *log_callback);
 
-    fdb_status _snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                             uint64_t *offset);
+    fdb_status _persistedSnapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
+                             union indexedValue *value_out);
 
     struct wal_kvs_snaps *_wal_get_kvs_snaplist(fdb_kvs_id_t kv_id);
     struct snap_handle * _wal_get_latest_snapshot(struct wal_kvs_snaps *slist);
@@ -549,6 +560,7 @@ private:
     std::atomic<uint64_t> mem_overhead; // memory overhead of all WAL entries
     struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
+
     // Are there uncommitted or, committed but not flushed, Transactions..
     std::atomic<bool> unFlushedTransactions; //TODO:Transactional Snapshots
     // tree of all 'wal_item_header' (keys) in shard

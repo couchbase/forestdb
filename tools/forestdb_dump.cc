@@ -143,8 +143,11 @@ void print_doc(fdb_kvs_handle *db,
     cmp_info.kvs = db->kvs;
     fdoc.key = doc.key;
     fdoc.keylen = doc.length.keylen;
+    union Wal::indexedValue value_out;
     wr = db->file->getWal()->find_Wal(db->file->getGlobalTxn(), &cmp_info,
-                                      db->shandle, &fdoc, &offset);
+                                      db->shandle, &fdoc, &value_out);
+    offset = value_out.offset;
+    (void)offset;
     is_wal_entry = (wr == FDB_RESULT_SUCCESS)?(1):(0);
     printf("    Indexed by %s\n", (is_wal_entry)?("WAL"):("the main index"));
     printf("    Length: %d (key), %d (metadata), %d (body)\n",

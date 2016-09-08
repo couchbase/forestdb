@@ -1140,6 +1140,7 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
     (*doc)->metalen = _doc.length.metalen;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
+    (*doc)->flags = 0;
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
@@ -1649,11 +1650,13 @@ start_seq:
         doc_kv.key = _doc.key;
         doc_kv.keylen = _doc.length.keylen;
         doc_kv.seqnum = SEQNUM_NOT_USED;
+        doc_kv.flags = 0;
+        union Wal::indexedValue value_out;
         if (iterHandle->file->getWal()->find_Wal(
                         iterHandle->shandle->snap_txn,
                         &iterHandle->shandle->cmp_info,
                         iterHandle->shandle,
-                        &doc_kv, (uint64_t *) &_offset) == FDB_RESULT_SUCCESS &&
+                        &doc_kv, &value_out) == FDB_RESULT_SUCCESS &&
             startSeqnum <= doc_kv.seqnum &&
             doc_kv.seqnum <= endSeqnum) {
 
@@ -1832,11 +1835,13 @@ start_seq:
         doc_kv.key = _doc.key;
         doc_kv.keylen = _doc.length.keylen;
         doc_kv.seqnum = SEQNUM_NOT_USED; // search by key not seqnum
+        doc_kv.flags = 0; // key memory not shared
+        union Wal::indexedValue value_out;
         if (iterHandle->file->getWal()->find_Wal(
                         iterHandle->shandle->snap_txn,
                         &iterHandle->shandle->cmp_info,
                         iterHandle->shandle,
-                        &doc_kv, (uint64_t *) &_offset) == FDB_RESULT_SUCCESS &&
+                        &doc_kv, &value_out) == FDB_RESULT_SUCCESS &&
             startSeqnum <= doc_kv.seqnum &&
             doc_kv.seqnum <= endSeqnum) {
 

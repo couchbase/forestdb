@@ -47,6 +47,19 @@ target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(bcache_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+add_executable(wal_test
+               wal_test.cc
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${GETTIMEOFDAY_VS}
+               $<TARGET_OBJECTS:TEST_STAT_AGG>)
+target_link_libraries(wal_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(wal_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 
 add_executable(filemgr_test
                filemgr_test.cc
@@ -121,6 +134,7 @@ target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
 # add test target
 add_test(hash_test hash_test)
 add_test(mempool_test mempool_test)
+add_test(wal_test wal_test)
 add_test(execpool_test execpool_test)
 add_test(bcache_test bcache_test)
 add_test(filemgr_test filemgr_test)

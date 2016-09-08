@@ -431,12 +431,15 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                         wal_doc.key = doc.key;
                         wal_doc.seqnum = doc.seqnum;
                         wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
+                        wal_doc.flags = 0;
 
                         if (!handle->shandle) {
                             wal_doc.metalen = doc.length.metalen;
                             wal_doc.meta = doc.meta;
                             wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
 
+                            union Wal::indexedValue value;
+                            value.offset = doc_offset;
                             if (handle->kvs) {
                                 // check seqnum before insert
                                 fdb_kvs_id_t kv_id;
@@ -453,13 +456,14 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                                     // if mode is KV_INS, restore items matching ID
                                     wal->insert_Wal(file->getGlobalTxn(),
                                                     &cmp_info,
-                                                    &wal_doc, doc_offset,
-                                                    WAL_INS_WRITER);
+                                                    &wal_doc,
+                                                    value,
+                                                    Wal::INS_BY_WRITER);
                                 }
                             } else {
                                 wal->insert_Wal(file->getGlobalTxn(), &cmp_info,
-                                                &wal_doc, doc_offset,
-                                                WAL_INS_WRITER);
+                                                &wal_doc, value,
+                                                Wal::INS_BY_WRITER);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -2958,13 +2962,16 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
     wal_file = handle->file;
     dhandle = handle->dhandle;
 
+    union Wal::indexedValue value_out;
     if (handle->kvs) {
         wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, &doc_kv,
-                                     &offset);
+                                     &value_out);
     } else {
         wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc,
-                                     &offset);
+                                     &value_out);
     }
+    offset = value_out.offset;
+    // TODO: Implement doc read if FDB_DOC_MEMORY_SHARED is set
 
     if (!handle->shandle) {
         fdb_sync_db_header(handle);
@@ -3036,6 +3043,7 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
+        doc->flags = 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
@@ -3103,13 +3111,17 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
     // prevent searching by key in WAL if 'doc' is not empty
     size_t key_len = doc->keylen;
     doc->keylen = 0;
+    union Wal::indexedValue value_out;
     if (handle->kvs) {
         wr = wal_file->getWal()->findWithKvid_Wal(txn, handle->kvs->getKvsId(),
                                              &cmp_info,
-                                             handle->shandle, doc, &offset);
+                                             handle->shandle, doc, &value_out);
     } else {
-        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc, &offset);
+        wr = wal_file->getWal()->find_Wal(txn, &cmp_info, handle->shandle, doc,
+                                          &value_out);
     }
+    offset = value_out.offset;
+    // TODO: Implement doc read if FDB_DOC_MEMORY_SHARED is set
 
     doc->keylen = key_len;
     if (!handle->shandle) {
@@ -3208,6 +3220,7 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
+        doc->flags = 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
@@ -3289,6 +3302,7 @@ fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
         doc->body = _doc.body;
     }
     doc->deleted = _doc.length.flag & DOCIO_DELETED;
+    doc->flags = 0;
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
     if (handle->kvs) {
         // Since _doc.length was adjusted in _remove_kv_id(),
@@ -3343,6 +3357,11 @@ fdb_status FdbEngine::set(FdbKvsHandle *handle, fdb_doc *doc)
 
     if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
+    }
+    if (doc->flags & FDB_DOC_MEMORY_SHARED) {
+        return fdb_log(&handle->log_callback, FDB_RESULT_INVALID_ARGS,
+                       "ERROR: DOCUMENT has incorrect flag set %x",
+                       doc->flags);
     }
 
     _doc.length.keylen = doc->keylen;
@@ -3464,29 +3483,39 @@ fdb_set_start:
         immediate_remove = true;
     }
 
+    doc->flags = 0;
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
     doc->offset = offset;
     if (!txn) {
         txn = file->getGlobalTxn();
     }
+
+    union Wal::indexedValue value;
+    value.offset = offset;
+
     if (handle->kvs) {
         // multi KV instance mode
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
         if (!immediate_remove) {
-            file->getWal()->insert_Wal(txn, &cmp_info, &kv_ins_doc, offset,
-                       WAL_INS_WRITER);
+            file->getWal()->insert_Wal(txn, &cmp_info, &kv_ins_doc,
+                                       value,
+                                       Wal::INS_BY_WRITER);
         } else {
-            file->getWal()->immediateRemove_Wal(txn, &cmp_info, &kv_ins_doc, offset,
-                                 WAL_INS_WRITER);
+            file->getWal()->immediateRemove_Wal(txn, &cmp_info, &kv_ins_doc,
+                                                value,
+                                                Wal::INS_BY_WRITER);
         }
     } else {
         if (!immediate_remove) {
-            file->getWal()->insert_Wal(txn, &cmp_info, doc, offset, WAL_INS_WRITER);
+            file->getWal()->insert_Wal(txn, &cmp_info, doc,
+                                       value,
+                                       Wal::INS_BY_WRITER);
         } else {
-            file->getWal()->immediateRemove_Wal(txn, &cmp_info, doc, offset,
-                                           WAL_INS_WRITER);
+            file->getWal()->immediateRemove_Wal(txn, &cmp_info, doc,
+                                                value,
+                                                Wal::INS_BY_WRITER);
         }
     }
 

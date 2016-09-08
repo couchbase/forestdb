@@ -136,6 +136,7 @@ static int64_t _fdb_doc_move(void *dbhandle,
 
     fdoc->meta = doc.meta;
     fdoc->body = doc.body;
+    fdoc->flags = 0;
     fdoc->size_ondisk= _fdb_get_docsize(doc.length);
     fdoc->deleted = deleted;
 
@@ -980,6 +981,7 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
                 wal_doc.meta = doc.meta;
                 wal_doc.seqnum = doc.seqnum;
                 wal_doc.deleted = deleted;
+                wal_doc.flags = 0;
                 wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
                 // If user has specified a callback for move doc then
                 // the decision on to whether or not the document is moved
@@ -1024,13 +1026,23 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
                         free(doc.body);
                         return FDB_RESULT_WRITE_FAIL;
                     }
+                    union Wal::indexedValue value;
+                    value.offset = new_offset;
+                    fileMgr->getWal()->insert_Wal(fileMgr->getGlobalTxn(),
+                                                  &cmp_info,
+                                                  &wal_doc, //key+metadata
+                                                  value,
+                                                  Wal::INS_BY_COMPACT_PHASE1);
                 } else {
-                    new_offset = BLK_NOT_FOUND;
+                    union Wal::indexedValue value;
+                    value.offset = BLK_NOT_FOUND;
+                    fileMgr->getWal()->immediateRemove_Wal(
+                                                  fileMgr->getGlobalTxn(),
+                                                  &cmp_info,
+                                                  &wal_doc, //key+metadata
+                                                  value,
+                                                  Wal::INS_BY_COMPACT_PHASE1);
                 }
-
-                fileMgr->getWal()->insert_Wal(fileMgr->getGlobalTxn(), &cmp_info,
-                                              &wal_doc, new_offset,
-                                              WAL_INS_COMPACT_PHASE1);
 
                 n_moved_docs++;
                 free(doc.key);
@@ -1283,13 +1295,16 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                         old_offset = offset_array[start_idx + j];
 
                         wal_doc.body = doc[j].body;
+                        wal_doc.flags = 0;
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j].length);
                         wal_doc.offset = new_offset;
 
+                        union Wal::indexedValue value;
+                        value.offset = new_offset;
                         fileMgr->getWal()->insert_Wal(fileMgr->getGlobalTxn(),
                                                       &cmp_info, &wal_doc,
-                                                      new_offset,
-                                                      WAL_INS_COMPACT_PHASE1);
+                                                      value,
+                                                      Wal::INS_BY_COMPACT_PHASE1);
                         n_moved_docs++;
                     }
                     free(doc[j].key);
@@ -1620,11 +1635,15 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
 
                     old_offset = offset;
                     wal_doc.offset = new_offset;
+                    wal_doc.flags = 0;
                     wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
+                    union Wal::indexedValue value;
+                    value.offset = new_offset;
                     fileMgr->getWal()->insert_Wal(fileMgr->getGlobalTxn(), &cmp_info,
-                                                  &wal_doc, new_offset,
-                                                  WAL_INS_COMPACT_PHASE1);
+                                                  &wal_doc,
+                                                  value,
+                                                  Wal::INS_BY_COMPACT_PHASE1);
                     ++n_moved_docs;
                 } // if non-deleted or deleted-but-not-yet-purged doc check
                 free(doc.key);
@@ -2203,6 +2222,7 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
         wal_doc.deleted = deleted;
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
+        wal_doc.flags = 0;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
@@ -2239,13 +2259,23 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
             // append into the new file
             doc_offset = new_handle->dhandle->appendDoc_Docio(&doc[i],
                                         doc[i].length.flag & DOCIO_DELETED, 0);
+            // insert into the new file's WAL
+            union Wal::indexedValue value;
+            value.offset = doc_offset;
+            new_handle->file->getWal()->insert_Wal(
+                                   new_handle->file->getGlobalTxn(),
+                                   &cmp_info, &wal_doc,
+                                   value,
+                                   Wal::INS_BY_COMPACT_PHASE2);
         } else {
-            doc_offset = BLK_NOT_FOUND;
+            union Wal::indexedValue value;
+            value.offset = BLK_NOT_FOUND;
+            new_handle->file->getWal()->immediateRemove_Wal(
+                                   new_handle->file->getGlobalTxn(),
+                                   &cmp_info, &wal_doc,
+                                   value,
+                                   Wal::INS_BY_COMPACT_PHASE2);
         }
-        // insert into the new file's WAL
-        new_handle->file->getWal()->insert_Wal(new_handle->file->getGlobalTxn(),
-                                               &cmp_info, &wal_doc, doc_offset,
-                                               WAL_INS_COMPACT_PHASE2);
 
         // free
         free(doc[i].key);
@@ -2373,6 +2403,7 @@ void Compaction::cloneBatchedDelta(FdbKvsHandle *handle,
         wal_doc.deleted = doc[i].length.flag & DOCIO_DELETED;
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
+        wal_doc.flags = 0;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
@@ -2397,9 +2428,12 @@ void Compaction::cloneBatchedDelta(FdbKvsHandle *handle,
             }
         }
 
+        union Wal::indexedValue value;
+        value.offset = doc_offset;
         new_file->getWal()->insert_Wal(new_file->getGlobalTxn(), &cmp_info,
-                                       &wal_doc, doc_offset,
-                                       WAL_INS_COMPACT_PHASE2);
+                                       &wal_doc, // key+metadata
+                                       value, // offset to doc
+                                       Wal::INS_BY_COMPACT_PHASE2);
 
         // free
         free(doc[i].key);

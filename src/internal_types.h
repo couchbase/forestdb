@@ -43,6 +43,9 @@ class WalItr;
 
 #define OFFSET_SIZE (sizeof(uint64_t))
 
+// Internally used to distinguish when doc inserted into WAL is shared
+#define FDB_DOC_MEMORY_SHARED 0x02
+
 #define FDB_MAX_KEYLEN_INTERNAL (65520)
 
 // Versioning information...
