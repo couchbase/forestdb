@@ -2169,6 +2169,130 @@ void *multi_thread_kvs_client(void *args)
     return NULL;
 }
 
+void *multi_thread_fhandle_share(void *args)
+{
+    TEST_INIT();
+    fdb_status status;
+    int n = 2000;
+    int i, r;
+    char tmpbuf[32];
+    typedef struct {
+        fdb_file_handle *dbfile;
+        fdb_kvs_handle *def;
+        fdb_kvs_handle *main;
+        fdb_kvs_handle *back;
+        bool isWriter;
+        std::atomic<bool> shutdown;
+    } thread_data_t;
+
+    if (args == NULL) { // MAIN THREAD..
+        int nthreads = 2; // Half of these are reader and half are writers
+        int nwriters = nthreads / 2;
+        thread_t *tid = (thread_t *)malloc(nthreads * sizeof(thread_t *));
+        thread_data_t *tdata = (thread_data_t *) malloc(nthreads
+                                               * sizeof(thread_data_t));
+        void **thread_ret = (void **)malloc(nthreads * sizeof (void *));
+        fdb_kvs_config kvs_config;
+        fdb_config fconfig;
+
+        r = system(SHELL_DEL" func_test* > errorlog.txt");
+        (void)r;
+
+        // Shared File Handle data...
+        fconfig = fdb_get_default_config();
+        fconfig.buffercache_size = 0;
+        fconfig.compaction_threshold = 0;
+        fconfig.num_compactor_threads = 1;
+        kvs_config = fdb_get_default_kvs_config();
+        for (i=0; i < nwriters; ++i) {
+            // Let Readers share same file handle as writers..
+            fdb_file_handle *dbfile;
+            sprintf(tmpbuf, "./func_test_pt.%d", i);
+            status = fdb_open(&dbfile, tmpbuf, &fconfig);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            tdata[i].dbfile = dbfile;
+            int ridx = i+nwriters; // reader index
+            tdata[ridx].dbfile = dbfile;
+            tdata[i].isWriter = true;
+            // Open separate KVS Handles for Readers..
+            tdata[ridx].isWriter = false; // Set for readers
+            status = fdb_kvs_open_default(dbfile, &tdata[ridx].def, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_kvs_open(dbfile, &tdata[ridx].main, "main", &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_kvs_open(dbfile, &tdata[ridx].back, "back", &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // Open Separate KVS Handle for Writers..
+            status = fdb_kvs_open_default(dbfile, &tdata[i].def, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_kvs_open(dbfile, &tdata[i].main, "main", &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_kvs_open(dbfile, &tdata[i].back, "back", &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+        printf("Creating %d writers+readers over %d docs..\n", nwriters, n);
+        for (i=nthreads - 1;i>=0;--i){
+            tdata[i].shutdown = false;
+            thread_create(&tid[i], multi_thread_fhandle_share,
+                          reinterpret_cast<void *>(&tdata[i]));
+        }
+        for (i=0; i < nwriters; ++i) { // first wait for writers..
+            thread_join(tid[i], &thread_ret[i]);
+            printf("Writer %d done\n", i);
+            tdata[i+nwriters].shutdown = true; // tell reader to shutdown
+        }
+        for (;i<nthreads;++i){ // now wait for readers..
+            thread_join(tid[i], &thread_ret[i]);
+        }
+
+        for (i=0; i<nwriters;++i) {
+            status = fdb_close(tdata[i].dbfile);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+
+        free(tid);
+        free(tdata);
+        free(thread_ret);
+        fdb_shutdown();
+        TEST_RESULT("multi thread file handle share test");
+        return NULL;
+    }
+    // threads enter here ----
+    thread_data_t *tdata = reinterpret_cast<thread_data_t *>(args);
+    if (tdata->isWriter) { // Writer Threads Run this...
+        for (i=0; i < n; ++i) {
+            sprintf(tmpbuf, "key%03d", i);
+            status = fdb_set_kv(tdata->main, &tmpbuf, 7, nullptr, 0);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_set_kv(tdata->back, &tmpbuf, 7, nullptr, 0);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_set_kv(tdata->def, &tmpbuf, 7, nullptr, 0);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            if (n % 100 == 0) {
+                status = fdb_commit(tdata->dbfile,
+                                    FDB_COMMIT_MANUAL_WAL_FLUSH);
+                TEST_CHK(status != FDB_RESULT_HANDLE_BUSY);
+            }
+        }
+        return NULL;
+    } // else  Reader Threads Run this ...
+    while (!tdata->shutdown) {
+        for (i=0; i < n; ++i) {
+            void *value = nullptr;
+            size_t valuelen;
+            sprintf(tmpbuf, "key%03d", i);
+            status = fdb_get_kv(tdata->main, &tmpbuf, 7, &value, &valuelen);
+            TEST_CHK(status != FDB_RESULT_HANDLE_BUSY);
+            status = fdb_get_kv(tdata->back, &tmpbuf, 7, &value, &valuelen);
+            TEST_CHK(status != FDB_RESULT_HANDLE_BUSY);
+            status = fdb_get_kv(tdata->def, &tmpbuf, 7, &value, &valuelen);
+            TEST_CHK(status != FDB_RESULT_HANDLE_BUSY);
+        }
+    }
+
+    return NULL;
+}
+
 void incomplete_block_test()
 {
     TEST_INIT();
@@ -3774,6 +3898,8 @@ void auto_commit_test()
         fdb_free_block(value_out);
     }
 
+    status = fdb_kvs_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     // close & reopen
     status = fdb_close(dbfile);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -5449,6 +5575,7 @@ int main() {
     multi_thread_client_shutdown(NULL);
 #endif
     multi_thread_kvs_client(NULL);
+    multi_thread_fhandle_share(NULL);
     operational_stats_test(false);
     operational_stats_test(true);
     open_multi_files_kvs_test();

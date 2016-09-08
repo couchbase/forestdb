@@ -1630,9 +1630,7 @@ fdb_status FdbEngine::freeKvsNameList(fdb_kvs_name_list *kvs_name_list)
 
 // 1) identify whether the requested KVS is default or non-default.
 // 2) if the requested KVS is default,
-//   2-1) if no KVS handle is opened yet from this fhandle,
-//        -> return the root handle.
-//   2-2) if the root handle is already opened,
+//   2-1) As the root handle is already opened,
 //        -> allocate memory for handle, and call FdbEngine::openFdb().
 //        -> 'handle->kvs' will be created in FdbEngine::openFdb(),
 //           since it is treated as a default handle.
@@ -1677,40 +1675,33 @@ fdb_status FdbEngine::openKvs(FdbFileHandle *fhandle,
     fdb_sync_db_header(root_handle);
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
-        // return the default KV store handle
-        if (fhandle->activateRootHandle(kvs_name, config_local)) {
-            // If the root handle is not opened yet, then simply activate and return it.
-            *ptr_handle = root_handle;
-            return FDB_RESULT_SUCCESS;
+        fhandle->activateRootHandle(kvs_name, config_local);
+        // open new default KV store handle
+        handle = new FdbKvsHandle();
+        handle->kvs_config = config_local;
+        handle->initBusy();
+
+        if (root_handle->file->getKVHeader_UNLOCKED()) {
+            spin_lock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
+            handle->kvs_config.custom_cmp =
+                root_handle->file->getKVHeader_UNLOCKED()->default_kvs_cmp;
+            spin_unlock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
+        }
+
+        handle->fhandle = fhandle;
+        fs = openFdb(handle, root_handle->file->getFileName(),
+                FDB_AFILENAME, &config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            delete handle;
+            *ptr_handle = NULL;
         } else {
-            // the root handle is already opened
-            // open new default KV store handle
-            handle = new FdbKvsHandle();
-            handle->kvs_config = config_local;
-            handle->initBusy();
-
-            if (root_handle->file->getKVHeader_UNLOCKED()) {
-                spin_lock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
-                handle->kvs_config.custom_cmp =
-                    root_handle->file->getKVHeader_UNLOCKED()->default_kvs_cmp;
-                spin_unlock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
-            }
-
-            handle->fhandle = fhandle;
-            fs = openFdb(handle, root_handle->file->getFileName(),
-                         FDB_AFILENAME, &config);
-            if (fs != FDB_RESULT_SUCCESS) {
-                delete handle;
-                *ptr_handle = NULL;
-            } else {
-                // insert into fhandle's list
-                struct kvs_opened_node *node = (struct kvs_opened_node *)
-                    calloc(1, sizeof(struct kvs_opened_node));
-                node->handle = handle;
-                fhandle->addKVHandle(&node->le);
-                handle->node = node;
-                *ptr_handle = handle;
-            }
+            // insert into fhandle's list
+            struct kvs_opened_node *node = (struct kvs_opened_node *)
+                calloc(1, sizeof(struct kvs_opened_node));
+            node->handle = handle;
+            fhandle->addKVHandle(&node->le);
+            handle->node = node;
+            *ptr_handle = handle;
         }
         LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
         return fs;
@@ -2176,9 +2167,7 @@ fdb_kvs_create_start:
 
 // 1) identify whether the requested handle is for default KVS or not.
 // 2) if the requested handle is for the default KVS,
-//   2-1) if the requested handle is the root handle,
-//        -> just clear the OPENED flag.
-//   2-2) if the requested handle is not the root handle,
+//   2-1) the requested handle must not be the root handle,
 //        -> call FdbEngine::getInstance()->closeKVHandle(),
 //        -> remove the corresponding node from fhandle->handles list,
 //        -> free the memory for the handle.
@@ -2214,23 +2203,17 @@ fdb_status FdbEngine::closeKvs(FdbKvsHandle *handle)
         handle->kvs->getKvsType() == KVS_ROOT) {
         // the default KV store handle
 
-        if (handle->fhandle->getRootHandle() == handle) {
-            // do nothing for root handle
-            // the root handle will be closed with fdb_close() API call.
-            handle->fhandle->setFlags(handle->fhandle->getFlags() & ~FHANDLE_ROOT_OPENED); // remove flag
-            return FDB_RESULT_SUCCESS;
-
-        } else {
-            // the default KV store but not the root handle .. normally close
-            fs = FdbEngine::getInstance()->closeKVHandle(handle);
-            if (fs == FDB_RESULT_SUCCESS) {
-                // remove from 'handles' list in the root node
-                handle->fhandle->removeKVHandle(&handle->node->le);
-                free(handle->node);
-                delete handle;
-            }
-            return fs;
+        fdb_assert(handle->fhandle->getRootHandle() != handle, handle,
+                   handle->fhandle);
+        // the default KV store but not the root handle .. normally close
+        fs = FdbEngine::getInstance()->closeKVHandle(handle);
+        if (fs == FDB_RESULT_SUCCESS) {
+            // remove from 'handles' list in the root node
+            handle->fhandle->removeKVHandle(&handle->node->le);
+            free(handle->node);
+            delete handle;
         }
+        return fs;
     }
 
     if (handle->kvs && handle->kvs->getRootHandle() == NULL) {
@@ -2247,7 +2230,7 @@ fdb_status FdbEngine::closeKvs(FdbKvsHandle *handle)
 // 2) call FdbEngine::getInstance()->closeKVHandle().
 fdb_status FdbEngine::closeKvsInternal(FdbKvsHandle *handle)
 {
-    FdbKvsHandle *root_handle = handle->kvs->getRootHandle();
+    FdbKvsHandle *root_handle = handle->fhandle->getRootHandle();
     fdb_status fs;
 
     if (handle->node) {
