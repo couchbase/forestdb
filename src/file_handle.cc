@@ -161,6 +161,16 @@ void FdbFileHandle::addCmpFunction(char *kvs_name,
     list_push_back(cmpFuncList, &node->le);
 }
 
+struct kvs_opened_node *FdbFileHandle::createNLinkKVHandle(FdbKvsHandle *handle) {
+    //TODO: replace this calloc with new operator as future C++ refactoring
+    struct kvs_opened_node *opened_node = (struct kvs_opened_node *)
+        calloc(1, sizeof(struct kvs_opened_node));
+    opened_node->handle = handle;
+    handle->node = opened_node;
+    addKVHandle(&opened_node->le);
+    return opened_node;
+}
+
 bool FdbFileHandle::activateRootHandle(const char *kvs_name, fdb_kvs_config &config) {
     bool rv = false;
 

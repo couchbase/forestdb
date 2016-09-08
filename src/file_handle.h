@@ -99,6 +99,11 @@ public:
         spin_unlock(&lock);
     }
 
+    /**
+     * Create new node for 'handle' & link it in the file's list of KVS handles
+     */
+    struct kvs_opened_node *createNLinkKVHandle(FdbKvsHandle *handle);
+
     void removeKVHandle(struct list_elem *kv_handle) {
         spin_lock(&lock);
         list_remove(handles, kv_handle);
