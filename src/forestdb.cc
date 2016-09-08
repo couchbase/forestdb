@@ -5110,6 +5110,7 @@ fdb_status FdbEngine::destroyFile(const char *fname,
         return status;
     }
 
+    FdbEngine::init(fdbconfig);
     FdbEngine::initFileConfig(&config, &fconfig);
 
     FileMgr::mutexOpenlock(&fconfig);

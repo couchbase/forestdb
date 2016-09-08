@@ -2101,8 +2101,8 @@ fdb_kvs_create_start:
     // create a same kvs_node for the new file
     if (file->getFileStatus() == FILE_COMPACT_OLD) {
 
-        FileMgr *new_file = FileMgrMap::get()->fetchEntry(
-                                                    file->getNewFileName());
+        FileMgr *new_file =
+            FdbEngine::getInstance()->getFileMgrMap().fetchEntry(file->getNewFileName());
 
         if (new_file) {
             struct kvs_node *node_new;

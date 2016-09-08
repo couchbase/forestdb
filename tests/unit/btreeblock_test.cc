@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
 #include "btreeblock.h"
@@ -71,6 +72,8 @@ void basic_test()
     (void)r;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -125,6 +128,8 @@ void basic_test()
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
 
+    FdbEngine::destroyInstance();
+
     TEST_RESULT("basic test");
 }
 
@@ -150,6 +155,8 @@ void iterator_test()
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -206,6 +213,8 @@ void iterator_test()
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
 
+    FdbEngine::destroyInstance();
+
     TEST_RESULT("iterator test");
 }
 
@@ -227,6 +236,8 @@ void two_btree_test()
     std::string fname("./btreeblock_testfile");
     int r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -256,6 +267,8 @@ void two_btree_test()
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
 
+    FdbEngine::destroyInstance();
+
     TEST_RESULT("two btree test");
 }
 
@@ -276,6 +289,8 @@ void range_test()
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -304,6 +319,8 @@ void range_test()
     delete bhandle;
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     TEST_RESULT("range test");
 }
@@ -354,6 +371,9 @@ void subblock_test()
     // btree initialization using large metadata test
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
+
     result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     meta.data = (void*)malloc(4096);
@@ -603,6 +623,8 @@ void subblock_test()
     FileMgr::shutdown();
 
     delete kv_ops;
+    FdbEngine::destroyInstance();
+
     TEST_RESULT("subblock test");
 }
 
@@ -629,6 +651,8 @@ void btree_reverse_iterator_test()
     (void)r;
 
     memleak_start();
+
+    FdbEngine::init(nullptr);
 
     fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
@@ -768,6 +792,8 @@ void btree_reverse_iterator_test()
     delete bhandle;
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     memleak_end();
 

@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "docio.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -60,6 +61,9 @@ void basic_test()
 
     r = system(SHELL_DEL " docio_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
+
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle handle(file, false, NULL);
@@ -111,6 +115,9 @@ void basic_test()
 
     file->commit_FileMgr(true, NULL);
     FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     TEST_RESULT("basic test");
 }

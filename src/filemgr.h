@@ -341,21 +341,11 @@ public:
        if the name string contains the provided string in it */
     bool isStringMatchFound(const std::string &searchPattern);
 
-    /* Returns a singleton instance for the class */
-    static FileMgrMap* get(void);
-
-    /* Destroys the singleton instance of the class */
-    static void shutdown(void);
-
 private:
     // Lock to protect the unordered map
     spin_t fileMapLock;
     // Unordered map that maps filenames to FileMgr instances
     std::unordered_map<std::string, FileMgr *> fileMap;
-
-    // Singleton creation
-    static std::mutex initGuard;
-    static std::atomic<FileMgrMap *> instance;
 };
 
 class FileMgrHeader {

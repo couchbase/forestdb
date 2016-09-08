@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
 #include "test.h"
@@ -35,11 +36,15 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];
 
+    int r = system(SHELL_DEL" filemgr_testfile");
+    (void)r;
+
+    FdbEngine::init(nullptr);
+
     std::string fname("./filemgr_testfile");
     filemgr_open_result result = FileMgr::open(fname,
                                                get_filemgr_ops(),
                                                &config, NULL);
-    result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     file->updateHeader((void*)dbheader, strlen(dbheader)+1, true);
@@ -54,6 +59,9 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     file->updateHeader((void*)dbheader2, strlen(dbheader2) + 1, true);
 
     FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     sprintf(buf, "basic test, encryption=%d", (int)encryption);
     TEST_RESULT(buf);
@@ -68,9 +76,6 @@ void mt_init_test()
 
 int main()
 {
-    int r = system(SHELL_DEL" filemgr_testfile");
-    (void)r;
-
     basic_test(FDB_ENCRYPTION_NONE);
     basic_test(FDB_ENCRYPTION_BOGUS);
     mt_init_test();

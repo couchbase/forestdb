@@ -27,6 +27,7 @@
 
 #include <sstream>
 
+#include "fdb_engine.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
 #include "hash_functions.h"
@@ -67,9 +68,6 @@ bool FileMgr::lazyFileDeletionEnabled(false);
 register_file_removal_func FileMgr::registerFileRemoval(nullptr);
 check_file_removal_func FileMgr::isFileRemoved(nullptr);
 superblock_init_cb FileMgr::sbInitializer(nullptr);
-
-std::mutex FileMgrMap::initGuard;
-std::atomic<FileMgrMap *> FileMgrMap::instance(nullptr);
 
 static const int MAX_STAT_UPDATE_RETRIES = 5;
 
@@ -185,30 +183,6 @@ static void _log_errno_str(fdb_fileops_handle fops_handle,
         ops->get_errno_str(fops_handle, errno_msg, 512);
         fdb_log(log_callback, io_error,
                 "Error in %s on a database file '%s', %s", what, filename, errno_msg);
-    }
-}
-
-FileMgrMap* FileMgrMap::get(void) {
-    auto *tmp = instance.load();
-    if (tmp == nullptr) {
-        LockHolder lock(initGuard);
-        tmp = instance.load();
-        if (tmp == nullptr) {
-            // Second check under lock - to ensure that an instance is not
-            // create twice by two threads if it were null.
-            tmp = new FileMgrMap();
-            instance.store(tmp);
-        }
-    }
-    return tmp;
-}
-
-void FileMgrMap::shutdown(void) {
-    LockHolder lock(initGuard);
-    auto *tmp = instance.load();
-    if (tmp != nullptr) {
-        delete tmp;
-        instance = nullptr;
     }
 }
 
@@ -963,7 +937,7 @@ filemgr_open_result FileMgr::open(std::string filename,
 
     // check whether file is already opened or not
     spin_lock(&fileMgrOpenlock);
-    FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
+    FileMgr *file = FdbEngine::getInstance()->getFileMgrMap().fetchEntry(filename);
 
     if (file) {
         if (fail_if_exists) {
@@ -1002,7 +976,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                     // Then, retry it with a create option below IFF it is not
                     // a read-only open attempt
                     file->releaseSpinLock();
-                    FileMgrMap::get()->removeEntry(file->getFileName());
+                    FdbEngine::getInstance()->getFileMgrMap().removeEntry(file->getFileName());
                     if (!create) {
                         _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
                                        FDB_RESULT_NO_SUCH_FILE, "OPEN",
@@ -1190,7 +1164,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     file->globalTxn.isolation = FDB_ISOLATION_READ_COMMITTED;
     file->fMgrWal->addTransaction_Wal(&file->globalTxn);
 
-    FileMgrMap::get()->addEntry(filename, file);
+    FdbEngine::getInstance()->getFileMgrMap().addEntry(filename, file);
 
     if (config->getPrefetchDuration() > 0) {
         file->prefetch(log_callback);
@@ -1630,7 +1604,8 @@ fdb_status FileMgr::close(FileMgr *file,
         if (file->fMgrStatus.load() == FILE_REMOVED_PENDING) {
 
             bool foreground_deletion = false;
-            FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->newFileName);
+            FileMgr *new_file =
+                FdbEngine::getInstance()->getFileMgrMap().fetchEntry(file->newFileName);
 
             // immediately remove file if background remove function is not set
             if (!lazyFileDeletionEnabled ||
@@ -1658,7 +1633,7 @@ fdb_status FileMgr::close(FileMgr *file,
 
             // we can release lock becuase no one will open this file
             file->releaseSpinLock();
-            FileMgrMap::get()->removeEntry(file->getFileName());
+            FdbEngine::getInstance()->getFileMgrMap().removeEntry(file->getFileName());
 
             spin_unlock(&fileMgrOpenlock);
 
@@ -1675,11 +1650,12 @@ fdb_status FileMgr::close(FileMgr *file,
                                (fdb_status)rv, "CLOSE", file->fileName);
                 if (file->inPlaceCompaction && orig_file_name) {
                     uint32_t old_file_refcount = 0;
-                    FileMgr *orig_file = FileMgrMap::get()->fetchEntry(
-                                                                orig_file_name);
+                    FileMgr *orig_file =
+                        FdbEngine::getInstance()->getFileMgrMap().fetchEntry(orig_file_name);
+
                     // get old file's ref count if exists
-                    FileMgr *old_file = FileMgrMap::get()->fetchEntry(
-                                                            file->oldFileName);
+                    FileMgr *old_file =
+                        FdbEngine::getInstance()->getFileMgrMap().fetchEntry(file->oldFileName);
                     if (old_file) {
                         old_file_refcount = old_file->refCount.load();
                     }
@@ -1705,7 +1681,7 @@ fdb_status FileMgr::close(FileMgr *file,
                 }
                 file->releaseSpinLock();
                 // Clean up FileMgrFactory's unordered map, WAL index, and buffer cache.
-                FileMgrMap::get()->removeEntry(file->getFileName());
+                FdbEngine::getInstance()->getFileMgrMap().removeEntry(file->getFileName());
 
                 spin_unlock(&fileMgrOpenlock);
 
@@ -1805,10 +1781,11 @@ void FileMgr::removeFile(FileMgr *file,
 
     // remove from global hash table
     spin_lock(&fileMgrOpenlock);
-    FileMgrMap::get()->removeEntry(file->fileName);
+    FdbEngine::getInstance()->getFileMgrMap().removeEntry(file->fileName);
     spin_unlock(&fileMgrOpenlock);
 
-    FileMgr *new_file = FileMgrMap::get()->fetchEntry(file->getNewFileName());
+    FileMgr *new_file =
+        FdbEngine::getInstance()->getFileMgrMap().fetchEntry(file->getNewFileName());
 
     if (!lazyFileDeletionEnabled ||
         (new_file && new_file->inPlaceCompaction)) {
@@ -1834,7 +1811,7 @@ static void* _filemgr_is_closed(FileMgr *file, void *ctx) {
 fdb_status FileMgr::shutdown()
 {
     fdb_status ret = FDB_RESULT_SUCCESS;
-    void *open_file;
+    void *open_file = nullptr;
     if (fileMgrInitialized) {
         UniqueLock lh(FileMgr::initMutex);
 
@@ -1844,11 +1821,11 @@ fdb_status FileMgr::shutdown()
         }
 
         spin_lock(&fileMgrOpenlock);
-        open_file = FileMgrMap::get()->scan(_filemgr_is_closed, nullptr);
+        open_file =
+            FdbEngine::getInstance()->getFileMgrMap().scan(_filemgr_is_closed, nullptr);
         spin_unlock(&fileMgrOpenlock);
         if (!open_file) {
-            FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
-            FileMgrMap::shutdown();
+            FdbEngine::getInstance()->getFileMgrMap().freeEntries(FileMgr::freeFunc);
             if (global_config.getNcacheBlock() > 0) {
                 BlockCacheManager::getInstance()->destroyInstance();
             }
@@ -2682,10 +2659,9 @@ static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
 }
 
 FileMgr* FileMgr::searchStaleLinks() {
-    FileMgr *very_old_file;
     spin_lock(&fileMgrOpenlock);
-    very_old_file = reinterpret_cast<FileMgr *>(
-                    FileMgrMap::get()->scan(_filemgr_check_stale_link, this));
+    FileMgr *very_old_file = reinterpret_cast<FileMgr *>(
+        FdbEngine::getInstance()->getFileMgrMap().scan(_filemgr_check_stale_link, this));
     spin_unlock(&fileMgrOpenlock);
     return very_old_file;
 }
@@ -2701,7 +2677,8 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
     char *past_filename;
     spin_lock(&very_old_file->fMgrLock);
 
-    FileMgr *newFile = FileMgrMap::get()->fetchEntry(very_old_file->newFileName);
+    FileMgr *newFile =
+        FdbEngine::getInstance()->getFileMgrMap().fetchEntry(very_old_file->newFileName);
 
     if (very_old_file->accessHeader()->size == 0 || !newFile) {
         spin_unlock(&very_old_file->fMgrLock);
@@ -2766,8 +2743,8 @@ void FileMgr::removePending(FileMgr *old_file,
         // LCOV_EXCL_START
         spin_unlock(&old_file->fMgrLock);
 
-        FileMgr *new_file = FileMgrMap::get()->fetchEntry(
-                                                old_file->getNewFileName());
+        FileMgr *new_file =
+            FdbEngine::getInstance()->getFileMgrMap().fetchEntry(old_file->getNewFileName());
 
         if (!lazyFileDeletionEnabled ||
             (new_file && new_file->inPlaceCompaction)) {
@@ -2804,7 +2781,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
     }
 
     // check global list of known files to see if it is already opened or not
-    FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
+    FileMgr *file = FdbEngine::getInstance()->getFileMgrMap().fetchEntry(filename);
     if (file) {
         // already opened (return existing structure)
         file->acquireSpinLock();
@@ -2946,7 +2923,8 @@ FileMgr::destroyFileInAutoCompactionMode(const std::string &fname_prefix) {
     // is found, return FILE_IS_BUSY.
     std::string fname(fname_prefix + ".");
     fdb_status status = FDB_RESULT_SUCCESS;
-    bool ret = FileMgrMap::get()->isStringMatchFound(fname);
+
+    bool ret = FdbEngine::getInstance()->getFileMgrMap().isStringMatchFound(fname);
     if (ret) {
         status = FDB_RESULT_FILE_IS_BUSY;
     } else {

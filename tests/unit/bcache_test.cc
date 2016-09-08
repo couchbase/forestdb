@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "test.h"
 #include "blockcache.h"
 #include "filemgr.h"
@@ -37,6 +38,8 @@ void basic_test()
     int i;
     uint8_t buf[4096];
     std::string fname("./bcache_testfile");
+
+    FdbEngine::init(nullptr);
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -66,6 +69,11 @@ void basic_test()
     file->alloc_FileMgr(NULL);
     file->write_FileMgr(10, buf, NULL);
 
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
+
     TEST_RESULT("basic test");
 }
 
@@ -83,6 +91,8 @@ void basic_test2()
     r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
+    FdbEngine::init(nullptr);
+
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -97,6 +107,8 @@ void basic_test2()
     file->commit_FileMgr(true, NULL);
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     TEST_RESULT("basic test");
 
@@ -203,6 +215,8 @@ void multi_thread_test(int nblocks, int cachesize,
     buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
 
+    FdbEngine::init(nullptr);
+
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -234,6 +248,8 @@ void multi_thread_test(int nblocks, int cachesize,
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
     free(buf);
+
+    FdbEngine::destroyInstance();
 
     memleak_end();
     TEST_RESULT("multi thread test");

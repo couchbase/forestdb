@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fdb_engine.h"
 #include "hbtrie.h"
 #include "test.h"
 #include "btreeblock.h"
@@ -95,6 +96,8 @@ void basic_test()
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
 
+    FdbEngine::init(nullptr);
+
     std::string fname("./hbtrie_testfile");
     filemgr_open_result result = FileMgr::open(fname,
                                                get_filemgr_ops(), &config, NULL);
@@ -161,6 +164,8 @@ void basic_test()
 
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
 
     TEST_RESULT("basic test");
 }
@@ -240,6 +245,8 @@ void skew_basic_test()
 
     rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
+
+    FdbEngine::init(nullptr);
 
     std::string fname("./hbtrie_testfile");
     filemgr_open_result result = FileMgr::open(fname,
@@ -372,6 +379,8 @@ void skew_basic_test()
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
 
+    FdbEngine::destroyInstance();
+
     memleak_end();
 
     TEST_RESULT("skew basic test");
@@ -410,6 +419,8 @@ void hbtrie_reverse_iterator_test()
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
     memleak_start();
+
+    FdbEngine::init(nullptr);
 
     fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
@@ -527,6 +538,8 @@ void hbtrie_reverse_iterator_test()
     delete bhandle;
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
     memleak_end();
 
     TEST_RESULT("HB+trie reverse iterator test");
@@ -567,6 +580,8 @@ void hbtrie_partial_update_test()
 
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
+
+    FdbEngine::init(nullptr);
 
     fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
@@ -692,6 +707,8 @@ void hbtrie_partial_update_test()
     delete bhandle;
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();
+
+    FdbEngine::destroyInstance();
     memleak_end();
 
     TEST_RESULT("HB+trie partial update test");

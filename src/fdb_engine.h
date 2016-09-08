@@ -22,6 +22,7 @@
 #include "common.h"
 #include "configuration.h"
 #include "internal_types.h"
+#include "filemgr.h"
 #include "file_handle.h"
 #include "kvs_handle.h"
 
@@ -827,6 +828,13 @@ public:
                                        fdb_handle_stats_cb callback,
                                        void *ctx);
 
+    /**
+     * Return the file manager map instance
+     */
+    FileMgrMap &getFileMgrMap() {
+        return fileMap;
+    }
+
 private:
 
     friend class Compaction;
@@ -931,4 +939,6 @@ private:
     static std::mutex instanceMutex;
     // Number of open API calls that are currently running.
     static volatile size_t fdbOpenInProg;
+
+    FileMgrMap fileMap;
 };
