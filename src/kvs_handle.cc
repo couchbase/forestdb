@@ -23,6 +23,7 @@
 #include "kvs_handle.h"
 #include "file_handle.h"
 #include "filemgr.h"
+#include "fdb_internal.h"
 
 extern int _kvs_cmp_name(struct avl_node *a, struct avl_node *b, void *aux);
 
@@ -31,8 +32,8 @@ FdbKvsHandle::FdbKvsHandle() :
     seqtree(NULL), file(NULL), dhandle(NULL), bhandle(NULL),
     fileops(NULL), log_callback(), cur_header_revnum(0), rollback_revnum(0),
     last_hdr_bid(0), last_wal_flush_hdr_bid(0), kv_info_offset(0), shandle(NULL),
-    seqnum(0), max_seqnum(0), txn(NULL), handle_busy(0), dirty_updates(0),
-    node(NULL), num_iterators(0) {
+    seqnum(0), max_seqnum(0), txn(NULL), dirty_updates(0),
+    node(NULL), num_iterators(0), handle_busy(nullptr) {
 
     memset(&kvs_config, 0, sizeof(kvs_config));
     memset(&config, 0, sizeof(config));
@@ -160,8 +161,42 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     filename = kv_handle.filename;
     txn = kv_handle.txn;
 
-    handle_busy.store(kv_handle.handle_busy);
     dirty_updates = kv_handle.dirty_updates;
     node = kv_handle.node;
     num_iterators = kv_handle.num_iterators;
+    handle_busy.store(kv_handle.handle_busy.load());
+}
+
+void FdbKvsHandle::initBusy() {
+    handle_busy = nullptr;
+}
+
+bool FdbKvsHandle::beginBusy(func_name_t funcName) {
+    func_name_t inverse = nullptr;
+    if (handle_busy.compare_exchange_strong(inverse, funcName)) {
+        return true;
+    }
+    func_name_t curFuncName = handle_busy.load();
+    if (!curFuncName) {
+        curFuncName = "(unknown)";// race condition; value lost before read
+    }
+    fdb_log(&log_callback, FDB_RESULT_HANDLE_BUSY,
+            "%s() failed because handle %p is in use by %s()", funcName,
+            reinterpret_cast<void *>(this), curFuncName);
+    return false;
+}
+
+func_name_t FdbKvsHandle::suspendBusy(void) {
+    func_name_t val = handle_busy.load();
+    handle_busy.store(nullptr);
+    return val;
+}
+
+bool FdbKvsHandle::resumeBusy(func_name_t funcName) {
+    return beginBusy(funcName);
+}
+
+bool FdbKvsHandle::endBusy(func_name_t funcName) {
+    func_name_t inverse = funcName;
+    return handle_busy.compare_exchange_strong(inverse, nullptr);
 }

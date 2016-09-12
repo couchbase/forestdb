@@ -76,16 +76,14 @@ fdb_status FdbEngine::abortTransaction(FdbFileHandle *fhandle)
         }
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
     do { // repeat until file status is not REMOVED_PENDING
         status = fdb_check_file_reopen(handle, NULL);
         if (status != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return status;
         }
 
@@ -111,8 +109,7 @@ fdb_status FdbEngine::abortTransaction(FdbFileHandle *fhandle)
 
     file->mutexUnlock();
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return status;
 }
 
@@ -150,16 +147,14 @@ fdb_status FdbEngine::beginTransaction(FdbFileHandle *fhandle,
         }
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
     do { // repeat until file status is not REMOVED_PENDING
         status = fdb_check_file_reopen(handle, NULL);
         if (status != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return status;
         }
 
@@ -167,11 +162,10 @@ fdb_status FdbEngine::beginTransaction(FdbFileHandle *fhandle,
         file->mutexLock();
         fdb_sync_db_header(handle);
 
-        cond = 1;
         if (file->isRollbackOn()) {
             // deny beginning transaction during rollback
             file->mutexUnlock();
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
 
@@ -206,8 +200,7 @@ fdb_status FdbEngine::beginTransaction(FdbFileHandle *fhandle,
 
     file->mutexUnlock();
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return status;
 }
 

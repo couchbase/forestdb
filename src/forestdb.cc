@@ -738,7 +738,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->shandle = NULL;
 
     if (cmp_func_list && list_begin(cmp_func_list)) {
@@ -1544,7 +1544,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     // Copy the incoming handle into the handle that is being reset
     *handle = *handle_in;
 
-    handle->handle_busy = 0;
+    handle->initBusy();
 
     handle->filename = handle_in->filename;
 
@@ -2075,7 +2075,7 @@ fdb_status FdbEngine::openFile(FdbFileHandle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->shandle = NULL;
     handle->kvs_config = getDefaultKvsConfig();
 
@@ -2121,7 +2121,7 @@ fdb_status FdbEngine::openFileWithCustomCmp(FdbFileHandle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->shandle = NULL;
     handle->kvs_config = getDefaultKvsConfig();
 
@@ -2878,8 +2878,7 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -2897,8 +2896,7 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
     if (!handle->shandle) {
         wr = fdb_check_file_reopen(handle, NULL);
         if (wr != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return wr;
         }
 
@@ -2964,8 +2962,7 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         _doc.body = doc->body;
 
         if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2977,16 +2974,14 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         }
 
         if (_offset <= 0) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
 
         if ((_doc.length.keylen != doc_kv.keylen) ||
             (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
             free_docio_object(&_doc, false, alloced_meta, alloced_body);
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -3000,13 +2995,11 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         doc->offset = offset;
 
         LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return FDB_RESULT_SUCCESS;
     }
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -3038,16 +3031,14 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
         return FDB_RESULT_INVALID_CONFIG;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
     if (!handle->shandle) {
         wr = fdb_check_file_reopen(handle, NULL);
         if (wr != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return wr;
         }
 
@@ -3127,8 +3118,7 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
         _doc.body = doc->body;
 
         if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -3140,15 +3130,13 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
         }
 
         if (_offset <= 0) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
 
         if ((metaOnly && doc->seqnum != _doc.seqnum) ||
             (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -3178,14 +3166,12 @@ fdb_status FdbEngine::getBySeq(FdbKvsHandle *handle,
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
         return FDB_RESULT_SUCCESS;
     }
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -3206,8 +3192,7 @@ fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -3216,16 +3201,14 @@ fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
 
     int64_t _offset = handle->dhandle->readDoc_Docio(offset, &_doc, true);
     if (_offset <= 0 || !_doc.key || (_doc.length.flag & DOCIO_TXN_COMMITTED)) {
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
     } else {
         if (handle->kvs) {
             fdb_kvs_id_t kv_id;
             buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
             if (kv_id != handle->kvs->getKvsId()) {
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
+                END_HANDLE_BUSY(handle);
                 free_docio_object(&_doc, true, true, true);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
@@ -3233,8 +3216,7 @@ fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
         }
         if (!equal_docs(doc, &_doc)) {
             free_docio_object(&_doc, true, true, true);
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     }
@@ -3269,12 +3251,11 @@ fdb_status FdbEngine::getByOffset(FdbKvsHandle *handle, fdb_doc *doc)
         doc->size_ondisk += handle->config.chunksize;
     }
 
-    cond = 1;
     if (_doc.length.flag & DOCIO_DELETED) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -3315,8 +3296,7 @@ fdb_status FdbEngine::set(FdbKvsHandle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -3348,8 +3328,7 @@ fdb_status FdbEngine::set(FdbKvsHandle *handle, fdb_doc *doc)
 fdb_set_start:
     wr = fdb_check_file_reopen(handle, NULL);
     if (wr != FDB_RESULT_SUCCESS) {
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return wr;
     }
 
@@ -3366,8 +3345,7 @@ fdb_set_start:
 
     if (handle->file->isRollbackOn()) {
         handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
@@ -3432,8 +3410,7 @@ fdb_set_start:
     offset = dhandle->appendDoc_Docio(&_doc, doc->deleted, txn_enabled);
     if (offset == BLK_NOT_FOUND) {
         file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return FDB_RESULT_WRITE_FAIL;
     }
 
@@ -3495,8 +3472,7 @@ fdb_set_start:
                                             &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 file->mutexUnlock();
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
+                END_HANDLE_BUSY(handle);
                 return wr;
             }
 
@@ -3517,8 +3493,7 @@ fdb_set_start:
                 FileMgr::dirtyUpdateCloseNode(prev_node);
                 handle->file->dirtyUpdateRemoveNode(new_node);
                 file->mutexUnlock();
-                cond = 1;
-                handle->handle_busy.compare_exchange_strong(cond, 0);
+                END_HANDLE_BUSY(handle);
                 return wr;
             }
 
@@ -3544,13 +3519,12 @@ fdb_set_start:
         handle->op_stats->num_sets++;
     }
 
-    cond = 1;
     if (wal_flushed && handle->config.auto_commit) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return commitWithKVHandle(handle->fhandle->getRootHandle(), FDB_COMMIT_NORMAL,
                                   false); // asynchronous commit only
     }
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -3631,16 +3605,14 @@ fdb_status FdbEngine::commitWithKVHandle(FdbKvsHandle *handle,
                        handle->file->getFileName());
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
 fdb_commit_start:
     wr = fdb_check_file_reopen(handle, NULL);
     if (wr != FDB_RESULT_SUCCESS) {
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return wr;
     }
 
@@ -3649,8 +3621,7 @@ fdb_commit_start:
 
     if (handle->file->isRollbackOn()) {
         handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
@@ -3665,8 +3636,7 @@ fdb_commit_start:
     fs = handle->bhandle->flushBuffer();
     if (fs != FDB_RESULT_SUCCESS) {
         handle->file->mutexUnlock();
-        cond = 1;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle);
         return fs;
     }
 
@@ -3677,8 +3647,7 @@ fdb_commit_start:
                                                 &handle->log_callback);
         if (wr != FDB_RESULT_SUCCESS) {
             handle->file->mutexUnlock();
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return wr;
         }
         if (handle->file->getWal()->getDirtyStatus_Wal()== FDB_WAL_CLEAN) {
@@ -3716,8 +3685,7 @@ fdb_commit_start:
             FileMgr::dirtyUpdateCloseNode(prev_node);
             handle->file->dirtyUpdateRemoveNode(new_node);
             handle->file->mutexUnlock();
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return wr;
         }
         handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
@@ -3846,8 +3814,7 @@ fdb_commit_start:
 
     LATENCY_STAT_END(handle->file, FDB_LATENCY_COMMITS);
     handle->op_stats->num_commits++;
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return fs;
 }
 
@@ -3906,7 +3873,7 @@ fdb_snapshot_open_start:
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
     handle->fhandle = handle_in->fhandle;
@@ -4103,8 +4070,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                        handle_in->file->getFileName());
     }
 
-    uint8_t cond = 0;
-    if (!handle_in->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle_in)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -4114,8 +4080,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     if (handle_in->file->getWal()->doesTxnExist_Wal()) {
         handle_in->file->setRollback(0);
         handle_in->file->mutexUnlock();
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle_in);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
 
@@ -4133,8 +4098,7 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         handle_in->file->mutexUnlock();
         fs = fdb_check_file_reopen(handle_in, NULL);
         if (fs != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle_in->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle_in);
             return fs;
         }
     } else {
@@ -4148,19 +4112,17 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     // even via the current FdbKvsHandle
     if (seqnum > handle_in->seqnum) {
         handle_in->file->setRollback(0); // allow mutations
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle_in);
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     handle = new FdbKvsHandle();
     if (!handle) { // LCOV_EXCL_START
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle_in);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->log_callback = handle_in->log_callback;
     handle->fhandle = handle_in->fhandle;
     if (seqnum == 0) {
@@ -4196,13 +4158,11 @@ fdb_status FdbEngine::rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
             handle_in->file->setSeqnum(old_seqnum);
             handle_in->file->mutexUnlock();
             delete handle;
-            cond = 1;
-            handle_in->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle_in);
         }
     } else {
         delete handle;
-        cond = 1;
-        handle_in->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(handle_in);
     }
 
     return fs;
@@ -4361,8 +4321,7 @@ fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
     std::string nextfile;
     fdb_status fs;
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -4381,8 +4340,7 @@ fdb_status FdbEngine::compact(FdbFileHandle *fhandle,
         fs = Compaction::compactFile(fhandle, nextfile.c_str(), in_place_compaction,
                                      (bid_t)marker, clone_docs, new_encryption_key);
     }
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return fs;
 }
 
