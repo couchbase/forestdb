@@ -510,8 +510,7 @@ fdb_status FdbIterator::seek(const void *seek_key,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!iterHandle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(iterHandle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -539,8 +538,7 @@ fdb_status FdbIterator::seek(const void *seek_key,
             }
         }
         if (cmp < 0) {
-            cond = 1;
-            iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(iterHandle);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -557,8 +555,7 @@ fdb_status FdbIterator::seek(const void *seek_key,
             }
         }
         if (cmp > 0) {
-            cond = 1;
-            iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(iterHandle);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -918,8 +915,7 @@ fetch_hbtrie:
         }
     }
 
-    cond = 1;
-    iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(iterHandle);
     if (!dHandle) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
@@ -997,8 +993,7 @@ fdb_status FdbIterator::iterateToPrev() {
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
-    uint8_t cond = 0;
-    if (!iterHandle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(iterHandle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1020,8 +1015,7 @@ fdb_status FdbIterator::iterateToPrev() {
         }
     }
 
-    cond = 1;
-    iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(iterHandle);
     iterHandle->op_stats->num_iterator_moves++;
     LATENCY_STAT_END(iterHandle->file, FDB_LATENCY_ITR_PREV);
     return result;
@@ -1031,8 +1025,7 @@ fdb_status FdbIterator::iterateToNext() {
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
-    uint8_t cond = 0;
-    if (!iterHandle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(iterHandle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1054,8 +1047,7 @@ fdb_status FdbIterator::iterateToNext() {
         }
     }
 
-    cond = 1;
-    iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(iterHandle);
     iterHandle->op_stats->num_iterator_moves++;
     LATENCY_STAT_END(iterHandle->file, FDB_LATENCY_ITR_NEXT);
     return result;
@@ -1080,8 +1072,7 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
-    uint8_t cond = 0;
-    if (!iterHandle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(iterHandle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1090,8 +1081,7 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
     if (*doc == NULL) {
         ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
         if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
-            cond = 1;
-            iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(iterHandle);
             return ret;
         } // LCOV_EXCL_STOP
 
@@ -1119,15 +1109,13 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
     }
 
     if (_offset <= 0) {
-        cond = 1;
-        iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(iterHandle);
         return _offset < 0 ? (fdb_status) _offset : FDB_RESULT_KEY_NOT_FOUND;
     }
     if ((_doc.length.flag & DOCIO_DELETED) &&
         (iterOpt & FDB_ITR_NO_DELETES)) {
 
-        cond = 1;
-        iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+        END_HANDLE_BUSY(iterHandle);
         free_docio_object(&_doc, alloced_key, alloced_meta, alloced_body);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
@@ -1155,8 +1143,7 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
-    cond = 1;
-    iterHandle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(iterHandle);
     iterHandle->op_stats->num_iterator_gets++;
     if (metaOnly) {
         LATENCY_STAT_END(iterHandle->file, FDB_LATENCY_ITR_GET_META);

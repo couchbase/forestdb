@@ -25,6 +25,21 @@
 
 class BTreeBlkHandle;
 class BTree;
+// Windows MSVC has a buggy standard library for std::atomic<const char *>
+// Any attempts to set a const char * using atomic::store()
+// method fails since atomic::store() is defined as
+// _Atomic_address::store(void *) which breaks const qualifier
+// So to work around this, declare func_name_t as char * on windows only
+// compatible with __FUNCTION__ type.
+#if defined(WIN32) || defined(_WIN32)
+    #define BEGIN_HANDLE_BUSY(H) ((H)->beginBusy(__FUNCTION__))
+    #define END_HANDLE_BUSY(H)   ((H)->endBusy(__FUNCTION__))
+    typedef char * func_name_t;
+#else
+    #define BEGIN_HANDLE_BUSY(H)  ((H)->beginBusy(__func__))
+    #define END_HANDLE_BUSY(H)    ((H)->endBusy(__func__))
+    typedef const char * func_name_t;
+#endif // WIN32
 
 /**
  * ForestDB KV store handle definition.
@@ -62,6 +77,32 @@ public:
      */
     void initRootHandle();
 
+    /**
+     * Initialize the handle busy pointer
+     */
+    void initBusy();
+
+    /**
+     * Store function name using the current handle
+     * If handle is already busy, log the current function using it.
+     */
+    bool beginBusy(func_name_t funcName);
+
+    /**
+     * Release the handle to indicate end of its use in current function.
+     */
+    bool endBusy(func_name_t funcName);
+
+    /**
+     * Temporarily let other callers use the handle
+     *    (used for compaction callbacks which may call ForestDB api)
+     */
+    func_name_t suspendBusy(void);
+
+    /**
+     * Let the temporarily suspended thread resume the ownership
+     */
+    bool resumeBusy(func_name_t funcName);
 
     // TODO: Move these variables to private members as we refactor the code in C++.
 
@@ -162,10 +203,6 @@ public:
      */
     fdb_txn *txn;
     /**
-     * Atomic flag to detect if handles are being shared among threads.
-     */
-    std::atomic<uint8_t> handle_busy;
-    /**
      * Flag that indicates whether this handle made dirty updates or not.
      */
     uint8_t dirty_updates;
@@ -179,6 +216,10 @@ public:
     uint32_t num_iterators;
 
 private:
+    /**
+     * Atomic flag to detect if handles are being shared among threads.
+     */
+    std::atomic<func_name_t> handle_busy;
 
     void copyFromOtherHandle(const FdbKvsHandle& kv_handle);
 };

@@ -729,7 +729,7 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     handle.max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
     handle.shandle = &shandle;
     handle.fhandle = rhandle->fhandle;
-    handle.handle_busy = 0;
+    handle.initBusy();
     if (rhandle->kvs) {
         handle.file = file;
         handle.initRootHandle();
@@ -985,7 +985,6 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
                 // the decision on to whether or not the document is moved
                 // into new file will rest completely on the return value
                 // from the callback
-                uint8_t cond = 1;
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
                     size_t key_offset;
@@ -993,13 +992,12 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
                                                    wal_doc.key, &key_offset);
                     wal_doc.keylen -= key_offset;
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
+                    auto curApi = handle->suspendBusy();
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
                                kvs_name, &wal_doc, offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
+                    handle->resumeBusy(curApi);
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
                     wal_doc.keylen += key_offset;
                 } else {
@@ -1139,14 +1137,12 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
         aio_handle_ptr = &aio_handle;
     }
 
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     gettimeofday(&tv, NULL);
@@ -1247,7 +1243,6 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                     // the decision on to whether or not the document is moved
                     // into new file will rest completely on the return value
                     // from the callback
-                    uint8_t cond = 1;
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
                         size_t key_offset;
@@ -1256,15 +1251,14 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                         wal_doc.keylen -= key_offset;
                         wal_doc.key = (void *)((uint8_t*)wal_doc.key
                                     + key_offset);
-                        handle->handle_busy.compare_exchange_strong(cond, 0);
+                        auto curApi = handle->suspendBusy();
                         decision = handle->config.compaction_cb(
                                    handle->fhandle, FDB_CS_MOVE_DOC,
                                    kvs_name, &wal_doc,
                                    offset_array[start_idx + j],
                                    BLK_NOT_FOUND,
                                    handle->config.compaction_cb_ctx);
-                        cond = 0;
-                        handle->handle_busy.compare_exchange_strong(cond, 1);
+                        handle->resumeBusy(curApi);
                         wal_doc.key = (void *)((uint8_t*)wal_doc.key
                                     - key_offset);
                         wal_doc.keylen += key_offset;
@@ -1304,16 +1298,14 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                     doc[j].key = doc[j].meta = doc[j].body = NULL;
                 }
 
-                cond = 1;
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
+                    auto curApi = handle->suspendBusy();
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
+                    handle->resumeBusy(curApi);
                 }
 
                 // === flush WAL entries by compactor ===
@@ -1350,18 +1342,16 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                         handle->file->setThrottlingDelay(0);
                     }
 
-                    cond = 1;
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-                        handle->handle_busy.compare_exchange_strong(cond, 0);
+                        auto curApi = handle->suspendBusy();
                         handle->config.compaction_cb(handle->fhandle,
                                                      FDB_CS_FLUSH_WAL, NULL,
                                                      NULL,
                                                      old_offset, new_offset,
                                                      handle->
                                                      config.compaction_cb_ctx);
-                        cond = 0;
-                        handle->handle_busy.compare_exchange_strong(cond, 1);
+                        handle->resumeBusy(curApi);
                     }
                 }
 
@@ -1404,15 +1394,13 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                                             aio_handle_ptr);
     }
 
-    cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     return fs;
@@ -1463,14 +1451,12 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
                                          &aio_handle)== FDB_RESULT_SUCCESS) {
         aio_handle_ptr = &aio_handle;
     }
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     gettimeofday(&tv, NULL);
@@ -1568,7 +1554,6 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
                 // the decision on to whether or not the document is moved
                 // into new file will rest completely on the return value
                 // from the callback
-                uint8_t cond = 1;
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
                     size_t key_offset;
@@ -1576,13 +1561,12 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
                                                      wal_doc.key, &key_offset);
                     wal_doc.keylen -= key_offset;
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
+                    auto curApi = handle->suspendBusy();
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
                                kvs_name, &wal_doc, _offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
+                    handle->resumeBusy(curApi);
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
                     wal_doc.keylen += key_offset;
                 } else {
@@ -1646,16 +1630,14 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
                 free(doc.key);
                 free(doc.meta);
 
-                cond = 1;
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
+                    auto curApi = handle->suspendBusy();
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
+                    handle->resumeBusy(curApi);
                 }
             } // repeat until no more offset in the offset_array
 
@@ -1694,16 +1676,14 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
                     handle->file->setThrottlingDelay(0);
                 }
 
-                cond = 1;
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-                    handle->handle_busy.compare_exchange_strong(cond, 0);
+                    auto curApi = handle->suspendBusy();
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_FLUSH_WAL, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
-                    cond = 0;
-                    handle->handle_busy.compare_exchange_strong(cond, 1);
+                    handle->resumeBusy(curApi);
                 }
             }
 
@@ -1737,15 +1717,13 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
     delete it;
     free(offset_array);
 
-    cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     return fs;
@@ -1783,14 +1761,12 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
     bid_t compactor_curr_bid, writer_curr_bid;
     bool distance_updated = false;
 
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     // Temporarily disable log callback function
@@ -2162,15 +2138,13 @@ move_delta_next_loop:
         }
     }
 
-    cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 
     handle->dhandle->setLogCallback(log_callback);
@@ -2230,7 +2204,6 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        uint8_t cond = 1;
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
             if (got_lock) {
@@ -2241,13 +2214,12 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
                                                 wal_doc.key, &key_offset);
             wal_doc.keylen -= key_offset;
             wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            auto curApi = handle->suspendBusy();
             decision = handle->config.compaction_cb(
                        handle->fhandle, FDB_CS_MOVE_DOC,
                        kvs_name, &wal_doc, old_offset_array[i],
                        BLK_NOT_FOUND, handle->config.compaction_cb_ctx);
-            cond = 0;
-            handle->handle_busy.compare_exchange_strong(cond, 1);
+            handle->resumeBusy(curApi);
             wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
             wal_doc.keylen += key_offset;
             if (got_lock) {
@@ -2312,16 +2284,14 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
         handle->file->setThrottlingDelay(0);
     }
 
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[i-1], doc_offset,
             handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 }
 
@@ -2404,7 +2374,6 @@ void Compaction::cloneBatchedDelta(FdbKvsHandle *handle,
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        uint8_t cond = 1;
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
             if (locked) {
@@ -2414,14 +2383,13 @@ void Compaction::cloneBatchedDelta(FdbKvsHandle *handle,
             const char *kvs_name = _fdb_kvs_extract_name_off(handle,
                                                  wal_doc.key, &key_offset);
             wal_doc.keylen -= key_offset;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            auto curApi = handle->suspendBusy();
             handle->config.compaction_cb(handle->fhandle, FDB_CS_MOVE_DOC,
                                          kvs_name, &wal_doc,
                                          old_offset_array[i],
                                          doc_offset,
                                          handle->config.compaction_cb_ctx);
-            cond = 0;
-            handle->handle_busy.compare_exchange_strong(cond, 1);
+            handle->resumeBusy(curApi);
             wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
             wal_doc.keylen += key_offset;
             if (locked) {
@@ -2474,17 +2442,15 @@ void Compaction::cloneBatchedDelta(FdbKvsHandle *handle,
         handle->file->setThrottlingDelay(0);
     }
 
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
         uint64_t array_idx = i > 0 ? i - 1 : 0;
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[array_idx], doc_offset,
             handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
 }
 #endif // _COW_COMPACTION
@@ -2628,15 +2594,13 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
 
     handle->op_stats->num_compacts++;
 
-    uint8_t cond = 1;
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
-        handle->handle_busy.compare_exchange_strong(cond, 0);
+        auto curApi = handle->suspendBusy();
         handle->config.compaction_cb(handle->fhandle, FDB_CS_COMPLETE,
                                      NULL, NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
                                      handle->config.compaction_cb_ctx);
-        cond = 0;
-        handle->handle_busy.compare_exchange_strong(cond, 1);
+        handle->resumeBusy(curApi);
     }
     return status;
 }

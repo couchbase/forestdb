@@ -1307,16 +1307,14 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
     if (!handle->shandle) { // snapshot handle should be immutable
         status = fdb_check_file_reopen(handle, NULL);
         if (status != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return status;
         }
         fdb_sync_db_header(handle);
@@ -1379,8 +1377,7 @@ fdb_status FdbEngine::getKvsInfo(FdbKvsHandle *handle, fdb_kvs_info *info)
     info->space_used += nlivenodes * handle->config.blocksize;
     info->file = handle->fhandle;
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
 
     // This is another LIBFDB_API call, so handle is marked as free
     // in the line above before making this call
@@ -1458,8 +1455,7 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    uint8_t cond = 0;
-    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
+    if (!BEGIN_HANDLE_BUSY(handle)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1470,8 +1466,7 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
     } else {
         status = fdb_check_file_reopen(handle, NULL);
         if (status != FDB_RESULT_SUCCESS) {
-            cond = 1;
-            handle->handle_busy.compare_exchange_strong(cond, 0);
+            END_HANDLE_BUSY(handle);
             return status;
         }
         fdb_sync_db_header(handle);
@@ -1489,8 +1484,7 @@ fdb_status FdbEngine::getKvsSeqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
         }
     }
 
-    cond = 1;
-    handle->handle_busy.compare_exchange_strong(cond, 0);
+    END_HANDLE_BUSY(handle);
     return status;
 }
 
@@ -1693,7 +1687,7 @@ fdb_status FdbEngine::openKvs(FdbFileHandle *fhandle,
             // open new default KV store handle
             handle = new FdbKvsHandle();
             handle->kvs_config = config_local;
-            handle->handle_busy = 0;
+            handle->initBusy();
 
             if (root_handle->file->getKVHeader_UNLOCKED()) {
                 spin_lock(&root_handle->file->getKVHeader_UNLOCKED()->lock);
@@ -1748,7 +1742,7 @@ fdb_status FdbEngine::openKvs(FdbFileHandle *fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle->handle_busy = 0;
+    handle->initBusy();
     handle->fhandle = fhandle;
     fs = openKvs(root_handle, &config, &config_local,
                  root_handle->file, root_handle->file->getFileName(),
@@ -1925,7 +1919,7 @@ fdb_status FdbEngine::rollbackKvs(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum
     handle->max_seqnum = seqnum;
     handle->log_callback = handle_in->log_callback;
     handle->fhandle = fhandle;
-    handle->handle_busy = 0;
+    handle->initBusy();
 
     if (handle_in->kvs->getKvsType() == KVS_SUB) {
         fs = openKvs(handle_in->kvs->getRootHandle(),
