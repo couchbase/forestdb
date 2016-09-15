@@ -719,6 +719,12 @@ public:
         return bCache.load(std::memory_order_relaxed);
     }
 
+    uint64_t getBCacheItems();
+
+    uint64_t getBCacheVictims();
+
+    uint64_t getBCacheImmutables();
+
     fdb_txn* getGlobalTxn() {
         return &globalTxn;
     }

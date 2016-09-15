@@ -145,114 +145,91 @@ private:
     block_map_t allBlocks;
 };
 
-class FileBlockCache {
-public:
-    FileBlockCache() :
-        curFile(NULL), refCount(0), numVictims(0), numItems(0), numImmutables(0),
-        accessTimestamp(0), numShards(DEFAULT_NUM_BCACHE_PARTITIONS) { }
+FileBlockCache::FileBlockCache()
+    : curFile(NULL), refCount(0), numVictims(0), numItems(0), numImmutables(0),
+      accessTimestamp(0), numShards(DEFAULT_NUM_BCACHE_PARTITIONS) { }
 
-    FileBlockCache(std::string fname, FileMgr *file, size_t num_shards) :
-        fileName(fname), curFile(file), refCount(0), numVictims(0), numItems(0),
-        numImmutables(0), accessTimestamp(0), numShards(num_shards) {
-        // Create a block cache shard instance.
-        for (size_t i = 0; i < numShards; ++i) {
-            BlockCacheShard *shard = new BlockCacheShard();
-            shards.push_back(shard);
-        }
+FileBlockCache::FileBlockCache(std::string fname, FileMgr *file,
+                               size_t num_shards)
+    : fileName(fname), curFile(file), refCount(0), numVictims(0), numItems(0),
+      numImmutables(0), accessTimestamp(0), numShards(num_shards)
+{
+    // Create a block cache shard instance.
+    for (size_t i = 0; i < numShards; ++i) {
+        BlockCacheShard *shard = new BlockCacheShard();
+        shards.push_back(shard);
     }
+}
 
-    ~FileBlockCache() {
+FileBlockCache::~FileBlockCache() {
         for (auto shard : shards) {
             delete shard;
         }
     }
 
-    const std::string &getFileName(void) const {
-        return fileName;
-    }
+const std::string& FileBlockCache::getFileName(void) const {
+    return fileName;
+}
 
-    FileMgr *getFileManager(void) const {
-        return curFile;
-    }
+FileMgr* FileBlockCache::getFileManager(void) const {
+    return curFile;
+}
 
-    uint32_t getRefCount(void) const {
-        return refCount;
-    }
+uint32_t FileBlockCache::getRefCount(void) const {
+    return refCount;
+}
 
-    uint64_t getNumVictims(void) const {
-        return numVictims;
-    }
+uint64_t FileBlockCache::getNumVictims(void) const {
+    return numVictims;
+}
 
-    uint64_t getNumItems(void) const {
-        return numItems;
-    }
+uint64_t FileBlockCache::getNumItems(void) const {
+    return numItems;
+}
 
-    uint64_t getNumImmutables(void) const {
-        return numImmutables;
-    }
+uint64_t FileBlockCache::getNumImmutables(void) const {
+    return numImmutables;
+}
 
-    uint64_t getAccessTimestamp(void) const {
-        return accessTimestamp.load(std::memory_order_relaxed);
-    }
+uint64_t FileBlockCache::getAccessTimestamp(void) const {
+    return accessTimestamp.load(std::memory_order_relaxed);
+}
 
-    size_t getNumShards(void) const {
-        return numShards;
-    }
+size_t FileBlockCache::getNumShards(void) const {
+    return numShards;
+}
 
-    void setAccessTimestamp(uint64_t timestamp) {
-        accessTimestamp.store(timestamp, std::memory_order_relaxed);
-    }
+void FileBlockCache::setAccessTimestamp(uint64_t timestamp) {
+    accessTimestamp.store(timestamp, std::memory_order_relaxed);
+}
 
-    /**
-     * Check if a file block cache is empty or not.
-     *
-     * @return True if a file block cache is empty
-     */
-    bool empty() {
-        bool empty = true;
-        size_t i = 0;
-        acquireAllShardLocks();
-        for (; i < numShards; ++i) {
-            if (!shards[i]->empty()) {
-                empty = false;
-                break;
-            }
-        }
-        releaseAllShardLocks();
-        return empty;
-    }
-
-    void acquireAllShardLocks() {
-        size_t i = 0;
-        for (; i < numShards; ++i) {
-            spin_lock(&shards[i]->lock);
+bool FileBlockCache::empty() {
+    bool empty = true;
+    size_t i = 0;
+    acquireAllShardLocks();
+    for (; i < numShards; ++i) {
+        if (!shards[i]->empty()) {
+            empty = false;
+            break;
         }
     }
+    releaseAllShardLocks();
+    return empty;
+}
 
-    void releaseAllShardLocks() {
-        size_t i = 0;
-        for (; i < numShards; ++i) {
-            spin_unlock(&shards[i]->lock);
-        }
+void FileBlockCache::acquireAllShardLocks() {
+    size_t i = 0;
+    for (; i < numShards; ++i) {
+        spin_lock(&shards[i]->lock);
     }
+}
 
-private:
-    friend class BlockCacheManager;
-
-    std::string fileName;
-    // File manager instance
-    // (can be changed on-the-fly when file is closed and re-opened)
-    FileMgr *curFile;
-    // Shards of the block cache for a file.
-    std::vector<BlockCacheShard *> shards;
-
-    std::atomic<uint32_t> refCount;
-    std::atomic<uint64_t> numVictims;
-    std::atomic<uint64_t> numItems;
-    std::atomic<uint64_t> numImmutables;
-    std::atomic<uint64_t> accessTimestamp;
-    size_t numShards;
-};
+void FileBlockCache::releaseAllShardLocks() {
+    size_t i = 0;
+    for (; i < numShards; ++i) {
+        spin_unlock(&shards[i]->lock);
+    }
+}
 
 static const size_t MAX_VICTIM_SELECTIONS = 5;
 

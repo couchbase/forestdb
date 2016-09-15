@@ -1169,6 +1169,15 @@ fdb_filemgr_ops_t* fdb_get_default_file_ops();
  *                 function is invoked for every stat of the KV store handle
  * @param ctx Client context that is passed to the callback
  *
+ * Stats returned (File level)
+ *  1> Num_wal_shards               : Number of shards in the WAL
+ *  2> Num_bcache_shards            : Number of shards in FDB's global block cache
+ *  3> Block_cache_hits             : Number of block cache hits
+ *  4> Block_cache_misses           : Number of block cache misses
+ *  5> Block_cache_num_items        : Number of block cache items
+ *  6> Block_cache_num_victims      : Number of block cache victims (evictions)
+ *  7> Block_cache_num_immutables   : Number of block cache immutables (eligible for eviction)
+ *
  */
 LIBFDB_API
 fdb_status fdb_fetch_handle_stats(fdb_kvs_handle *handle,

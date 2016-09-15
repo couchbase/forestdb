@@ -2941,6 +2941,18 @@ fdb_status FileMgr::destroyFile(std::string filename,
     return status;
 }
 
+uint64_t FileMgr::getBCacheItems() {
+    return bCache.load() ? bCache.load()->getNumItems() : 0;
+}
+
+uint64_t FileMgr::getBCacheVictims() {
+    return bCache.load() ? bCache.load()->getNumVictims() : 0;
+}
+
+uint64_t FileMgr::getBCacheImmutables() {
+    return bCache.load() ? bCache.load()->getNumImmutables() : 0;
+}
+
 bool FileMgr::isRollbackOn() {
     bool rv;
     acquireSpinLock();

@@ -32,10 +32,65 @@ typedef enum {
 } bcache_dirty_t;
 
 class BlockCacheItem;
-class FileBlockCache;
+class BlockCacheShard;
 
 // Block cache file map with a file name as a key.
 typedef std::unordered_map<std::string, FileBlockCache *> bcache_file_map;
+
+class FileBlockCache {
+public:
+    FileBlockCache();
+
+    FileBlockCache(std::string fname, FileMgr *file, size_t num_shards);
+
+    ~FileBlockCache();
+
+    const std::string &getFileName(void) const;
+
+    FileMgr *getFileManager(void) const;
+
+    uint32_t getRefCount(void) const;
+
+    uint64_t getNumVictims(void) const;
+
+    uint64_t getNumItems(void) const;
+
+    uint64_t getNumImmutables(void) const;
+
+    uint64_t getAccessTimestamp(void) const;
+
+    size_t getNumShards(void) const;
+
+    void setAccessTimestamp(uint64_t timestamp);
+
+    /**
+     * Check if a file block cache is empty or not.
+     *
+     * @return True if a file block cache is empty
+     */
+    bool empty();
+
+    void acquireAllShardLocks();
+
+    void releaseAllShardLocks();
+
+private:
+    friend class BlockCacheManager;
+
+    std::string fileName;
+    // File manager instance
+    // (can be changed on-the-fly when file is closed and re-opened)
+    FileMgr *curFile;
+    // Shards of the block cache for a file.
+    std::vector<BlockCacheShard *> shards;
+
+    std::atomic<uint32_t> refCount;
+    std::atomic<uint64_t> numVictims;
+    std::atomic<uint64_t> numItems;
+    std::atomic<uint64_t> numImmutables;
+    std::atomic<uint64_t> accessTimestamp;
+    size_t numShards;
+};
 
 
 /**

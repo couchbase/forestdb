@@ -5220,15 +5220,6 @@ fdb_status FdbEngine::fetchHandleStats(fdb_kvs_handle *handle,
         return FDB_RESULT_FILE_NOT_OPEN;
     }
 
-    stat_callback(handle, "Curr_header_revnum",
-                  static_cast<uint64_t>(handle->cur_header_revnum.load()),
-                  ctx);
-    stat_callback(handle, "Last_header_bid",
-                  static_cast<uint64_t>(handle->last_hdr_bid),
-                  ctx);
-    stat_callback(handle, "Last_wal_flush_header_bid",
-                  static_cast<uint64_t>(handle->last_wal_flush_hdr_bid),
-                  ctx);
     stat_callback(handle, "Num_wal_shards",
                   static_cast<uint64_t>(handle->file->getConfig()->getNumWalShards()),
                   ctx);
@@ -5240,6 +5231,15 @@ fdb_status FdbEngine::fetchHandleStats(fdb_kvs_handle *handle,
                   ctx);
     stat_callback(handle, "Block_cache_misses",
                   static_cast<uint64_t>(handle->file->fetchBlockCacheMisses()),
+                  ctx);
+    stat_callback(handle, "Block_cache_num_items",
+                  handle->file->getBCacheItems(),
+                  ctx);
+    stat_callback(handle, "Block_cache_num_victims",
+                  handle->file->getBCacheVictims(),
+                  ctx);
+    stat_callback(handle, "Block_cache_num_immutables",
+                  handle->file->getBCacheImmutables(),
                   ctx);
 
     return FDB_RESULT_SUCCESS;

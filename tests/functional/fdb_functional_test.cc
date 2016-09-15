@@ -5375,9 +5375,9 @@ void handle_stats_test() {
     status = fdb_fetch_handle_stats(db, stats_callback, &cb_ctx);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    uint64_t last_header_bid = cb_ctx.stats["Last_header_bid"];
-    TEST_CHK(cb_ctx.stats["Last_wal_flush_header_bid"] == static_cast<uint64_t>(-1));
     TEST_CHK(cb_ctx.stats["Block_cache_hits"] + cb_ctx.stats["Block_cache_misses"] > 0);
+    TEST_CHK(cb_ctx.stats["Block_cache_num_items"] > 0);
+    TEST_CHK(cb_ctx.stats["Block_cache_num_victims"] > 0);
 
     // commit with wal flush
     status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -5387,9 +5387,9 @@ void handle_stats_test() {
     status = fdb_fetch_handle_stats(db, stats_callback, &cb_ctx);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(cb_ctx.stats["Last_header_bid"] > last_header_bid);
-    TEST_CHK(cb_ctx.stats["Last_wal_flush_header_bid"] == cb_ctx.stats["Last_header_bid"]);
     TEST_CHK(cb_ctx.stats["Block_cache_hits"] + cb_ctx.stats["Block_cache_misses"] > 0);
+    TEST_CHK(cb_ctx.stats["Block_cache_num_items"] > 0);
+    TEST_CHK(cb_ctx.stats["Block_cache_num_victims"] > 0);
 
     fdb_kvs_close(db);
     fdb_close(dbfile);
