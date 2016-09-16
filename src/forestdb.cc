@@ -5345,7 +5345,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         // if array exceeds the threshold, OR
         // there's no next item (hr == HBTRIE_RESULT_FAIL),
         // sort and move the documents in the array
-        if (c > offset_array_max ||
+        if (c >= offset_array_max ||
             (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
             // Sort offsets to minimize random accesses.
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
