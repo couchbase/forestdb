@@ -1793,7 +1793,8 @@ void *_worker_thread(void *voidargs)
                     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
                     commit_count++;
                     fdb_file_info info;
-                    fdb_get_file_info(dbfile, &info);
+                    status = fdb_get_file_info(dbfile, &info);
+                    TEST_CHK(status == FDB_RESULT_SUCCESS);
                     if (args->compact_term == (size_t)commit_count &&
                         args->compact_term > 0 &&
                         info.new_filename == NULL &&
