@@ -33,7 +33,7 @@
 #include "avltree.h"
 #include "atomic.h"
 #include "fdb_internal.h"
-
+#include "time_utils.h"
 #include "memleak.h"
 
 #ifdef __DEBUG
@@ -255,6 +255,7 @@ private:
 };
 
 static const size_t MAX_VICTIM_SELECTIONS = 5;
+static const size_t MIN_TIMESTAMP_GAP = 15000; // 15 seconds
 
 #define BCACHE_DIRTY (0x1)
 #define BCACHE_IMMUTABLE (0x2)
@@ -262,14 +263,20 @@ static const size_t MAX_VICTIM_SELECTIONS = 5;
 
 FileBlockCache *BlockCacheManager::chooseEvictionVictim() {
     FileBlockCache *ret = NULL;
+    uint64_t max_items = 0;
     uint64_t min_timestamp = static_cast<uint64_t>(-1);
+    uint64_t max_timestamp = 0;
     uint64_t victim_timestamp;
-    int victim_idx;
+    uint64_t victim_num_items;
+    int victim_idx, victim_by_time, victim_by_items;
     size_t num_attempts;
 
     if (reader_lock(&fileListLock) == 0) {
-        // Pick the victim that has the smallest access timestamp
-        // among files randomly selected.
+        // Pick the victim that has the oldest access timestamp
+        // among the files randomly selected, if the gap between
+        // the oldest and newest timestamps is greater than the threshold.
+        // Otherwise, pick the victim that has the largest number of
+        // cached items among the files.
         num_attempts = fileList.size() / 10 + 1;
         if (num_attempts > MAX_VICTIM_SELECTIONS) {
             num_attempts = MAX_VICTIM_SELECTIONS;
@@ -278,13 +285,37 @@ FileBlockCache *BlockCacheManager::chooseEvictionVictim() {
                 ++num_attempts;
             }
         }
+
+        victim_by_time = victim_by_items = -1;
+
         for (size_t i = 0; i < num_attempts && !fileList.empty(); ++i) {
             victim_idx = rand() % fileList.size();
             victim_timestamp = fileList[victim_idx]->getAccessTimestamp();
-            if (victim_timestamp < min_timestamp &&
-                                fileList[victim_idx]->numItems.load()) {
-                min_timestamp = victim_timestamp;
-                ret = fileList[victim_idx];
+            victim_num_items = fileList[victim_idx]->numItems;
+
+            if (victim_num_items) {
+                if (victim_timestamp < min_timestamp) {
+                    min_timestamp = victim_timestamp;
+                    victim_by_time = victim_idx;
+                }
+                if (victim_timestamp > max_timestamp) {
+                    max_timestamp = victim_timestamp;
+                }
+                if (victim_num_items > max_items) {
+                    max_items = victim_num_items;
+                    victim_by_items = victim_idx;
+                }
+            }
+        }
+
+
+        if (max_timestamp - min_timestamp > MIN_TIMESTAMP_GAP) {
+            if (victim_by_time != -1) {
+                ret = fileList[victim_by_time];
+            }
+        } else {
+            if (victim_by_items != -1) {
+                ret = fileList[victim_by_items];
             }
         }
 
@@ -840,12 +871,7 @@ int BlockCacheManager::read(FileMgr *file,
 
     if (fcache) {
         // file exists
-        struct timeval tp;
-        gettimeofday(&tp, NULL); // TODO: Need to implement a better way of
-                                 // getting the timestamp to avoid the overhead of
-                                 // gettimeofday()
-        fcache->setAccessTimestamp(static_cast<uint64_t>(tp.tv_sec * 1000000 +
-                                                         tp.tv_usec));
+        fcache->setAccessTimestamp(gethrtime() / 1000000); // access timestamp in ms
 
         size_t shard_num = bid % fcache->getNumShards();
         spin_lock(&fcache->shards[shard_num]->lock);
@@ -901,10 +927,7 @@ bool BlockCacheManager::invalidateBlock(FileMgr *file,
     if (fcache) {
         // file exists
         // Update the access timestamp.
-        struct timeval tp;
-        gettimeofday(&tp, NULL);
-        fcache->setAccessTimestamp(static_cast<uint64_t>(tp.tv_sec * 1000000 +
-                                                         tp.tv_usec));
+        fcache->setAccessTimestamp(gethrtime() / 1000000);
 
         size_t shard_num = bid % fcache->getNumShards();
         spin_lock(&fcache->shards[shard_num]->lock);
@@ -971,9 +994,7 @@ int BlockCacheManager::write(FileMgr *file,
     }
 
     // Update the access timestamp.
-    struct timeval tp;
-    gettimeofday(&tp, NULL);
-    fcache->setAccessTimestamp(static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec));
+    fcache->setAccessTimestamp(gethrtime() / 1000000);
 
     size_t shard_num = bid % fcache->getNumShards();
     spin_lock(&fcache->shards[shard_num]->lock);
@@ -1080,9 +1101,7 @@ int BlockCacheManager::writePartial(FileMgr *file,
     }
 
     // Update the access timestamp.
-    struct timeval tp;
-    gettimeofday(&tp, NULL);
-    fcache->setAccessTimestamp(static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec));
+    fcache->setAccessTimestamp(gethrtime() / 1000000);
 
     size_t shard_num = bid % fcache->getNumShards();
     spin_lock(&fcache->shards[shard_num]->lock);
@@ -1199,6 +1218,7 @@ void BlockCacheManager::removeCleanBlocks(FileMgr *file) {
                 elem = list_remove(&fcache->shards[i]->cleanBlocks, elem);
                 // remove from the all block list
                 fcache->shards[i]->allBlocks.erase(item->getBid());
+                fcache->numItems--;
                 // insert into the free block list
                 addToFreeBlockList(item);
             }
