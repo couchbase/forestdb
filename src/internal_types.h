@@ -284,7 +284,7 @@ struct _fdb_kvs_handle {
         config = kv_handle.config;
         log_callback = kv_handle.log_callback;
         atomic_store_uint64_t(&cur_header_revnum, kv_handle.cur_header_revnum);
-        last_hdr_bid = kv_handle.last_hdr_bid;
+        atomic_store_uint64_t(&last_hdr_bid, kv_handle.last_hdr_bid);
         last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
         kv_info_offset = kv_handle.kv_info_offset;
         shandle = kv_handle.shandle;
@@ -372,8 +372,12 @@ struct _fdb_kvs_handle {
     uint64_t rollback_revnum;
     /**
      * Last header's block ID.
+     * Why Atomic?
+     * reader thread in fdb_sync_db_header can update last_hdr_bid while
+     * writer thread sharing same file handle can get_oldest_active_header()
+     * as part of its sb_reclaim_reusable_blocks()
      */
-    uint64_t last_hdr_bid;
+    atomic_uint64_t last_hdr_bid;
     /**
      * Block ID of a header created with most recent WAL flush.
      */

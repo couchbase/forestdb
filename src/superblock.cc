@@ -498,10 +498,11 @@ bool sb_update_header(fdb_kvs_handle *handle)
     bool ret = false;
     struct superblock *sb = handle->file->sb;
 
-    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != handle->last_hdr_bid &&
+    bid_t last_hdr_bid = atomic_get_uint64_t(&handle->last_hdr_bid);
+    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != last_hdr_bid &&
         atomic_get_uint64_t(&sb->last_hdr_revnum) < handle->cur_header_revnum) {
 
-        atomic_store_uint64_t(&sb->last_hdr_bid, handle->last_hdr_bid);
+        atomic_store_uint64_t(&sb->last_hdr_bid, last_hdr_bid);
         atomic_store_uint64_t(&sb->last_hdr_revnum, handle->cur_header_revnum);
 
         uint64_t lw_revnum = atomic_get_uint64_t(&handle->file->last_writable_bmp_revnum);
