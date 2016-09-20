@@ -172,7 +172,7 @@ public:
         file = src.file;
         config = src.config;
         revnum.store(src.revnum);
-        bmpRevnum = src.bmpRevnum;
+        bmpRevnum.store(src.bmpRevnum.load());
         bmpSize.store(src.bmpSize.load());
         bmp.store(src.bmp.load(std::memory_order_relaxed), std::memory_order_relaxed);
         bmpRCount.store(src.bmpRCount.load());
@@ -206,7 +206,7 @@ public:
     }
 
     uint64_t getBmpRevnum() const {
-        return bmpRevnum;
+        return bmpRevnum.load();
     }
 
     uint64_t getBmpSize() const {
@@ -368,7 +368,7 @@ protected:
      * Current revision number of bitmap in superblock. This value increases whenever
      * ForestDB reclaims stale blocks and accordingly bitmap is updated.
      */
-    uint64_t bmpRevnum;
+    std::atomic<uint64_t> bmpRevnum;
     /**
      * Number of bits in the bitmap. Each bit represents a block.
      */

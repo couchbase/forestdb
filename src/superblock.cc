@@ -709,7 +709,7 @@ bool Superblock::isWritable(bid_t bid)
     beginBmpBarrier();
 
     uint8_t *sb_bmp = bmp;
-    if (bmpRevnum == lw_bmp_revnum) {
+    if (bmpRevnum.load() == lw_bmp_revnum) {
         // Same bitmap revision number: there are 2 possible cases
         //
         // (1) normal case
@@ -847,7 +847,7 @@ fdb_status Superblock::writeSb(size_t sb_no,
     offset += sizeof(enc_u64);
 
     // bitmap's revision number
-    enc_u64 = _endian_encode(bmpRevnum);
+    enc_u64 = _endian_encode(bmpRevnum.load());
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -995,7 +995,7 @@ void Superblock::appendBmpDoc(FdbKvsHandle *handle)
     for (i=0; i<num_docs; ++i) {
         // append a system doc for bitmap chunk
         memset(&bmpDocs[i], 0x0, sizeof(struct docio_object));
-        sprintf(doc_key, "bitmap_%" _F64 "_%d", bmpRevnum, (int)i);
+        sprintf(doc_key, "bitmap_%" _F64 "_%d", bmpRevnum.load(), (int)i);
         bmpDocs[i].key = (void*)doc_key;
         bmpDocs[i].meta = NULL;
         bmpDocs[i].body = bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
@@ -1179,7 +1179,7 @@ bool Superblock::updateHeader(FdbKvsHandle *handle)
         lastHdrRevnum.store(handle->cur_header_revnum.load());
 
         uint64_t lw_revnum = handle->file->getLastWritableBmpRevnum();
-        if (lw_revnum == bmpRevnum &&
+        if (lw_revnum == bmpRevnum.load() &&
             bmpPrev) {
             free(bmpPrev);
             bmpPrev = NULL;
