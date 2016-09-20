@@ -235,6 +235,14 @@ public:
     bool removeCompactionTask(const std::string file_name);
 
     /**
+     * Checks if there exists a pending compaction on the file.
+     *
+     * @param filename Name of the file to look up
+     * @param true if there exists a scheduled compaction
+     */
+    bool isPendingCompaction(const std::string &filename);
+
+    /**
      * Set the flag that indicates if a compaction task is currently running
      * for a given file.
      *

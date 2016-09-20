@@ -183,6 +183,7 @@ bool CompactionTask::run() {
         // fail to open file
     }
 
+    // Upon success the compaction task is removed already
     if (fs != FDB_RESULT_SUCCESS) {
         compMgr->removeCompactionTask(file_name);
     }
@@ -205,6 +206,11 @@ FileRemovalTask::FileRemovalTask(CompactionMgrTaskable &e,
 
 bool FileRemovalTask::run() {
     int ret;
+
+    if (compMgr->isPendingCompaction(std::string(fileToRemove->getFileName()))) {
+        // Re-schedule in case of a pending compaction on the file
+        return true;
+    }
 
     // As the file is already unlinked, just close it
     ret = FileMgr::fileClose(fileToRemove->getOps(),
@@ -423,6 +429,13 @@ void CompactionManager::destroyInstance() {
 }
 
 CompactionManager::~CompactionManager() {
+    // Clear pending compactions, so any pending fileRemoval tasks can
+    // complete
+    {
+        UniqueLock lock(cptLock);
+        pendingCompactions.clear();
+    }
+
     // Tasks queued inside pendingCompactions will be cancelled by the call
     // below since we specify blockShutdown = false
     // They will be released as part of the destructor of CompactionManager
@@ -520,6 +533,15 @@ bool CompactionManager::removeCompactionTask(const std::string file_name)
     } // else It means this call was invoked by the CompactionTask::run()
     // in which case we do not have to cancel the task.
     return true;
+}
+
+bool CompactionManager::isPendingCompaction(const std::string &filename) {
+    UniqueLock lock(cptLock);
+    if (pendingCompactions.find(filename) != pendingCompactions.end()) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 fdb_status compactor_register_file_removing(FileMgr *file,
