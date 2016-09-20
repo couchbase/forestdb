@@ -172,8 +172,11 @@ public:
     uint64_t rollback_revnum;
     /**
      * Last header's block ID.
+     * Why Atomic?
+     * In Writer's commit, getOldestActiveHeader() from reclaimReusableBlocks
+     * can race with sync_db_header of any reader thread api like fdb_get
      */
-    uint64_t last_hdr_bid;
+    std::atomic<uint64_t> last_hdr_bid;
     /**
      * Block ID of a header created with most recent WAL flush.
      */

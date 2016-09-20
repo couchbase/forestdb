@@ -1175,7 +1175,7 @@ bool Superblock::updateHeader(FdbKvsHandle *handle)
     if ((lastHdrBid.load() != handle->last_hdr_bid) &&
         (lastHdrRevnum.load() < handle->cur_header_revnum)) {
 
-        lastHdrBid = handle->last_hdr_bid;
+        lastHdrBid = handle->last_hdr_bid.load();
         lastHdrRevnum.store(handle->cur_header_revnum.load());
 
         uint64_t lw_revnum = handle->file->getLastWritableBmpRevnum();

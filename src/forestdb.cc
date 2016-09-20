@@ -2171,6 +2171,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
 
     uint64_t nlivenodes = 0;
     bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
+    bid_t last_hdr_bid;
     std::string filename_str(filename);
     std::string actual_filename;
     std::string virtual_filename;
@@ -2254,8 +2255,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
 
     // If cloning from a snapshot handle, fdb_snapshot_open would have already
     // set handle->last_hdr_bid to the block id of required header, so rewind..
-    if (handle->shandle && handle->last_hdr_bid) {
-        status = handle->file->fetchHeader(handle->last_hdr_bid,
+    last_hdr_bid = handle->last_hdr_bid.load(std::memory_order_relaxed);
+    if (handle->shandle && last_hdr_bid) {
+        status = handle->file->fetchHeader(last_hdr_bid,
                                            header_buf, &header_len, &seqnum,
                                            &latest_header_revnum, &deltasize,
                                            &version, NULL,
@@ -2267,8 +2269,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         }
     } else { // Normal open
         handle->file->getHeader(header_buf, &header_len,
-                                &handle->last_hdr_bid, &seqnum,
+                                &last_hdr_bid, &seqnum,
                                 &latest_header_revnum);
+        handle->last_hdr_bid.store(last_hdr_bid, std::memory_order_relaxed);
         version = handle->file->getVersion();
     }
 
@@ -2355,8 +2358,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
             // Reload DB header as other thread may append the first header at the
             // same time.
             handle->file->getHeader(header_buf, &header_len,
-                                    &handle->last_hdr_bid, &seqnum,
+                                    &last_hdr_bid, &seqnum,
                                     &latest_header_revnum);
+            handle->last_hdr_bid.store(last_hdr_bid, std::memory_order_relaxed);
             if (header_len) {
                 // header creation racing .. unlock and re-fetch it
                 locked = false;
@@ -2398,7 +2402,8 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
             }
         } else {
             hdr_bid = handle->file->getPos() / FDB_BLOCKSIZE;
-            dirty_data_exists = (hdr_bid > handle->last_hdr_bid);
+            dirty_data_exists = (hdr_bid >
+                         handle->last_hdr_bid.load(std::memory_order_relaxed));
         }
 
         if (hdr_bid == BLK_NOT_FOUND ||
@@ -2449,7 +2454,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                                  &datasize, &last_wal_flush_hdr_bid,
                                  &kv_info_offset, &header_flags,
                                  &compacted_filename, NULL);
-                handle->last_hdr_bid = hdr_bid;
+                handle->last_hdr_bid.store(hdr_bid, std::memory_order_relaxed);
 
                 if (!handle->kvs || handle->kvs->getKvsId() == 0) {
                     // single KVS mode OR default KVS
@@ -2764,7 +2769,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         }
         handle->last_hdr_bid = handle->file->alloc_FileMgr(&handle->log_callback);
         handle->cur_header_revnum = fdb_set_file_header(handle, true);
-        handle->file->commitBid(handle->last_hdr_bid,
+        handle->file->commitBid(handle->last_hdr_bid.load(std::memory_order_relaxed),
                            cur_bmp_revnum,
                            !(handle->config.durability_opt & FDB_DRB_ASYNC),
                            &handle->log_callback);
@@ -3886,7 +3891,7 @@ fdb_snapshot_open_start:
     // to its last DB header and point its avl tree to existing snapshot's tree
     bool clone_snapshot = false;
     if (handle_in->shandle) {
-        handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
+        handle->last_hdr_bid = handle_in->last_hdr_bid.load(); // do fast rewind
         fs = file->getWal()->snapshotClone_Wal(handle_in->shandle,
                                                &handle->shandle, seqnum);
         if (fs == FDB_RESULT_SUCCESS) {
@@ -5361,7 +5366,8 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
 
             delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
             kvs_delta_stat->datasize += delta;
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+            bid_t last_hdr = handle->last_hdr_bid.load(std::memory_order_relaxed);
+            if (last_hdr * handle->config.blocksize < old_offset) {
                 kvs_delta_stat->deltasize += delta;
             } else {
                 kvs_delta_stat->deltasize += (int)item->doc_size;
@@ -5415,7 +5421,8 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
             // that this doc deleted was inserted & flushed after last commit
             // In this case we need to update the deltasize too which tracks
             // the amount of new data inserted between commits.
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+            bid_t last_hdr = handle->last_hdr_bid.load(std::memory_order_relaxed);
+            if (last_hdr * handle->config.blocksize < old_offset) {
                 kvs_delta_stat->deltasize += delta;
             }
 
@@ -5657,7 +5664,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
             h->config.prefetch_duration);
     fprintf(stderr, "cur_header_revnum: %" _F64 "\n",
             h->cur_header_revnum.load());
-    fprintf(stderr, "last_hdr_bid: %" _F64 "\n", h->last_hdr_bid);
+    fprintf(stderr, "last_hdr_bid: %" _F64 "\n", h->last_hdr_bid.load());
     fprintf(stderr, "last_wal_flush_hdr_bid: %" _F64 "\n",
             h->last_wal_flush_hdr_bid);
     fprintf(stderr, "kv_info_offset: %" _F64 "\n", h->kv_info_offset);

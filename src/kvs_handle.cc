@@ -151,7 +151,7 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
 
     cur_header_revnum.store(kv_handle.cur_header_revnum);
     rollback_revnum = kv_handle.rollback_revnum;
-    last_hdr_bid = kv_handle.last_hdr_bid;
+    last_hdr_bid.store(kv_handle.last_hdr_bid.load());
     last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
     kv_info_offset = kv_handle.kv_info_offset;
 
