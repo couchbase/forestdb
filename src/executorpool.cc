@@ -161,17 +161,18 @@ ExecutorPool *ExecutorPool::get(void) {
     return tmp;
 }
 
-void ExecutorPool::shutdown(void) {
+bool ExecutorPool::shutdown(void) {
     LockHolder lh(initGuard);
     auto* tmp = instance.load();
     if (tmp != nullptr) {
-        for (auto &taskable : tmp->taskOwners) {
-            tmp->_unregisterTaskable(*reinterpret_cast<Taskable *>(taskable),
-                                     true);
+        if (tmp->taskOwners.size() != 0) {
+            // Open taskables
+            return false;
         }
         delete tmp;
         instance = nullptr;
     }
+    return true;
 }
 
 ExecutorPool::ExecutorPool(size_t maxThreads, size_t nTaskSets,

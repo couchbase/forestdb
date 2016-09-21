@@ -2022,7 +2022,10 @@ fdb_status FdbEngine::destroyInstance() {
         BgFlusher::destroyBgFlusher();
         fdb_status ret = FileMgr::shutdown();
         if (ret == FDB_RESULT_SUCCESS) {
-            ExecutorPool::shutdown();
+            if (!ExecutorPool::shutdown()) {
+                // Open taskables
+                return FDB_RESULT_FILE_IS_BUSY;
+            }
             // Shutdown HBtrie's memory pool
             HBTrie::shutdownMemoryPool();
             delete tmp;
