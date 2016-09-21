@@ -176,6 +176,18 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          const char *filename,
                          const char *kvs_name,
                          fdb_kvs_handle *handle);
+
+/**
+ * Link a given KV Store handle into the file handle's list of
+ * handles. This list may be used to auto close all child KV Store
+ * handles when the file handle is closed.
+ * @param fhandle - parent file handle of the ForestDB database.
+ * @param handle - the newly opened KV Store handle
+ * @return pointer to the newly linked node
+ */
+struct kvs_opened_node * _fdb_kvs_createNLinkKVHandle(fdb_file_handle *fhandle,
+                                                      fdb_kvs_handle *handle);
+fdb_status _fdb_kvs_close(fdb_kvs_handle *handle);
 fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,

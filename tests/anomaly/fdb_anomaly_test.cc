@@ -333,7 +333,6 @@ struct shared_data {
 void *bad_thread(void *voidargs) {
     struct shared_data *data = (struct shared_data *)voidargs;
     fdb_kvs_handle *db = data->db;
-    fdb_file_handle *dbfile = data->dbfile;
     fdb_iterator *itr = data->iterator;
     fdb_status s;
     fdb_doc doc;
@@ -363,12 +362,6 @@ void *bad_thread(void *voidargs) {
         doc.offset = 5000; // some random non-zero value
         s = fdb_get_byoffset(db, &doc);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
-        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
-        TEST_CHK(s == FDB_RESULT_TRANSACTION_FAIL);
     } else {
         s = fdb_iterator_next(itr);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);

@@ -1210,6 +1210,7 @@ void fragmented_reuse_test() {
     fdb_kvs_handle *db;
     sb_decision_t sb_decision;
     fdb_file_info file_info;
+    fdb_kvs_info kvs_info;
 
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fdb_config fconfig = fdb_get_default_config();
@@ -1262,6 +1263,10 @@ void fragmented_reuse_test() {
     fpos = filemgr_get_pos(db->file);
     status = fdb_compact(dbfile, "staleblktest_compact");
     TEST_STATUS(status);
+    // MB-20091 : refresh db over to new file since compact won't do it
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_STATUS(status);
+    TEST_CHK(kvs_info.doc_count > 0);
     TEST_CHK(fpos > filemgr_get_pos(db->file));
 
     // making additional 25% of file stale should NOT go into
@@ -1287,6 +1292,9 @@ void fragmented_reuse_test() {
         TEST_STATUS(status);
     }
 
+    // MB-20091: commit is done with internal root handle, sync up 'db' handle
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_STATUS(status);
     sb_decision = sb_check_block_reusing(db);
     TEST_CHK(sb_decision != SBD_NONE);
 

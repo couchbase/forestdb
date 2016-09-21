@@ -76,6 +76,20 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
+struct kvs_opened_node *_fdb_kvs_createNLinkKVHandle(fdb_file_handle *fhandle,
+                                                     fdb_kvs_handle *handle)
+{
+    struct kvs_opened_node *opened_node = (struct kvs_opened_node *)
+        calloc(1, sizeof(struct kvs_opened_node));
+    opened_node->handle = handle;
+
+    handle->node = opened_node;
+    spin_lock(&fhandle->lock);
+    list_push_back(fhandle->handles, &opened_node->le);
+    spin_unlock(&fhandle->lock);
+    return opened_node;
+}
+
 static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
                                        fdb_kvs_id_t kv_id)
 {
@@ -1598,9 +1612,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
 
 // 1) identify whether the requested KVS is default or non-default.
 // 2) if the requested KVS is default,
-//   2-1) if no KVS handle is opened yet from this fhandle,
-//        -> return the root handle.
-//   2-2) if the root handle is already opened,
+//   2-1) As the root handle is already opened,
 //        -> allocate memory for handle, and call _fdb_open().
 //        -> 'handle->kvs' will be created in _fdb_open(),
 //           since it is treated as a default handle.
@@ -1651,7 +1663,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         spin_lock(&fhandle->lock);
         if (!(fhandle->flags & FHANDLE_ROOT_OPENED)) {
             // the root handle is not opened yet
-            // just return the root handle
+            // sync up the root handle
             fdb_custom_cmp_variable default_kvs_cmp;
 
             root_handle->kvs_config = config_local;
@@ -1679,45 +1691,25 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                 spin_unlock(&root_handle->file->kv_header->lock);
             }
 
-            *ptr_handle = root_handle;
             fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
             fhandle->flags |= FHANDLE_ROOT_OPENED;
-            fs = FDB_RESULT_SUCCESS;
-            spin_unlock(&fhandle->lock);
+        }
+        // the root handle is already synced
+        // open new default KV store handle
+        spin_unlock(&fhandle->lock);
+        handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
+        handle->kvs_config = config_local;
+        atomic_init_uint8_t(&handle->handle_busy, 0);
 
+        handle->fhandle = fhandle;
+        fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            free(handle);
+            *ptr_handle = NULL;
         } else {
-            // the root handle is already opened
-            // open new default KV store handle
-            spin_unlock(&fhandle->lock);
-            handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
-            handle->kvs_config = config_local;
-            atomic_init_uint8_t(&handle->handle_busy, 0);
-
-            if (root_handle->file->kv_header) {
-                spin_lock(&root_handle->file->kv_header->lock);
-                handle->kvs_config.custom_cmp =
-                    root_handle->file->kv_header->default_kvs_cmp;
-                spin_unlock(&root_handle->file->kv_header->lock);
-            }
-
-            handle->fhandle = fhandle;
-            fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
-            if (fs != FDB_RESULT_SUCCESS) {
-                free(handle);
-                *ptr_handle = NULL;
-            } else {
-                // insert into fhandle's list
-                struct kvs_opened_node *node;
-                node = (struct kvs_opened_node *)
-                       calloc(1, sizeof(struct kvs_opened_node));
-                node->handle = handle;
-                spin_lock(&fhandle->lock);
-                list_push_front(fhandle->handles, &node->le);
-                spin_unlock(&fhandle->lock);
-
-                handle->node = node;
-                *ptr_handle = handle;
-            }
+            // insert into fhandle's list
+            _fdb_kvs_createNLinkKVHandle(fhandle, handle);
+            *ptr_handle = handle;
         }
         LATENCY_STAT_END(file, FDB_LATENCY_KVS_OPEN);
         return fs;
@@ -1773,9 +1765,9 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
 
 // 1) remove corresponding node from fhandle->handles list.
 // 2) call _fdb_close().
-static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
+fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
-    fdb_kvs_handle *root_handle = handle->kvs->root;
+    fdb_kvs_handle *root_handle = handle->fhandle->root;
     fdb_status fs;
 
     if (handle->node) {
@@ -1817,9 +1809,7 @@ fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle)
 
 // 1) identify whether the requested handle is for default KVS or not.
 // 2) if the requested handle is for the default KVS,
-//   2-1) if the requested handle is the root handle,
-//        -> just clear the OPENED flag.
-//   2-2) if the requested handle is not the root handle,
+//   2-1) if the requested handle must be the root handle,
 //        -> call _fdb_close(),
 //        -> free 'handle->kvs' by calling fdb_kvs_info_free(),
 //        -> remove the corresponding node from fhandle->handles list,
@@ -1858,32 +1848,23 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
         handle->kvs->type == KVS_ROOT) {
         // the default KV store handle
 
-        if (handle->fhandle->root == handle) {
-            // do nothing for root handle
-            // the root handle will be closed with fdb_close() API call.
-            spin_lock(&handle->fhandle->lock);
-            handle->fhandle->flags &= ~FHANDLE_ROOT_OPENED; // remove flag
-            spin_unlock(&handle->fhandle->lock);
-            return FDB_RESULT_SUCCESS;
-
-        } else {
-            // the default KV store but not the root handle .. normally close
-            spin_lock(&handle->fhandle->lock);
-            fs = _fdb_close(handle);
-            if (fs == FDB_RESULT_SUCCESS) {
-                // remove from 'handles' list in the root node
-                if (handle->kvs) {
-                    fdb_kvs_info_free(handle);
-                }
-                list_remove(handle->fhandle->handles, &handle->node->le);
-                spin_unlock(&handle->fhandle->lock);
-                free(handle->node);
-                free(handle);
-            } else {
-                spin_unlock(&handle->fhandle->lock);
+        fdb_assert(handle->fhandle->root != handle, handle, NULL);
+        // the default KV store but not the root handle .. normally close
+        spin_lock(&handle->fhandle->lock);
+        fs = _fdb_close(handle);
+        if (fs == FDB_RESULT_SUCCESS) {
+            // remove from 'handles' list in the root node
+            if (handle->kvs) {
+                fdb_kvs_info_free(handle);
             }
-            return fs;
+            list_remove(handle->fhandle->handles, &handle->node->le);
+            spin_unlock(&handle->fhandle->lock);
+            free(handle->node);
+            free(handle);
+        } else {
+            spin_unlock(&handle->fhandle->lock);
         }
+        return fs;
     }
 
     if (handle->kvs && handle->kvs->root == NULL) {
