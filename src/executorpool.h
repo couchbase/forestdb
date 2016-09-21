@@ -117,7 +117,7 @@ public:
 
     static ExecutorPool *get(void);
 
-    static void shutdown(void);
+    static bool shutdown(void);
 
 protected:
 
