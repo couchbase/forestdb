@@ -3118,6 +3118,69 @@ static int compaction_cb_get(fdb_file_handle *fhandle,
 void compact_with_snapshot_open_test()
 {
   TEST_INIT();
+
+  int r;
+  char keybuf[32], bodybuf[32];
+  fdb_file_handle *dbfile;
+  fdb_kvs_handle *db, *snap_db;
+  fdb_status s;
+  fdb_config fconfig = fdb_get_default_config();
+  fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+  fconfig.buffercache_size = 0;
+  // remove previous compact_test files
+  r = system(SHELL_DEL" compact_test* > errorlog.txt");
+  (void)r;
+
+  fdb_open(&dbfile, "./compact_test1", &fconfig);
+  fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+  sprintf(keybuf, "keyA");
+  sprintf(bodybuf, "ToBeDeduplicated");
+  s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // open the snapshot to ensure that the item is made immutable
+  s = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // update the same item once again to de-duplicate it and remove from txn
+  sprintf(keybuf, "keyA");
+  sprintf(bodybuf, "bodyB");
+  s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // compact
+  s = fdb_compact(dbfile, "./compact_test1.2");
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // the key with value "ToBeDeduplicated" must not be migrated to new file
+  void *value;
+  size_t valuelen;
+  s = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+  TEST_CMP(value, "bodyB", valuelen);
+  free(value);
+
+  // but must be reachable from the snapshot still open on old file..
+  s = fdb_get_kv(snap_db, keybuf, strlen(keybuf), &value, &valuelen);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+  TEST_CMP(value, "ToBeDeduplicated", valuelen);
+  free(value);
+
+  // closing file should
+  s = fdb_kvs_close(snap_db);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  s = fdb_close(dbfile);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+  s = fdb_shutdown();
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+  TEST_RESULT("compact with uncommitted snapshot_open test");
+}
+
+void compact_with_snapshot_open_test2()
+{
+  TEST_INIT();
   memleak_start();
 
   int i, r;
@@ -3678,8 +3741,9 @@ int main(){
     for (i=0;i<4;++i) {
         compact_upto_overwrite_test(i);
     }
-    compact_with_snapshot_open_multi_kvs_test();
     compact_with_snapshot_open_test();
+    compact_with_snapshot_open_multi_kvs_test();
+    compact_with_snapshot_open_test2();
     compact_upto_post_snapshot_test();
     compact_upto_twice_test();
     compaction_callback_test(true); // multi kv instance mode

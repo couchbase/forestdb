@@ -782,6 +782,17 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                                _snap_cmp_byseq);
                 }
             }
+
+            // Ensure only 1 wal_item per key resides in a given txn..
+            if (caller == INS_BY_WRITER) {
+                struct wal_item *_item = getTxnItem_Wal(item->header, item->txn);
+                if (_item) {
+                    // ..by removing the previous transactional item..
+                    list_remove(txn->items, &_item->list_elem_txn);
+                    list_elem_detach(&_item->list_elem_txn);
+                }
+            }
+
             // insert into header's list
             list_push_front(&header->items, &item->list_elem);
             // also insert into transaction's list
@@ -1022,6 +1033,31 @@ struct wal_item *Wal::getSnapItemHdr_Wal(struct wal_item_header *header,
     }
     return NULL;
 }
+
+/**
+ * Given a transaction handle and key header, return the wal_item that is still
+ * part of the transaction item list to ensure only 1 item per key resides in
+ * the transaction's item list
+ */
+inline
+struct wal_item *Wal::getTxnItem_Wal(struct wal_item_header *header,
+                                     fdb_txn *txn)
+{
+    for (struct list_elem *le = list_begin(&header->items);
+         le; le = list_next(le)) {
+        struct wal_item *item = _get_entry(le, struct wal_item, list_elem);
+        // since all committed items are removed from their respective txn
+        // lists it is ok to stop scanning once we hit committed items
+        if (item->flag & WAL_ITEM_COMMITTED) {
+            break;
+        }
+        if (item->txn == txn && !list_elem_isdetached(&item->list_elem_txn)) {
+            return item;
+        }
+    }
+    return NULL;
+}
+
 
 fdb_status Wal::_find_Wal(fdb_txn *txn,
                           fdb_kvs_id_t kv_id,
@@ -1294,6 +1330,18 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
             while(e) {
                 item = _get_entry(e, struct wal_item, list_elem);
                 if (!(item->flag & WAL_ITEM_COMMITTED)) {
+                    if (item->txn == old_file->getGlobalTxn() &&
+                        list_elem_isdetached(&item->list_elem_txn)) {
+                        // If an uncommitted item, part of an active snapshot
+                        // is de-duplicated by another uncommitted item, then
+                        // the de-duplicated item may continue to exist in this
+                        // header list, but not be part of the file's globalTxn
+                        // Such wal_items must be ignored since they exist only
+                        // for the active snapshot and will be deleted when the
+                        // last handle on the old_file is closed
+                        e = list_prev(e);
+                        continue;
+                    }
                     // not committed yet
                     // move doc
                     offset = move_doc(dbhandle, new_dhandle, item, &doc);
@@ -1540,7 +1588,9 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
         }
 
         // remove from transaction's list
-        e1 = list_remove(txn->items, e1);
+        e2 = list_remove(txn->items, e1); // save next elem
+        list_elem_detach(e1); // mark current elem as detached
+        e1 = e2; // restore pointer to next elem to continue txn list items
         spin_unlock(&key_shards[shard_num].lock);
     }
     mem_overhead.fetch_sub(_mem_overhead, std::memory_order_relaxed);

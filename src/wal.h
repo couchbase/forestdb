@@ -545,6 +545,13 @@ private:
      */
     static wal_item *getSnapItemHdr_Wal(struct wal_item_header *header,
                                         struct snap_handle *shandle);
+    /**
+     * Given a transaction handle and key header, return the wal_item that is still
+     * part of the transaction item list to ensure only 1 item per key resides in
+     * the transaction's the key
+     */
+    struct wal_item *getTxnItem_Wal(struct wal_item_header *header,
+                                    fdb_txn *txn);
 
     bool _wal_are_items_sorted(union wal_flush_items *flush_items);
     fdb_status _wal_do_flush(struct wal_item *item,
