@@ -2556,6 +2556,14 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
             item = _get_entry(e, struct kvs_opened_node, le);
             e = list_next(e);
 
+            if (!item->handle->shandle) {
+                // Only consider active snapshot handles since non-snapshot
+                // handles will get synced upon their next forestdb api call.
+                // This prevents "lazy" non-snapshot handles from holding up
+                // stale block reclaim.
+                continue;
+            }
+
             if (item->handle->cur_header_revnum < ret.revnum) {
                 ret.revnum = item->handle->cur_header_revnum;
                 ret.bid = item->handle->last_hdr_bid;
@@ -2576,7 +2584,7 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
             // header in 'handle->last_hdr_bid' is not written into file yet!
             // we should start from the previous header
             hdr_bid = atomic_get_uint64_t(&handle->file->header.bid);
-            hdr_revnum = handle->file->header.revnum;
+            hdr_revnum = handle->file->header.revnum - 1;
         } else {
             hdr_bid = ret.bid;
             hdr_revnum = ret.revnum;
