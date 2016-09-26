@@ -29,6 +29,80 @@
 #include "libforestdb/forestdb.h"
 #include "functional_util.h"
 
+/** Basic verification that stale blocks are being reused and file size
+ * does not explode with heavy updates
+ */
+void verify_stale_block_reuse_test() {
+    TEST_INIT();
+
+    int i, r;
+    fdb_file_handle* dbfile;
+    fdb_kvs_handle* db, *lazy;
+    fdb_status status;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    size_t fileSize1, fileSize2;
+
+    r = system(SHELL_DEL" staleblktest* > errorlog.txt");
+    (void)r;
+
+    // init
+    fconfig.compaction_threshold = 0;
+
+    fconfig.block_reusing_threshold = 20;
+    status = fdb_open(&dbfile, (char *)"./staleblktest1", &fconfig);
+    TEST_STATUS(status);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_STATUS(status);
+
+    size_t valuesize = 10240; // 10K buffer
+    char *val = new char[valuesize]();
+    const char *key = "key";
+    // load until exceeding SB_MIN_BLOCK_REUSING_FILESIZE
+    for (i = 0; i < 3000; ++i) { // 3000 * 10K
+        status = fdb_set_kv(db, key, strlen(key) + 1, val, valuesize);
+        TEST_STATUS(status);
+        i++;
+        if (!(i % 100)) { // commit 30 times
+            status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_STATUS(status);
+        }
+    }
+
+    fdb_file_info file_info;
+    status = fdb_get_file_info(dbfile, &file_info);
+    TEST_STATUS(status);
+    fileSize1 = file_info.file_size; // record file size first
+
+    // open a 'lazy' handle that does not issue any forestdb calls..
+    status = fdb_kvs_open(dbfile, &lazy, "lazy", &kvs_config);
+    TEST_STATUS(status);
+
+    // 100 commits which should all reuse stale blocks
+    for (i = 0; i < 1000; ++i) {
+        status = fdb_set_kv(db, key, strlen(key) + 1,
+                            val, 10);
+        TEST_STATUS(status);
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_STATUS(status);
+    }
+
+    status = fdb_get_file_info(dbfile, &file_info);
+    TEST_STATUS(status);
+    fileSize2 = file_info.file_size; // record file size first
+    // ensure file size has not exploded and is within 30% of original filesize
+    TEST_CHK(double(fileSize2) < double(fileSize1) * 1.3);
+
+    // cleanup
+    delete [] val;
+    status = fdb_close(dbfile);
+    TEST_STATUS(status);
+    status = fdb_shutdown();
+    TEST_STATUS(status);
+
+    TEST_RESULT("basic stale block reuse test");
+}
+
 /*
  * Verify that blocks can be reclaimed when
  * default block reuse threshold is used.
@@ -608,7 +682,7 @@ void snapshot_after_block_reuse_test() {
 
     // open snapshot using seqno already reclaimed
     status = fdb_snapshot_open(db, &snap_db, low_seq-1);
-    TEST_CHK(status != FDB_RESULT_SUCCESS);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
 
     status = fdb_kvs_close(db);
     TEST_STATUS(status);
@@ -1705,6 +1779,8 @@ void reclaim_rollback_point_test() {
 }
 
 int main() {
+    /* Test if basic stale block re-use is functional */
+    verify_stale_block_reuse_test();
 
     /* Test resuse of stale blocks with block_reusing_threshold
        set at 0, 65, 100 */

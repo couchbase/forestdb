@@ -278,6 +278,15 @@ stale_header_info FdbFileHandle::getOldestActiveHeader() {
     while (e) {
         item = _get_entry(e, struct kvs_opened_node, le);
         e = list_next(e);
+        if (!item->handle->shandle) {
+            // Only consider active snapshot handles since non-snapshot handles
+            // will get synced upon their next forestdb api call.
+            // This prevents "lazy" non-snapshot handles from holding up stale
+            // block reclaim.
+            // TODO: Consider syncing up all non-snapshot handles to latest hdr
+            // instead of discarding them here (may need KVS handle-level locks)
+            continue;
+        }
         if (item->handle->cur_header_revnum < oldest_header.revnum) {
             oldest_header.revnum = item->handle->cur_header_revnum;
             oldest_header.bid = item->handle->last_hdr_bid;
