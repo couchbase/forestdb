@@ -2188,9 +2188,8 @@ void *multi_thread_fhandle_share(void *args)
     if (args == NULL) { // MAIN THREAD..
         int nthreads = 2; // Half of these are reader and half are writers
         int nwriters = nthreads / 2;
-        thread_t *tid = (thread_t *)malloc(nthreads * sizeof(thread_t *));
-        thread_data_t *tdata = (thread_data_t *) malloc(nthreads
-                                               * sizeof(thread_data_t));
+        thread_t *tid = new thread_t[nthreads];
+        thread_data_t *tdata = new thread_data_t[nthreads];
         void **thread_ret = (void **)malloc(nthreads * sizeof (void *));
         fdb_kvs_config kvs_config;
         fdb_config fconfig;
@@ -2250,8 +2249,8 @@ void *multi_thread_fhandle_share(void *args)
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
 
-        free(tid);
-        free(tdata);
+        delete[] tid;
+        delete[] tdata;
         free(thread_ret);
         fdb_shutdown();
         TEST_RESULT("multi thread file handle share test");
