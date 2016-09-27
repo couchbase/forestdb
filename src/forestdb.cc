@@ -1368,7 +1368,7 @@ static uint64_t _fdb_export_header_flags(FdbKvsHandle *handle)
     return rv;
 }
 
-uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
+uint64_t fdb_set_file_header(FdbKvsHandle *handle)
 {
     /*
     <ForestDB header>
@@ -1506,7 +1506,7 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
     crc = _endian_encode(crc);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
-    return handle->file->updateHeader(buf, offset, inc_revnum);
+    return handle->file->updateHeader(buf, offset);
 }
 
 static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
@@ -2787,7 +2787,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
             cur_bmp_revnum = handle->file->getSb()->getBmpRevnum();
         }
         handle->last_hdr_bid = handle->file->alloc_FileMgr(&handle->log_callback);
-        handle->cur_header_revnum = fdb_set_file_header(handle, true);
+        handle->cur_header_revnum = fdb_set_file_header(handle);
         handle->file->commitBid(handle->last_hdr_bid.load(std::memory_order_relaxed),
                            cur_bmp_revnum,
                            !(handle->config.durability_opt & FDB_DRB_ASYNC),
@@ -3773,7 +3773,7 @@ fdb_commit_start:
     }
 
     // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+    handle->cur_header_revnum = fdb_set_file_header(handle);
 
     if (txn == NULL) {
         // update global_txn's previous header BID
@@ -3812,7 +3812,7 @@ fdb_commit_start:
             // header should be updated one more time
             // since block reclaiming or stale block gathering changes root nodes
             // of each tree. but at this time we don't increase header revision number.
-            handle->cur_header_revnum = fdb_set_file_header(handle, false);
+            handle->cur_header_revnum = fdb_set_file_header(handle);
             sb->updateHeader(handle);
             sb->syncCircular(handle);
             // reset allocation counter for next reclaim check
@@ -4435,28 +4435,12 @@ size_t FdbEngine::getBufferCacheUsed() {
     return (size_t) FileMgr::getBcacheUsedSpace();
 }
 
-size_t FdbEngine::estimateSpaceUsed(FdbFileHandle *fhandle)
+size_t FdbEngine::estimateSpaceUsedInternal(FdbKvsHandle *handle)
 {
     size_t ret = 0;
     size_t datasize;
     size_t nlivenodes;
-    FdbKvsHandle *handle = NULL;
-    FileMgr *file;
-
-    if (!fhandle) {
-        return 0;
-    }
-
-    handle = fhandle->getRootHandle();
-
-    fdb_status fs = fdb_check_file_reopen(handle, NULL);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return ret;
-    }
-
-    fdb_sync_db_header(handle);
-
-    file = handle->file;
+    FileMgr *file = handle->file;
 
     datasize = file->getKvsStatOps()->statGetSum(KVS_STAT_DATASIZE);
     nlivenodes = file->getKvsStatOps()->statGetSum(KVS_STAT_NLIVENODES);
@@ -4466,6 +4450,25 @@ size_t FdbEngine::estimateSpaceUsed(FdbFileHandle *fhandle)
     ret += handle->file->getWal()->getDataSize_Wal();
 
     return ret;
+}
+
+size_t FdbEngine::estimateSpaceUsed(FdbFileHandle *fhandle)
+{
+    FdbKvsHandle *handle = NULL;
+
+    if (!fhandle) {
+        return 0;
+    }
+
+    handle = fhandle->getRootHandle();
+
+    fdb_status fs = fdb_check_file_reopen(handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
+
+    fdb_sync_db_header(handle);
+    return estimateSpaceUsedInternal(handle);
 }
 
 size_t FdbEngine::estimateSpaceUsedFrom(FdbFileHandle *fhandle,

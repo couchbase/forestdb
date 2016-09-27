@@ -1212,8 +1212,7 @@ filemgr_open_result FileMgr::open(std::string filename,
 }
 
 uint64_t FileMgr::updateHeader(void *buf,
-                               size_t len,
-                               bool inc_revnum) {
+                               size_t len) {
     uint64_t ret;
     acquireSpinLock();
     if (fMgrHeader.data == nullptr) {
@@ -1222,10 +1221,10 @@ uint64_t FileMgr::updateHeader(void *buf,
     memcpy(fMgrHeader.data, buf, len);
     fMgrHeader.size = len;
 
-    if (inc_revnum) {
-        ++fMgrHeader.revnum;
-    }
-    ret = fMgrHeader.revnum;
+    // Since header has been updated, return the next higher revnum
+    // But the actual update of the revnum will occur in commitBid
+    // atomically along with the DB header bid update
+    ret = fMgrHeader.revnum + 1;
 
     releaseSpinLock();
     return ret;
@@ -2439,6 +2438,9 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
 
         // header data
         memcpy(buf, fMgrHeader.data, header_len);
+
+        ++fMgrHeader.revnum; // Only Commit increments header revnum
+
         // header rev number
         _revnum = _endian_encode(fMgrHeader.revnum);
         memcpy((uint8_t *)buf + header_len, &_revnum,

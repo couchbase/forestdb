@@ -1201,6 +1201,8 @@ fdb_status Superblock::syncCircular(FdbKvsHandle *handle)
     return fs;
 }
 
+// Do not call any public api that would sync db header to any uncommitted
+// header.
 sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
 
 {
@@ -1238,7 +1240,7 @@ sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
         return SBD_NONE;
     }
 
-    live_datasize = FdbEngine::getInstance()->estimateSpaceUsed(handle->fhandle);
+    live_datasize = FdbEngine::getInstance()->estimateSpaceUsedInternal(handle);
     if (filesize == 0 || live_datasize == 0 ||
         live_datasize > filesize) {
         return SBD_NONE;
