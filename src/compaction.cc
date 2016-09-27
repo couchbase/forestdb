@@ -247,7 +247,7 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     // (5) The new header should be appended at the end of the current file
     handle->last_hdr_bid = handle->file->getNextAllocBlock();
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+    handle->cur_header_revnum = fdb_set_file_header(handle);
 
     // (6) Flush all the dirty blocks of the current file
     handle->bhandle->flushBuffer();
@@ -435,7 +435,7 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     // (we must do this due to potential dirty WAL flush
     //  during the last loop of delta move; new index root node
     //  should be stored in the DB header).
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+    handle->cur_header_revnum = fdb_set_file_header(handle);
     if (sb) {
         // sync superblock
         sb->updateHeader(handle);
@@ -820,7 +820,7 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
 
     new_handle.last_hdr_bid = new_handle.file->getNextAllocBlock();
     new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid; // WAL was flushed
-    new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
+    new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
 
     // Commit a new file.
     fs = new_handle.file->commit_FileMgr(false, // asynchronous commit is ok
@@ -1905,7 +1905,7 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
                                                     false );
                 new_handle.last_hdr_bid = fileMgr->getNextAllocBlock();
                 new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
-                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
+                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
                 // during the compaction.
@@ -2525,7 +2525,7 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
     // update global_txn's previous header BID
     new_file->getGlobalTxn()->prev_hdr_bid = handle->last_hdr_bid;
     // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+    handle->cur_header_revnum = fdb_set_file_header(handle);
 
     SuperblockBase *sb = new_file->getSb();
     if (sb) {

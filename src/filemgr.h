@@ -565,7 +565,7 @@ public:
         return fMgrWal;
     }
 
-    uint64_t updateHeader(void *buf, size_t len, bool inc_revnum);
+    uint64_t updateHeader(void *buf, size_t len);
 
     FileMgrHeader* accessHeader() {
         return &fMgrHeader;

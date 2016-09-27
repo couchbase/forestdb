@@ -47,7 +47,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
                                                &config, NULL);
     file = result.file;
 
-    file->updateHeader((void*)dbheader, strlen(dbheader)+1, true);
+    file->updateHeader((void*)dbheader, strlen(dbheader)+1);
 
     FileMgr::close(file, true, NULL, NULL);
     result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
@@ -56,7 +56,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     memcpy(buf, file->accessHeader()->data, file->accessHeader()->size);
     printf("%s\n", buf);
 
-    file->updateHeader((void*)dbheader2, strlen(dbheader2) + 1, true);
+    file->updateHeader((void*)dbheader2, strlen(dbheader2) + 1);
 
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();

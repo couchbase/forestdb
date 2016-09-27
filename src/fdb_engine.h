@@ -474,6 +474,12 @@ public:
      */
     size_t estimateSpaceUsed(FdbFileHandle *fhandle);
 
+    /* Internal function to estimate space used
+     * @param - root handle
+     * @return Disk space actively used by a ForestDB file.
+     */
+    size_t estimateSpaceUsedInternal(FdbKvsHandle *handle);
+
     /**
      * Return the overall disk space actively used by all snapshots starting from
      * a given snapshot marker.
