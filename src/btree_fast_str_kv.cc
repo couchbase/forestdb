@@ -140,12 +140,9 @@ void FastStrKVOps::getKV(struct bnode *node, idx_t idx, void *key, void *value)
 
     // if KEY already points to previous key, then free it
     memcpy(&key_ptr, key, ksize);
-    if (key_ptr) {
-        free(key_ptr);
-    }
 
-    // allocate space for key
-    key_ptr = (void*)malloc(sizeof(key_len_t) + keylen);
+    // allocate space for key only if not previously allocated
+    key_ptr = realloc(key_ptr, sizeof(key_len_t) + keylen);
 
     // copy key
     _keylen = _endian_encode(keylen);
@@ -490,14 +487,12 @@ void FastStrKVOps::setKey(void *dst, void *src)
     memcpy(&_keylen_new, key_ptr_new, size_key);
     keylen_new = _endian_decode(_keylen_new);
 
-    // free previous key (if exist)
     memcpy(&key_ptr_old, dst, sizeof(void *));
-    if (key_ptr_old) {
-        free(key_ptr_old);
-    }
-
     keylen_alloc = (keylen_new == inflen) ? (0) : (keylen_new);
-    key_ptr_old = (void*)malloc(size_key + keylen_alloc);
+
+    // re-alloc previous key
+    key_ptr_old = realloc(key_ptr_old, size_key + keylen_alloc);
+
     // copy keylen
     memcpy(key_ptr_old, key_ptr_new, size_key);
     if (keylen_alloc) {
