@@ -34,7 +34,23 @@ extern "C" {
 
 typedef uint16_t chunkno_t;
 
-typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
+/**
+ * Callback function for HB+trie, to fetch the entire full key string.
+ *
+ * @param handle DocIO handle.
+ * @param offset Offset of document (pure value from the node, not endian decoded).
+ * @param req_key Key to be found, inserted, or removed, requested by user.
+ * @param chunk Current chunk.
+ * @param curchunkno Current chunk number.
+ * @param buf Buffer that the full key will be returned.
+ * @return Length of key.
+ */
+typedef size_t hbtrie_func_readkey(void *handle,
+                                   uint64_t offset,
+                                   void *req_key,
+                                   void *chunk,
+                                   size_t curchunkno,
+                                   void *buf);
 typedef int hbtrie_cmp_func(void *key1, void *key2, void* aux);
 // a function pointer to a routine that returns a function pointer
 typedef hbtrie_cmp_func *hbtrie_cmp_map(void *chunk, void *aux);

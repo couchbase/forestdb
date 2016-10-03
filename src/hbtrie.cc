@@ -581,7 +581,8 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                 offset = btree_kv_ops->value2bid(btree_value);
                 if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
                     // read entire key
-                    docrawkeylen = readkey(doc_handle, offset, docrawkey);
+                    docrawkeylen = readkey( doc_handle, offset,
+                                            key, chunk, curchunkno, docrawkey );
                     dockeylen = reformKey(docrawkey, docrawkeylen, dockey);
 
                     // find first different chunk
@@ -1170,7 +1171,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         offset = btree_kv_ops->value2bid(btree_value);
 
         // read entire key
-        docrawkeylen = readkey(doc_handle, offset, docrawkey);
+        docrawkeylen = readkey( doc_handle, offset,
+                                key, chunk, curchunkno, docrawkey );
         dockeylen = reformKey(docrawkey, docrawkeylen, dockey);
 
         // find first different chunk
@@ -1460,7 +1462,8 @@ hbtrie_result HBTrie::insertPartial(void *rawkey, int rawkeylen,
 
 size_t HBTrie::readKey(uint64_t offset, void *buf)
 {
-    return readkey(doc_handle, offset, buf);
+    // TODO: support seq-iterator can be executed without reading doc block
+    return readkey(doc_handle, offset, NULL, NULL, 0, buf);
 }
 
 void HBTrie::initMemoryPool(size_t num_cores, uint64_t buffercache_size)

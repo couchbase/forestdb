@@ -41,8 +41,16 @@ uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
            doc->length.metalen + doc->length.bodylen;
 }
 
-size_t _readkey_wrap(void *handle, uint64_t offset, void *buf)
+size_t _readkey_wrap(void *handle,
+                     uint64_t offset,
+                     void *req_key,
+                     void *chunk,
+                     size_t curchunkno,
+                     void *buf)
 {
+    (void)req_key;
+    (void)chunk;
+    (void)curchunkno;
     keylen_t keylen;
     offset = _endian_decode(offset);
     ((DocioHandle * )handle)->readDocKey_Docio(offset, &keylen, buf);
@@ -174,8 +182,16 @@ void _set_random_key(char *key, int len)
 }
 
 char **_skew_key_ptr;
-size_t _readkey_wrap_memory(void *handle, uint64_t offset, void *buf)
+size_t _readkey_wrap_memory( void *handle,
+                             uint64_t offset,
+                             void *req_key,
+                             void *chunk,
+                             size_t curchunkno,
+                             void *buf )
 {
+    (void)req_key;
+    (void)chunk;
+    (void)curchunkno;
     keylen_t keylen;
     offset = _endian_decode(offset);
     keylen = strlen(_skew_key_ptr[offset]);
@@ -378,8 +394,16 @@ void skew_basic_test()
 }
 
 #define HB_KEYSTR "key%06d"
-size_t _readkey_wrap_memory_itr(void *handle, uint64_t offset, void *buf)
+size_t _readkey_wrap_memory_itr( void *handle,
+                                 uint64_t offset,
+                                 void *req_key,
+                                 void *chunk,
+                                 size_t curchunkno,
+                                 void *buf )
 {
+    (void)req_key;
+    (void)chunk;
+    (void)curchunkno;
     offset = _endian_decode(offset);
     memset(buf, 0, 16);
     sprintf((char*)buf, HB_KEYSTR, (int)offset);
@@ -532,8 +556,16 @@ void hbtrie_reverse_iterator_test()
     TEST_RESULT("HB+trie reverse iterator test");
 }
 
-size_t _key_wrap_partial_update(void *handle, uint64_t offset, void *buf)
+size_t _key_wrap_partial_update( void *handle,
+                                 uint64_t offset,
+                                 void *req_key,
+                                 void *chunk,
+                                 size_t curchunkno,
+                                 void *buf )
 {
+    (void)req_key;
+    (void)chunk;
+    (void)curchunkno;
     char keystr[] = "key%05d%08d%08d";
     offset = _endian_decode(offset);
     offset = offset % 100; // to handle same key different value

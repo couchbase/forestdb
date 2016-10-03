@@ -80,8 +80,16 @@ int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
     return _CMP_U64(a, b);
 }
 
-size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
+size_t _fdb_readkey_wrap(void *handle,
+                         uint64_t offset,
+                         void *req_key,
+                         void *chunk,
+                         size_t curchunkno,
+                         void *buf)
 {
+    (void)req_key;
+    (void)chunk;
+    (void)curchunkno;
     fdb_status fs;
     keylen_t keylen;
     DocioHandle *dhandle = reinterpret_cast<DocioHandle*>(handle);
@@ -105,7 +113,12 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
     }
 }
 
-size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
+size_t _fdb_readseq_wrap(void *handle,
+                         uint64_t offset,
+                         void *req_key,
+                         void *chunk,
+                         size_t curchunkno,
+                         void *buf)
 {
     int size_id, size_seq, size_chunk;
     fdb_seqnum_t _seqnum;
@@ -115,6 +128,24 @@ size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
     size_chunk = dhandle->getFile()->getConfig()->getChunkSize();
+
+    if ( req_key && chunk &&
+         size_seq == size_chunk &&
+         curchunkno == 1 ) {
+        // if the sizes of sequence number and chunk are the same
+        // and the current chunk is in the second level,
+        // then we can return sequence number without reading doc.
+
+        // Note: at the time that 'readKey' is called, all previous chunks are
+        // already checked as correct, so we can copy KVS ID from 'req_key'.
+        memcpy((uint8_t*)buf, req_key, size_id);
+        memcpy((uint8_t*)buf + size_id, chunk, size_seq);
+        return size_id + size_seq;
+    }
+
+    // Other case happens when there is only one document in a KVS;
+    // the unique sequence number will be indexed by KVS ID.
+    // In this case, we need to read a doc.
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
