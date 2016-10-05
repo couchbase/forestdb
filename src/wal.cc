@@ -788,7 +788,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 if (_item) {
                     // ..by removing the previous transactional item..
                     list_remove(txn->items, &_item->list_elem_txn);
-                    list_elem_detach(&_item->list_elem_txn);
+                    _item->flag |= WAL_ITEM_NOT_IN_TXN;
                 }
             }
 
@@ -1050,7 +1050,7 @@ struct wal_item *Wal::getTxnItem_Wal(struct wal_item_header *header,
         if (item->flag & WAL_ITEM_COMMITTED) {
             break;
         }
-        if (item->txn == txn && !list_elem_isdetached(&item->list_elem_txn)) {
+        if (item->txn == txn && !(item->flag & WAL_ITEM_NOT_IN_TXN)) {
             return item;
         }
     }
@@ -1330,7 +1330,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                 item = _get_entry(e, struct wal_item, list_elem);
                 if (!(item->flag & WAL_ITEM_COMMITTED)) {
                     if (item->txn == old_file->getGlobalTxn() &&
-                        list_elem_isdetached(&item->list_elem_txn)) {
+                        (item->flag & WAL_ITEM_NOT_IN_TXN)) {
                         // If an uncommitted item, part of an active snapshot
                         // is de-duplicated by another uncommitted item, then
                         // the de-duplicated item may continue to exist in this
@@ -1587,9 +1587,8 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
         }
 
         // remove from transaction's list
-        e2 = list_remove(txn->items, e1); // save next elem
-        list_elem_detach(e1); // mark current elem as detached
-        e1 = e2; // restore pointer to next elem to continue txn list items
+        e1 = list_remove(txn->items, e1); // save next elem
+        item->flag |= WAL_ITEM_NOT_IN_TXN;
         spin_unlock(&key_shards[shard_num].lock);
     }
     mem_overhead.fetch_sub(_mem_overhead, std::memory_order_relaxed);
@@ -3212,8 +3211,10 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                     // remove from header's list
                     e = list_remove(&header->items, e);
                     if (!(item->flag & WAL_ITEM_COMMITTED)) {
-                        // and also remove from transaction's list
-                        list_remove(item->txn->items, &item->list_elem_txn);
+                        if (!(item->flag & WAL_ITEM_NOT_IN_TXN)) {
+                            // and also remove from transaction's list
+                            list_remove(item->txn->items, &item->list_elem_txn);
+                        }
                         if (item->action != WAL_ACT_REMOVE) {
                             // mark as stale if item is not committed and not an immediate remove
                             file->markStale(item->offset, item->doc_size);

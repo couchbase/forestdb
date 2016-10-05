@@ -138,6 +138,7 @@ struct wal_kvs_snaps {
 };
 
 #define WAL_ITEM_COMMITTED (0x01)
+#define WAL_ITEM_NOT_IN_TXN (0x02) // uncommitted and de-duplicated by same txn
 #define WAL_ITEM_MULTI_KV_INS_MODE (0x04)
 #define WAL_ITEM_FLUSHED_OUT (0x08)
 // not all wal_items are indexed into their KV Store's snapshot handles

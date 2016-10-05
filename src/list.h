@@ -66,15 +66,6 @@ INLINE struct list_elem *list_end(struct list *list)
 }
 #endif
 
-INLINE void list_elem_detach(struct list_elem *e) {
-    e->prev = NULL;
-    e->next = NULL;
-}
-
-INLINE bool list_elem_isdetached(struct list_elem *e) {
-    return (e->prev == NULL && e->next == NULL);
-}
-
 INLINE struct list_elem *list_next(struct list_elem *e)
 {
     return e->next;
