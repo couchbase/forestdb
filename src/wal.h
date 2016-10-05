@@ -174,6 +174,9 @@ struct wal_item{
         struct avl_node avl_flush;
         struct list_elem list_elem_flush;
     };
+    // TODO: Replace list_elem_txn with dwq_index
+    // Place holder for disk-write-queue index for the wal_item;
+    uint64_t dwq_index;
 };
 
 typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
@@ -224,6 +227,21 @@ typedef enum wal_discard_type {
     WAL_DISCARD_KV_INS,
 } wal_discard_t;
 
+class WalItemComparator {
+public:
+    /**
+     * Place holder for Custom compare function to be used by disk write queue
+     *
+     * TODO: Allow setting up different types of sorting for different
+     * KV stores, possibly by maintaining a map of kvs id's to sorting
+     * preference.
+     */
+
+    static bool compare(wal_item* i1, wal_item* i2) {
+        // TODO: Sort based on KVS id
+        return false;
+    }
+};
 
 class Wal {
     friend class WalItr;

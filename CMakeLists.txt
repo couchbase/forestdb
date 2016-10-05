@@ -206,6 +206,7 @@ SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/compaction.cc
     ${PROJECT_SOURCE_DIR}/src/compactor.cc
     ${PROJECT_SOURCE_DIR}/src/configuration.cc
+    ${PROJECT_SOURCE_DIR}/src/disk_write_queue.cc
     ${PROJECT_SOURCE_DIR}/src/docio.cc
     ${PROJECT_SOURCE_DIR}/src/encryption.cc
     ${PROJECT_SOURCE_DIR}/src/encryption_aes.cc
