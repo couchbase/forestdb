@@ -599,7 +599,6 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             if (item->txn_id == txn->txn_id &&
                 !(is_committed || caller == INS_BY_COMPACT_PHASE1) &&
                 same_snap) {
-                item->flag &= ~WAL_ITEM_FLUSH_READY;
 
                 if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                     // Re-index the item by new sequence number..
@@ -1441,6 +1440,18 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
     return FDB_RESULT_SUCCESS;
 }
 
+/*
+ * In order to reflect a consistent point-in-time snapshot of the WAL
+ * into the main index, the caller must ensure atomicity of the
+ * following 3 steps during WAL flush:
+ *    Lock() // to prevent concurrent insert_Wal()
+ *      commit_Wal()
+ *      flush_Wal()
+ *      releaseFlushedItems_Wal()
+ *    Unlock()
+ * If such a locking is not done, then the main index could end up with
+ * an inconsistent view of the database
+ */
 fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                            ErrLogCallback *log_callback)
 {
@@ -1525,64 +1536,52 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                     spin_unlock(&lock);
                     continue;
                 }
-                // committed but not flush-ready
-                // (flush-readied item will be removed by flushing)
-                if (!(_item->flag & WAL_ITEM_FLUSH_READY)) {
-                    // remove from list & hash
-                    list_remove(&item->header->items, &_item->list_elem);
-                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
-                        size_t seq_shard_num = _item->seqnum % num_shards;
-                        spin_lock(&seq_shards[seq_shard_num].lock);
-                        avl_remove(&seq_shards[seq_shard_num]._map,
-                                   &_item->avl_seq);
-                        spin_unlock(&seq_shards[seq_shard_num].lock);
-                    }
-
-                    // mark previous doc region as stale
-                    uint32_t stale_len = _item->doc_size;
-                    uint64_t stale_offset = _item->offset;
-                    if (_item->action == WAL_ACT_INSERT ||
-                        _item->action == WAL_ACT_LOGICAL_REMOVE) {
-                        // insert or logical remove
-                        file->markStale(stale_offset, stale_len);
-                    }
-
-                    size--;
-                    num_flushable--;
-                    if (item->action != WAL_ACT_REMOVE) {
-                        datasize.fetch_sub(_item->doc_size,
-                                           std::memory_order_relaxed);
-                    }
-                    // simply reduce the stat count...
-                    if (_item->action == WAL_ACT_INSERT) {
-                        _wal_update_stat(kv_id, _WAL_DROP_SET);
-                    } else {
-                        _wal_update_stat(kv_id, _WAL_DROP_DELETE);
-                    }
-                    // To keep only one unique copy in snapshot tree
-                    // remove old item only if the item is not already
-                    // flushed out (reflected in main index)
-                    if (_item->flag & WAL_ITEM_IN_SNAP_TREE &&
-                        !(_item->flag & WAL_ITEM_FLUSHED_OUT)) {
-                        avl_remove(&_item->shandle->key_tree,
-                                   &_item->avl_keysnap);
-                        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
-                            avl_remove(&_item->shandle->seq_tree,
-                                       &_item->avl_seqsnap);
-                        }
-                        _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
-                    }
-                    _mem_overhead += sizeof(struct wal_item);
-                    _wal_free_item(_item, true);
-                } else {
-                    fdb_log(log_callback, status,
-                            "Wal commit called when flush_Wal in progress."
-                            "item seqnum %" _F64
-                            " keylen %d flags %x action %d"
-                            "%s", _item->seqnum, item->header->keylen,
-                            _item->flag.load(), _item->action,
-                            file->getFileName());
+                // remove from list & hash
+                list_remove(&item->header->items, &_item->list_elem);
+                if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    size_t seq_shard_num = _item->seqnum % num_shards;
+                    spin_lock(&seq_shards[seq_shard_num].lock);
+                    avl_remove(&seq_shards[seq_shard_num]._map,
+                            &_item->avl_seq);
+                    spin_unlock(&seq_shards[seq_shard_num].lock);
                 }
+
+                // mark previous doc region as stale
+                uint32_t stale_len = _item->doc_size;
+                uint64_t stale_offset = _item->offset;
+                if (_item->action == WAL_ACT_INSERT ||
+                        _item->action == WAL_ACT_LOGICAL_REMOVE) {
+                    // insert or logical remove
+                    file->markStale(stale_offset, stale_len);
+                }
+
+                size--;
+                num_flushable--;
+                if (item->action != WAL_ACT_REMOVE) {
+                    datasize.fetch_sub(_item->doc_size,
+                            std::memory_order_relaxed);
+                }
+                // simply reduce the stat count...
+                if (_item->action == WAL_ACT_INSERT) {
+                    _wal_update_stat(kv_id, _WAL_DROP_SET);
+                } else {
+                    _wal_update_stat(kv_id, _WAL_DROP_DELETE);
+                }
+                // To keep only one unique copy in snapshot tree
+                // remove old item only if the item is not already
+                // flushed out (reflected in main index)
+                if (_item->flag & WAL_ITEM_IN_SNAP_TREE &&
+                        !(_item->flag & WAL_ITEM_FLUSHED_OUT)) {
+                    avl_remove(&_item->shandle->key_tree,
+                            &_item->avl_keysnap);
+                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                        avl_remove(&_item->shandle->seq_tree,
+                                &_item->avl_seqsnap);
+                    }
+                    _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
+                }
+                _mem_overhead += sizeof(struct wal_item);
+                _wal_free_item(_item, true);
                 spin_unlock(&lock);
             }
         }
@@ -1682,9 +1681,7 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
     if (!_wal_snap_is_immutable(item->shandle)) {
         releaseItem_Wal(shard_num, kv_id, item);
         _mem_overhead += sizeof(struct wal_item);
-        item = NULL;
     } else {
-        item->flag &= ~WAL_ITEM_FLUSH_READY;
         // TODO: Deep-copy item->header->key & item->offset!
     }
     // try to cleanup items from prior snapshots as well..
@@ -1700,8 +1697,6 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
             releaseItem_Wal(shard_num, kv_id, sitem);
             _mem_overhead += sizeof(struct wal_item);
         } else {
-            item = sitem; // this is the latest and greatest item
-            item->flag &= ~WAL_ITEM_FLUSH_READY;
             // TODO: Deep-copy item->header->key & item->offset!
         }
     }
@@ -1814,17 +1809,14 @@ inline fdb_status Wal::_wal_do_flush(struct wal_item *item,
                                      struct avl_tree *stale_seqnum_list,
                                      struct avl_tree *kvs_delta_stats)
 {
-    // check weather this item is updated after insertion into tree
-    if (item->flag & WAL_ITEM_FLUSH_READY) {
-        fdb_status fs = flush_func(dbhandle, item, stale_seqnum_list, kvs_delta_stats);
-        if (fs != FDB_RESULT_SUCCESS) {
-            FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
-            fdb_log(&handle->log_callback, fs,
-                    "Failed to flush WAL item (key '%s') into a database file '%s'",
-                    (const char *) item->header->key,
-                    handle->file->getFileName());
-            return fs;
-        }
+    fdb_status fs = flush_func(dbhandle, item, stale_seqnum_list, kvs_delta_stats);
+    if (fs != FDB_RESULT_SUCCESS) {
+        FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
+        fdb_log(&handle->log_callback, fs,
+                "Failed to flush WAL item (key '%s') into a database file '%s'",
+                (const char *) item->header->key,
+                handle->file->getFileName());
+        return fs;
     }
     return FDB_RESULT_SUCCESS;
 }
@@ -1918,45 +1910,39 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                     _releaseItems_Wal(i, item);
                     break; // most recent item is already reflected in trie
                 }
-                if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
-                    item->flag |= WAL_ITEM_FLUSH_READY;
-                    // if WAL_ITEM_FLUSH_READY flag is set,
-                    // this item becomes immutable, so that
-                    // no other concurrent thread modifies it.
-                    if (by_compactor) {
-                        // During the first phase of compaction, we don't need
-                        // to retrieve the old offsets of WAL items because they
-                        // are all new insertions into new file's hbtrie index.
-                        item->old_offset = 0;
-                        if (do_sort) {
-                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
-                        } else {
-                            list_push_back(list_head, &item->list_elem_flush);
-                        }
+                if (by_compactor) {
+                    // During the first phase of compaction, we don't need
+                    // to retrieve the old offsets of WAL items because they
+                    // are all new insertions into new file's hbtrie index.
+                    item->old_offset = 0;
+                    if (do_sort) {
+                        avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
                     } else {
-                        spin_unlock(&key_shards[i].lock);
-                        item->old_offset = get_old_offset(dbhandle, item);
-                        spin_lock(&key_shards[i].lock);
-                        if (item->old_offset == item->offset) {
-                            // Sometimes if there are uncommitted transactional
-                            // items along with flushed committed items when
-                            // file was closed, wal_restore can end up inserting
-                            // already flushed items back into WAL.
-                            // We should not try to flush them back again
-                            item->flag |= WAL_ITEM_FLUSHED_OUT;
-                        }
-                        if (item->old_offset == 0 && // doc not in main index
-                            item->action == WAL_ACT_REMOVE) {// insert & delete
-                            item->old_offset = BLK_NOT_FOUND;
-                            item->flag |= WAL_ITEM_FLUSHED_OUT;
-                        }
-                        if (do_sort) {
-                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
-                        } else {
-                            list_push_back(list_head, &item->list_elem_flush);
-                        }
-                        break; // only pick one item per key
+                        list_push_back(list_head, &item->list_elem_flush);
                     }
+                } else {
+                    spin_unlock(&key_shards[i].lock);
+                    item->old_offset = get_old_offset(dbhandle, item);
+                    spin_lock(&key_shards[i].lock);
+                    if (item->old_offset == item->offset) {
+                        // Sometimes if there are uncommitted transactional
+                        // items along with flushed committed items when
+                        // file was closed, wal_restore can end up inserting
+                        // already flushed items back into WAL.
+                        // We should not try to flush them back again
+                        item->flag |= WAL_ITEM_FLUSHED_OUT;
+                    }
+                    if (item->old_offset == 0 && // doc not in main index
+                            item->action == WAL_ACT_REMOVE) {// insert & delete
+                        item->old_offset = BLK_NOT_FOUND;
+                        item->flag |= WAL_ITEM_FLUSHED_OUT;
+                    }
+                    if (do_sort) {
+                        avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                    } else {
+                        list_push_back(list_head, &item->list_elem_flush);
+                    }
+                    break; // only pick one item per key
                 }
                 ee = ee_prev;
             }
