@@ -1213,6 +1213,115 @@ void test_kv_engines_rebalance_situation(int nfiles,
     TEST_RESULT(test_title.c_str());
 }
 
+struct initial_args {
+    std::pair<fdb_file_handle *, fdb_kvs_handle *> handles;
+    std::string key_prefix;
+    int nsets;
+};
+
+void* invoke_initial_ops(void *args) {
+    struct initial_args* ia = static_cast<initial_args *>(args);
+
+    fdb_status status;
+    char keybuf[256], bodybuf[256];
+    for (int i = 0; i < ia->nsets; ++i) {
+        sprintf(keybuf, "key%s%d", ia->key_prefix.c_str(), i);
+        sprintf(bodybuf, "body%d", i);
+
+        status = fdb_set_kv(ia->handles.second,
+                            (void*)keybuf, strlen(keybuf) + 1,
+                            (void*)bodybuf, strlen(bodybuf) + 1);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        if (i % 100 == 0) {
+            status = fdb_commit(ia->handles.first, FDB_COMMIT_NORMAL);
+            fdb_assert(status == FDB_RESULT_SUCCESS,
+                       status, FDB_RESULT_SUCCESS);
+        }
+    }
+    status = fdb_commit(ia->handles.first, FDB_COMMIT_NORMAL);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+    return nullptr;
+}
+
+void test_initial_build_duration(int nthreads,
+                                 int individualsets,
+                                 bool defaultkvs) {
+
+    TEST_INIT();
+
+    int r = system(SHELL_DEL" uc_test* > errorlog.txt");
+    (void)r;
+
+    std::vector<std::pair<fdb_file_handle *, fdb_kvs_handle *> > handles;
+
+    fdb_status status;
+    fdb_config file_config = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    for (int i = 0; i < nthreads; ++i) {
+        fdb_file_handle *dbfile;
+        fdb_kvs_handle *db;
+        status = fdb_open(&dbfile, "uc_test", &file_config);
+        TEST_STATUS(status);
+        if (defaultkvs) {
+            status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+        } else {
+            status = fdb_kvs_open(dbfile, &db, "kvs", &kvs_config);
+        }
+        TEST_STATUS(status);
+        handles.push_back(std::make_pair(dbfile, db));
+    }
+
+    thread_t *threads = new thread_t[nthreads];
+    struct initial_args *args = new struct initial_args[nthreads];
+
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
+
+    for (int i = 0; i < nthreads; ++i) {
+        args[i].handles = handles.at(i);
+        args[i].key_prefix = std::string("_thread_") + std::to_string(i);
+        args[i].nsets = individualsets;
+        thread_create(&threads[i], invoke_initial_ops, &args[i]);
+    }
+
+    for (int i = 0; i < nthreads; ++i) {
+        r = thread_join(threads[i], nullptr);
+        assert(r == 0);
+    }
+
+    end = std::chrono::system_clock::now();
+
+    std::chrono::duration<double> elapsed_seconds = end - start;
+
+    fprintf(stderr, "RUNTIME: %fs\n", elapsed_seconds.count());
+
+    delete[] args;
+    delete[] threads;
+
+    // Close all open handles
+    for (int i = 0; i < nthreads; ++i) {
+        fdb_kvs_close(handles.at(i).second);
+        fdb_close(handles.at(i).first);
+    }
+
+    // Shutdown
+    fdb_shutdown();
+
+    std::string test_title("Initial Write Duration test: " +
+                           std::to_string(nthreads) + "T " +
+                           std::to_string(individualsets) + "S; ");
+    test_title += defaultkvs ? "Default KV Store" : "Non-default KV Store";
+
+#ifndef __DEBUG_USECASE
+    r = system(SHELL_DEL" uc_test* > errorlog.txt");
+    (void)r;
+#endif
+
+    TEST_RESULT(test_title.c_str());
+}
+
 int main() {
 
     /* Test single writer with multiple readers sharing a common
@@ -1277,5 +1386,18 @@ int main() {
                                         4      /*writer count*/,
                                         2      /*reader count*/,
                                         true   /*use sequence trees*/);
+
+    /* Test that replicates initial build phase for indexes, and estimates the
+       time taken, with non-default kv store */
+    test_initial_build_duration(1              /*number of threads*/,
+                                500000         /*number of sets per thread*/,
+                                false          /*default kvs?*/);
+
+    /* Test that replicates initial build phase for indexes, and estimates the
+       time taken, with default kv store */
+    test_initial_build_duration(1              /*number of threads*/,
+                                500000         /*number of sets per thread*/,
+                                true           /*default kvs?*/);
+
     return 0;
 }
