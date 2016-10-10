@@ -39,10 +39,12 @@ enum {
 };
 
 struct wal_item_header{
-    struct avl_node avl_key;
+    struct list_elem le_key;
+    struct hash_elem he_key;
     void *key;
     uint16_t keylen;
     uint8_t chunksize;
+    uint32_t checksum; // cache key's checksum to avoid recomputation
     struct list items;
 };
 
@@ -154,7 +156,9 @@ struct wal_kvs_snaps {
 
 struct wal_item{
     struct list_elem list_elem; // for wal_item_header's 'items'
-    struct avl_node avl_seq; // used for indexing by sequence number
+    struct hash_elem he_seq; // used for indexing by sequence number
+    struct avl_node avl_keysnap; // for durable snapshot unique key lookup
+    struct avl_node avl_seqsnap; // for durable snapshot unique seqnum lookup
     struct wal_item_header *header;
     fdb_txn *txn;
     uint64_t txn_id; // used to track closed transactions
@@ -170,8 +174,6 @@ struct wal_item{
         struct avl_node avl_flush;
         struct list_elem list_elem_flush;
     };
-    struct avl_node avl_keysnap; // for durable snapshot unique key lookup
-    struct avl_node avl_seqsnap; // for durable snapshot unique seqnum lookup
 };
 
 typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
@@ -209,7 +211,8 @@ enum {
 };
 
 struct wal_shard {
-    struct avl_tree _map;
+    struct hash _map;
+    struct list _list;
     spin_t lock;
 };
 
