@@ -131,6 +131,19 @@ add_executable(btree_kv_test
 target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT})
 
+add_executable(dwq_test
+               dwq_test.cc
+               ${ROOT_SRC}/disk_write_queue.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_UTILS}/time_utils.cc
+               ${GETTIMEOFDAY_VS}
+               $<TARGET_OBJECTS:TEST_STAT_AGG>)
+target_link_libraries(dwq_test ${PTHREAD_LIB} ${LIBM} ${MALLOC_LIBRARIES}
+                               ${PLATFORM_LIBRARY} ${LIBRT})
+set_target_properties(dwq_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 # add test target
 add_test(hash_test hash_test)
 add_test(mempool_test mempool_test)
@@ -143,6 +156,7 @@ add_test(commit_log_test commit_log_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
 add_test(btree_kv_test btree_kv_test)
+add_test(dwq_test dwq_test)
 ADD_CUSTOM_TARGET(unit_tests
     COMMAND ctest
 )
