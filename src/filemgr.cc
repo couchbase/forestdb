@@ -1195,8 +1195,6 @@ filemgr_open_result FileMgr::open(std::string filename,
         file->prefetch(log_callback);
     }
 
-    ExecutorPool::get()->registerTaskable(file->exPoolCtx);
-
     spin_unlock(&fileMgrOpenlock);
 
     if (config->getOptions() & FILEMGR_SYNC) {
@@ -1740,8 +1738,6 @@ void FileMgr::freeFunc(FileMgr *file)
     if (!file) {
         return;
     }
-
-    ExecutorPool::get()->unregisterTaskable(file->exPoolCtx, false);
 
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
     if (file->prefetchStatus.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
