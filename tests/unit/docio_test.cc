@@ -22,6 +22,7 @@
 #include "fdb_engine.h"
 #include "docio.h"
 #include "filemgr.h"
+#include "configuration.h"
 #include "filemgr_ops.h"
 #include "test.h"
 
@@ -50,9 +51,10 @@ void basic_test()
     char metabuf[1024];
     char bodybuf[4096];
     struct docio_object doc;
-    FileMgrConfig config(blocksize, 1024, 0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
     std::string fname("./docio_testfile");
 
     doc.key = (void*)keybuf;

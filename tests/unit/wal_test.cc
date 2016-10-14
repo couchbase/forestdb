@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "wal.h"
+#include "configuration.h"
 #include "filemgr.h"
 #include "libforestdb/forestdb.h"
 #include "test.h"
@@ -41,19 +42,11 @@ void wal_basic_test()
 
     FdbEngine::init(nullptr);
     int ndocs = 90000;
-    FileMgrConfig config(4096, // block size
-                         5, // number of buffercache blocks
-                         0, // flag
-                         8, // chunk size
-                         FILEMGR_CREATE, // create if does not exist
-                         FDB_SEQTREE_USE, // create and use sequence trees
-                         0, // prefetch thread duration 0 = disabled
-                         8, // num wal shards
-                         0, // num block cache shards
-                         FDB_ENCRYPTION_NONE, // encryption type
-                         0x00, // encryption key size in bytes
-                         0, // block reusing threshold
-                         0); // num keeping headers
+    fdb_config config = get_default_config();
+    config.buffercache_size = 0;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
     cmp_info.kvs_config = fdb_get_default_kvs_config();
     cmp_info.kvs = &def_kvs;
 
@@ -143,19 +136,12 @@ void wal_ref_ptr_test()
 
     FdbEngine::init(nullptr);
     int ndocs = 90000;
-    FileMgrConfig config(4096, // block size
-                         5, // number of buffercache blocks
-                         0, // flag
-                         8, // chunk size
-                         FILEMGR_CREATE, // create if does not exist
-                         FDB_SEQTREE_USE, // create and use sequence trees
-                         0, // prefetch thread duration 0 = disabled
-                         8, // num wal shards
-                         0, // num block cache shards
-                         FDB_ENCRYPTION_NONE, // encryption type
-                         0x00, // encryption key size in bytes
-                         0, // block reusing threshold
-                         0); // num keeping headers
+    fdb_config config = get_default_config();
+    config.buffercache_size = 0;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     cmp_info.kvs_config = fdb_get_default_kvs_config();
     cmp_info.kvs = &def_kvs;
     fdb_status s;

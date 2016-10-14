@@ -100,15 +100,6 @@ public:
     }
 
     /**
-     * Init a file manager config using a given ForestDB config
-     *
-     * @param config ForestDB config
-     * @param fconfig File manager config
-     */
-    static void initFileConfig(const fdb_config *config,
-                               FileMgrConfig *fconfig);
-
-    /**
      * Incr the file open in-progress counter
      */
     static size_t incrOpenInProgCounter() {

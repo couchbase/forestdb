@@ -21,6 +21,7 @@
 
 #include "fdb_engine.h"
 #include "hbtrie.h"
+#include "configuration.h"
 #include "test.h"
 #include "btreeblock.h"
 #include "docio.h"
@@ -69,9 +70,12 @@ void basic_test()
     FileMgr *file;
     HBTrie *trie;
     struct docio_object doc;
-    FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t), FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.chunksize = sizeof(uint64_t);
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     uint64_t offset, offset_old, _offset;
     uint32_t docsize;
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -196,9 +200,11 @@ void skew_basic_test()
     BTreeBlkHandle *bhandle;
     FileMgr *file;
     HBTrie *trie;
-    FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t),
-                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
-                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.chunksize = sizeof(uint64_t);
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
 
     uint8_t value_buf[8];
     HBTrieIterator *it;
@@ -408,9 +414,11 @@ void hbtrie_reverse_iterator_test()
     BTreeBlkHandle *bhandle;
     HBTrie *trie;
     HBTrieIterator *hit;
-    FileMgrConfig config(nodesize, 0, 0, ksize,
-                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
-                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = nodesize;
+    config.chunksize = ksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
 
     hbtrie_result hr;
     filemgr_open_result fr;
@@ -568,9 +576,11 @@ void hbtrie_partial_update_test()
     FileMgr *file;
     BTreeBlkHandle *bhandle;
     HBTrie *trie;
-    FileMgrConfig config(nodesize, 0, 0, ksize,
-                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
-                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = nodesize;
+    config.chunksize = ksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
 
     hbtrie_result hr;
     filemgr_open_result fr;

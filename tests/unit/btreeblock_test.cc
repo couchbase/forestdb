@@ -21,6 +21,7 @@
 
 #include "fdb_engine.h"
 #include "filemgr.h"
+#include "configuration.h"
 #include "filemgr_ops.h"
 #include "btreeblock.h"
 #include "btree.h"
@@ -60,9 +61,11 @@ void basic_test()
     FileMgr *file;
     BTreeBlkHandle *btree_handle;
     BTree *btree;
-    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.buffercache_size = 0;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
 
     int i, r;
     uint64_t k,v;
@@ -145,9 +148,12 @@ void iterator_test()
     BTreeBlkHandle *btree_handle;
     BTree *btree;
     BTreeIterator *bi;
-    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.buffercache_size = 0;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     btree_result br;
     int i, r;
     uint64_t k,v;
@@ -229,9 +235,12 @@ void two_btree_test()
     FileMgr *file;
     BTreeBlkHandle *btreeblk_handle;
     BTree *btree_a, *btree_b;
-    FileMgrConfig config(blocksize, 1024, 0x0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.blocksize = blocksize;
+    config.buffercache_size = 1024 * blocksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     uint64_t k,v;
     std::string fname("./btreeblock_testfile");
     int r = system(SHELL_DEL" btreeblock_testfile");
@@ -281,9 +290,11 @@ void range_test()
     FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree;
-    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
-                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                          0x00, 0, 0);
+    fdb_config fconfig = get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.block_reusing_threshold = 0;
+    fconfig.num_keeping_headers = 0;
+
     uint64_t key, value, key_end;
     std::string fname("./btreeblock_testfile");
 
@@ -359,9 +370,12 @@ void subblock_test()
     FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree, *btree_arr[64];
-    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
-                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                          0x00, 0, 0);
+
+    fdb_config fconfig = get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.block_reusing_threshold = 0;
+    fconfig.num_keeping_headers = 0;
+
     struct btree_meta meta;
 
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
@@ -638,9 +652,12 @@ void btree_reverse_iterator_test()
     BTreeBlkHandle *bhandle;
     BTree *btree;
     BTreeIterator *bi;
-    FileMgrConfig config(nodesize, 0, 0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
-                         0x00, 0, 0);
+
+    fdb_config config = get_default_config();
+    config.buffercache_size = 0;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     btree_result br;
     filemgr_open_result fr;
     uint64_t i;

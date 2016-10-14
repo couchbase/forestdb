@@ -23,15 +23,19 @@
 #include "filemgr.h"
 #include "filemgr_ops.h"
 #include "test.h"
+#include "configuration.h"
 
 void basic_test(fdb_encryption_algorithm_t encryption)
 {
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, encryption,
-                         0x55, 0, 0);
+    fdb_config config = get_default_config();
+    config.buffercache_size = 1024 * config.blocksize;
+    config.encryption_key.algorithm = encryption;
+    config.encryption_key.bytes[0] = 0x55;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
     const char *dbheader = "dbheader";
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];

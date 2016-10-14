@@ -201,15 +201,15 @@ Wal::Wal(FileMgr *_file, size_t nbucket)
     list_init(&txn_list);
     spin_init(&lock);
 
-    if (file->getConfig()->getNumWalShards()) {
-        num_shards = file->getConfig()->getNumWalShards();
+    if (file->getConfig()->num_wal_partitions) {
+        num_shards = file->getConfig()->num_wal_partitions;
     } else {
         num_shards = DEFAULT_NUM_WAL_PARTITIONS;
     }
 
     key_shards = (wal_shard *)malloc(sizeof(struct wal_shard) * num_shards);
 
-    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
         seq_shards = (wal_shard *)
             malloc(sizeof(struct wal_shard) * num_shards);
     } else {
@@ -221,7 +221,7 @@ Wal::Wal(FileMgr *_file, size_t nbucket)
                   _wal_cmp_bykey);
         list_init(&key_shards[i]._list);
         spin_init(&key_shards[i].lock);
-        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
             hash_init(&seq_shards[i]._map, nbucket, _wal_hash_byseq,
                       _wal_cmp_byseq);
             spin_init(&seq_shards[i].lock);
@@ -240,14 +240,14 @@ Wal::~Wal()
     for (; i < num_shards; ++i) {
         hash_free(&key_shards[i]._map);
         spin_destroy(&key_shards[i].lock);
-        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
             hash_free(&seq_shards[i]._map);
             spin_destroy(&seq_shards[i].lock);
         }
     }
     spin_destroy(&lock);
     free(key_shards);
-    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
         free(seq_shards);
     }
 }
@@ -581,7 +581,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         offset = value_in.offset;
     }
     if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
-        buf2kvid(file->getConfig()->getChunkSize(), doc->key, &kv_id);
+        buf2kvid(file->getConfig()->chunksize, doc->key, &kv_id);
     } else {
         kv_id = 0;
     }
@@ -612,7 +612,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 !(is_committed || caller == INS_BY_COMPACT_PHASE1) &&
                 same_snap) {
 
-                if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                     // Re-index the item by new sequence number..
                     size_t seq_shard_num = item->seqnum % num_shards;
                     if (caller == INS_BY_WRITER) {
@@ -763,7 +763,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 if (_item) {
                     avl_remove(&shandle->key_tree, &_item->avl_keysnap);
                     _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
-                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                         avl_remove(&shandle->seq_tree, &_item->avl_seqsnap);
                     }
                     // Even though this is an update to the same snapshot
@@ -776,7 +776,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 item->flag |= WAL_ITEM_IN_SNAP_TREE;
             }
 
-            if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+            if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                 size_t seq_shard_num = doc->seqnum % num_shards;
                 if (caller == INS_BY_WRITER) {
                     spin_lock(&seq_shards[seq_shard_num].lock);
@@ -814,7 +814,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         // create new header and new item
         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));
         list_init(&header->items);
-        header->chunksize = file->getConfig()->getChunkSize();
+        header->chunksize = file->getConfig()->chunksize;
         header->checksum = static_cast<uint32_t>(chk_sum);
         header->keylen = keylen;
         if (doc->flags & FDB_DOC_MEMORY_SHARED) {
@@ -887,7 +887,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                                std::memory_order_relaxed);
         }
 
-        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
             size_t seq_shard_num = doc->seqnum % num_shards;
             if (caller == INS_BY_WRITER) {
                 spin_lock(&seq_shards[seq_shard_num].lock);
@@ -1180,15 +1180,15 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
         }
         spin_unlock(&key_shards[shard_num].lock);
     } else {
-        if (file->getConfig()->getSeqtreeOpt() != FDB_SEQTREE_USE) {
+        if (file->getConfig()->seqtree_opt != FDB_SEQTREE_USE) {
             return FDB_RESULT_INVALID_CONFIG;
         }
         // search by seqnum
         struct wal_item_header temp_header;
 
         if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
-            temp_header.key = (void*)alca(uint8_t, file->getConfig()->getChunkSize());
-            kvid2buf(file->getConfig()->getChunkSize(), kv_id, temp_header.key);
+            temp_header.key = (void*)alca(uint8_t, file->getConfig()->chunksize);
+            kvid2buf(file->getConfig()->chunksize, kv_id, temp_header.key);
             item_query.header = &temp_header;
         }
         item_query.seqnum = doc->seqnum;
@@ -1369,7 +1369,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     new_file->getWal()->insert_Wal(item->txn, &cmp_info, &doc,
                                                    val, INS_BY_WRITER);
 
-                    if (old_file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (old_file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                         // remove from seq map
                         size_t shard_num = item->seqnum % num_shards;
                         spin_lock(&old_file->getWal()->seq_shards[shard_num].lock);
@@ -1546,7 +1546,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                 }
                 // remove from list & hash
                 list_remove(&item->header->items, &_item->list_elem);
-                if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                     size_t seq_shard_num = _item->seqnum % num_shards;
                     spin_lock(&seq_shards[seq_shard_num].lock);
                     hash_remove(&seq_shards[seq_shard_num]._map,
@@ -1582,7 +1582,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                         !(_item->flag & WAL_ITEM_FLUSHED_OUT)) {
                     avl_remove(&_item->shandle->key_tree,
                             &_item->avl_keysnap);
-                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                         avl_remove(&_item->shandle->seq_tree,
                                 &_item->avl_seqsnap);
                     }
@@ -1647,7 +1647,7 @@ void Wal::releaseItem_Wal(size_t shard_num, fdb_kvs_id_t kv_id,
                           struct wal_item *item)
 {
     list_remove(&item->header->items, &item->list_elem);
-    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
         size_t seq_shard_num;
         seq_shard_num = item->seqnum % num_shards;
         spin_lock(&seq_shards[seq_shard_num].lock);
@@ -2372,8 +2372,8 @@ WalItr::WalItr(FileMgr *file,
         this->by_key = true;
     } else {
         // Otherwise wal iteration is requested over sequence range
-        fdb_assert(file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE,
-                   file->getConfig()->getSeqtreeOpt(), FDB_SEQTREE_USE);
+        fdb_assert(file->getConfig()->seqtree_opt == FDB_SEQTREE_USE,
+                   file->getConfig()->seqtree_opt, FDB_SEQTREE_USE);
         map_shards = file->getWal()->seq_shards;
         avl_init(&mergeTree, NULL);
         this->by_key = false;
@@ -3057,7 +3057,7 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
         shard_num = item->header->checksum % num_shards;
         spin_lock(&key_shards[shard_num].lock);
 
-        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
             // remove from seq map
             seq_shard_num = item->seqnum % num_shards;
             spin_lock(&seq_shards[seq_shard_num].lock);
@@ -3226,7 +3226,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                         committed = true;
                     }
 
-                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (file->getConfig()->seqtree_opt == FDB_SEQTREE_USE) {
                         // remove from seq hash table
                         seq_shard_num = item->seqnum % num_shards;
                         spin_lock(&seq_shards[seq_shard_num].lock);

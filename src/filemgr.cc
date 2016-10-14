@@ -56,7 +56,7 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 
-static FileMgrConfig global_config;
+static fdb_config global_config;
 
 std::atomic<bool> FileMgr::fileMgrInitialized(false);
 std::mutex FileMgr::initMutex;
@@ -264,11 +264,11 @@ bool FileMgrMap::isStringMatchFound(const std::string &searchPattern) {
 }
 
 FileMgr::FileMgr()
-    : refCount(1), fMgrFlags(0x00), blockSize(global_config.getBlockSize()),
+    : refCount(1), fMgrFlags(0x00), blockSize(global_config.blocksize),
       fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
       ioInprog(0), fMgrWal(nullptr),
       fMgrOps(nullptr),
-      fMgrStatus(FILE_NORMAL), fileConfig(nullptr), bCache(nullptr),
+      fMgrStatus(FILE_NORMAL), bCache(nullptr),
       inPlaceCompaction(false),
       fsType(0), kvHeader(nullptr), throttlingDelay(0), fMgrVersion(0),
       fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
@@ -368,7 +368,7 @@ FileMgr::~FileMgr()
     spin_destroy(&handleIdxLock);
  }
 
-void FileMgr::init(FileMgrConfig *config)
+void FileMgr::init(const fdb_config *config)
 {
     // global initialization
     // initialized only once at first time
@@ -377,9 +377,10 @@ void FileMgr::init(FileMgrConfig *config)
         if (!fileMgrInitialized) {
             global_config = *config;
 
-            if (global_config.getNcacheBlock() > 0)
-                BlockCacheManager::init(global_config.getNcacheBlock(),
-                                        global_config.getBlockSize());
+            if (global_config.buffercache_size > 0)
+                BlockCacheManager::init(global_config.buffercache_size /
+                                        global_config.blocksize,
+                                        global_config.blocksize);
 
             // initialize temp buffer
             list_init(&tempBuf);
@@ -421,10 +422,10 @@ void * FileMgr::getTempBuf()
         void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
-                global_config.getBlockSize() + sizeof(struct temp_buf_item));
+                global_config.blocksize + sizeof(struct temp_buf_item));
 
         item = (struct temp_buf_item *)((uint8_t *) addr +
-                                        global_config.getBlockSize());
+                                        global_config.blocksize);
         item->addr = addr;
     }
     spin_unlock(&tempBufLock);
@@ -438,7 +439,7 @@ void FileMgr::releaseTempBuf(void *buf)
 
     spin_lock(&tempBufLock);
     item = (struct temp_buf_item*)((uint8_t *)buf +
-                                   global_config.getBlockSize());
+                                   global_config.blocksize);
     list_push_front(&tempBuf, &item->le);
     spin_unlock(&tempBufLock);
 }
@@ -756,13 +757,12 @@ size_t FileMgr::getRefCount()
 
 uint64_t FileMgr::getBcacheUsedSpace(void)
 {
-    uint64_t bcache_free_space = 0;
-    if (global_config.getNcacheBlock()) { // If buffer cache is indeed configured
-        bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-        bcache_free_space = (global_config.getNcacheBlock() - bcache_free_space)
-                            * global_config.getBlockSize();
+    if (global_config.buffercache_size) { // If buffer cache is indeed configured
+        return global_config.buffercache_size
+                - BlockCacheManager::getInstance()->getNumFreeBlocks()
+                  * global_config.blocksize;
     }
-    return bcache_free_space;
+    return 0;
 }
 
 struct filemgr_prefetch_args {
@@ -858,7 +858,7 @@ void FileMgr::prefetch(ErrLogCallback *log_callback)
         args = (struct filemgr_prefetch_args *)
                             calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = this;
-        args->duration = fileConfig->getPrefetchDuration();
+        args->duration = fileConfig.prefetch_duration;
         args->log_callback = log_callback;
         thread_create(&prefetchTid, _filemgr_prefetch_thread, args);
     }
@@ -917,19 +917,19 @@ fdb_status FileMgr::fileOpen(const char* filename, struct filemgr_ops *ops,
 
 filemgr_open_result FileMgr::open(std::string filename,
                                   struct filemgr_ops *ops,
-                                  FileMgrConfig *config,
+                                  const fdb_config *config,
                                   ErrLogCallback *log_callback)
 {
-    bool create = config->getOptions() & FILEMGR_CREATE;
-    bool fail_if_exists = config->getOptions() & FILEMGR_EXCL_CREATE;
+    bool create = config->flags & FDB_OPEN_FLAG_CREATE;
+    bool fail_if_exists = config->flags & FDB_OPEN_FLAG_EXCL_CREATE;
     int file_flag = 0x0;
     fdb_status status;
     filemgr_open_result result = {nullptr, FDB_RESULT_OPEN_FAIL};
 
     init(config);
 
-    if (config->getEncryptionKey()->algorithm != FDB_ENCRYPTION_NONE &&
-        global_config.getNcacheBlock() <= 0) {
+    if (config->encryption_key.algorithm != FDB_ENCRYPTION_NONE &&
+        global_config.buffercache_size <= 0) {
         // cannot use encryption without a block cache
         result.rv = FDB_RESULT_CRYPTO_ERROR;
         return result;
@@ -962,10 +962,11 @@ filemgr_open_result FileMgr::open(std::string filename,
             if (create) {
                 file_flag |= O_CREAT;
             }
-            *file->fileConfig = *config;
-            file->fileConfig->setBlockSize(global_config.getBlockSize());
-            file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
-            file_flag |= config->getFlag();
+            file->fileConfig = *config;
+            if ((config->durability_opt & FDB_DRB_ODIRECT) &&
+                config->buffercache_size) {
+                file_flag |= _ARCH_O_DIRECT;
+            }
             status = FileMgr::fileOpen(file->getFileName(),
                                        ops, &file->fopsHandle,
                                        file_flag, 0666);
@@ -999,10 +1000,10 @@ filemgr_open_result FileMgr::open(std::string filename,
                 }
             } else { // Reopening the closed file is succeed.
                 file->fMgrStatus.store(FILE_NORMAL);
-                if (config->getOptions() & FILEMGR_SYNC) {
-                    file->fMgrFlags |= FILEMGR_SYNC;
-                } else {
+                if (config->durability_opt & FDB_DRB_ASYNC) {
                     file->fMgrFlags &= ~FILEMGR_SYNC;
+                } else {
+                    file->fMgrFlags |= FILEMGR_SYNC;
                 }
 
                 file->releaseSpinLock();
@@ -1013,11 +1014,10 @@ filemgr_open_result FileMgr::open(std::string filename,
                 return result;
             }
         } else { // file is already opened.
-
-            if (config->getOptions() & FILEMGR_SYNC) {
-                file->fMgrFlags |= FILEMGR_SYNC;
-            } else {
+            if (config->durability_opt & FDB_DRB_ASYNC) {
                 file->fMgrFlags &= ~FILEMGR_SYNC;
+            } else {
+                file->fMgrFlags |= FILEMGR_SYNC;
             }
 
             file->releaseSpinLock();
@@ -1035,7 +1035,10 @@ filemgr_open_result FileMgr::open(std::string filename,
     if (fail_if_exists) {
         file_flag |= O_EXCL;
     }
-    file_flag |= config->getFlag();
+    if ((config->durability_opt & FDB_DRB_ODIRECT) &&
+         config->buffercache_size) {
+        file_flag |= _ARCH_O_DIRECT;
+    }
 
     fdb_fileops_handle fops_handle;
     status = FileMgr::fileOpen(filename.c_str(), ops, &fops_handle,
@@ -1052,7 +1055,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     file->fileNameLen = filename.length();
 
     status = fdb_init_encryptor(&file->fMgrEncryption,
-                                config->getEncryptionKey());
+                                &config->encryption_key);
     if (status != FDB_RESULT_SUCCESS) {
         FileMgr::fileClose(ops, fops_handle);
         delete file;
@@ -1062,10 +1065,7 @@ filemgr_open_result FileMgr::open(std::string filename,
     }
 
     file->fMgrOps = ops;
-    file->fileConfig = new FileMgrConfig();
-    *file->fileConfig = *config;
-    file->fileConfig->setBlockSize(global_config.getBlockSize());
-    file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
+    file->fileConfig = *config;
     file->fopsHandle = fops_handle;
 
     cs_off_t offset = file->fMgrOps->goto_eof(file->fopsHandle);
@@ -1073,7 +1073,6 @@ filemgr_open_result FileMgr::open(std::string filename,
         _log_errno_str(file->fopsHandle, file->fMgrOps, log_callback,
                        (fdb_status) offset, "SEEK_END", filename.c_str());
         FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
-        delete file->fileConfig;
         delete file;
         spin_unlock(&fileMgrOpenlock);
         result.rv = (fdb_status) offset;
@@ -1085,7 +1084,7 @@ filemgr_open_result FileMgr::open(std::string filename,
 
     // Note: CRC must be initialized before superblock loading
     // initialize CRC mode
-    if (file->fileConfig && file->fileConfig->getOptions() & FILEMGR_CREATE_CRC32) {
+    if (file->fileConfig.flags & FDB_OPEN_WITH_LEGACY_CRC) {
         file->crcMode = CRC32;
     } else {
         file->crcMode = CRC_DEFAULT;
@@ -1101,7 +1100,6 @@ filemgr_open_result FileMgr::open(std::string filename,
                            status, "READ", file->fileName);
             FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
             delete file->staleData;
-            delete file->fileConfig;
             delete file;
             spin_unlock(&fileMgrOpenlock);
             result.rv = status;
@@ -1120,7 +1118,6 @@ filemgr_open_result FileMgr::open(std::string filename,
             FileMgr::fileClose(file->fMgrOps, file->fopsHandle);
             delete file->getSb();
             delete file->staleData;
-            delete file->fileConfig;
             delete file;
             spin_unlock(&fileMgrOpenlock);
             result.rv = status;
@@ -1166,16 +1163,16 @@ filemgr_open_result FileMgr::open(std::string filename,
 
     FdbEngine::getInstance()->getFileMgrMap().addEntry(filename, file);
 
-    if (config->getPrefetchDuration() > 0) {
+    if (config->prefetch_duration > 0) {
         file->prefetch(log_callback);
     }
 
     spin_unlock(&fileMgrOpenlock);
 
-    if (config->getOptions() & FILEMGR_SYNC) {
-        file->fMgrFlags |= FILEMGR_SYNC;
-    } else {
+    if (config->durability_opt & FDB_DRB_ASYNC) {
         file->fMgrFlags &= ~FILEMGR_SYNC;
+    } else {
+        file->fMgrFlags |= FILEMGR_SYNC;
     }
 
     result.file = file;
@@ -1236,6 +1233,28 @@ fdb_seqnum_t FileMgr::getSeqnum() const {
 
 void FileMgr::setSeqnum(fdb_seqnum_t seqnum) {
     fMgrHeader.seqnum = seqnum;
+}
+
+void FileMgr::setBlockReusingParams(size_t blk_reuse_threshold,
+                                    size_t num_keeping_hdrs) {
+    acquireSpinLock();
+    fileConfig.block_reusing_threshold = blk_reuse_threshold;
+    fileConfig.num_keeping_headers = num_keeping_hdrs;
+    releaseSpinLock();
+}
+
+size_t FileMgr::getNumKeepingHeaders() {
+    acquireSpinLock();
+    size_t ret = fileConfig.num_keeping_headers;
+    releaseSpinLock();
+    return ret;
+}
+
+size_t FileMgr::getBlockReusingThreshold() {
+    acquireSpinLock();
+    size_t ret = fileConfig.block_reusing_threshold;
+    releaseSpinLock();
+    return ret;
 }
 
 void* FileMgr::getHeader(void *buf, size_t *len,
@@ -1579,7 +1598,7 @@ fdb_status FileMgr::close(FileMgr *file,
     // remove filemgr structure if no thread refers to the file
     file->acquireSpinLock();
     if (file->getRefCount_UNLOCKED() == 0) {
-        if (global_config.getNcacheBlock() > 0 &&
+        if (global_config.buffercache_size > 0 &&
             file->getFileStatus() != FILE_REMOVED_PENDING) {
             file->releaseSpinLock();
             // discard all dirty blocks belonged to this file
@@ -1702,7 +1721,7 @@ fdb_status FileMgr::close(FileMgr *file,
 
 void FileMgr::removeAllBufferBlocks() {
     // remove all cached blocks
-    if (global_config.getNcacheBlock() > 0 &&
+    if (global_config.buffercache_size > 0 &&
         bCache.load(std::memory_order_relaxed)) {
 
         BlockCacheManager::eraseFileHistory(this);
@@ -1726,7 +1745,7 @@ void FileMgr::freeFunc(FileMgr *file)
     }
 
     // remove all cached blocks
-    if (global_config.getNcacheBlock() > 0 &&
+    if (global_config.buffercache_size > 0 &&
         file->bCache.load(std::memory_order_relaxed)) {
 
         BlockCacheManager::eraseFileHistory(file);
@@ -1761,7 +1780,6 @@ void FileMgr::freeFunc(FileMgr *file)
 
     // free file structure
     delete file->staleData;
-    delete file->fileConfig;
     delete file;
 }
 
@@ -1825,7 +1843,7 @@ fdb_status FileMgr::shutdown()
         spin_unlock(&fileMgrOpenlock);
         if (!open_file) {
             FdbEngine::getInstance()->getFileMgrMap().freeEntries(FileMgr::freeFunc);
-            if (global_config.getNcacheBlock() > 0) {
+            if (global_config.buffercache_size > 0) {
                 BlockCacheManager::getInstance()->destroyInstance();
             }
             fileMgrInitialized.store(false);
@@ -1851,7 +1869,7 @@ bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
         lastPos.fetch_add(blockSize);
     }
 
-    if (global_config.getNcacheBlock() <= 0) {
+    if (global_config.buffercache_size <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1,
@@ -1873,7 +1891,7 @@ void FileMgr::allocMultiple(int nblock, bid_t *begin,
     *end = *begin + nblock - 1;
     lastPos.fetch_add(blockSize * nblock);
 
-    if (global_config.getNcacheBlock() <= 0) {
+    if (global_config.buffercache_size <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1, lastPos.load() - 1);
@@ -1897,7 +1915,7 @@ bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
         *end = *begin + nblock - 1;
         lastPos.fetch_add(blockSize * nblock);
 
-        if (global_config.getNcacheBlock() <= 0) {
+        if (global_config.buffercache_size <= 0) {
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
             ssize_t rv = fMgrOps->pwrite(fopsHandle, &_buf, 1, lastPos.load());
@@ -1936,7 +1954,7 @@ bool FileMgr::invalidateBlock(bid_t bid) {
     } else {
         ret = false; // a block from the past is invalidated (committed)
     }
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         BlockCacheManager::getInstance()->invalidateBlock(this, bid);
     }
     return ret;
@@ -1944,7 +1962,7 @@ bool FileMgr::invalidateBlock(bid_t bid) {
 
 bool FileMgr::isFullyResident() {
     bool ret = false;
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         //TODO: A better thing to do is to track number of document blocks
         // and only compare those with the cached document block count
         double num_cached_blocks =
@@ -1960,7 +1978,7 @@ bool FileMgr::isFullyResident() {
 
 uint64_t FileMgr::flushImmutable(ErrLogCallback *log_callback) {
     uint64_t ret = 0;
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         if (ioInprog.load()) {
             return 0;
         }
@@ -1996,7 +2014,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
         return FDB_RESULT_READ_FAIL;
     }
 
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
@@ -2093,7 +2111,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
             r = BlockCacheManager::getInstance()->write(this, bid, buf,
                                                         BCACHE_REQ_CLEAN,
                                                         false);
-            if (r != global_config.getBlockSize()) {
+            if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                     plock_unlock(&fMgrPlock, plock_entry);
@@ -2213,7 +2231,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
         }
     }
 
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
@@ -2234,7 +2252,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
             r = BlockCacheManager::getInstance()->write(this, bid, buf,
                                                         BCACHE_REQ_DIRTY,
                                                         final_write);
-            if (r != global_config.getBlockSize()) {
+            if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                     plock_unlock(&fMgrPlock, plock_entry);
@@ -2292,7 +2310,7 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                 r = BlockCacheManager::getInstance()->write(this, bid, _buf,
                                                             BCACHE_REQ_DIRTY,
                                                             final_write);
-                if (r != global_config.getBlockSize()) {
+                if (r != global_config.blocksize) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                         plock_unlock(&fMgrPlock, plock_entry);
@@ -2377,7 +2395,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
     bool block_reusing = false;
 
     setIoInprog();
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
@@ -2543,7 +2561,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
 fdb_status FileMgr::sync_FileMgr(bool sync_option,
                                  ErrLogCallback *log_callback) {
     fdb_status result = FDB_RESULT_SUCCESS;
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.buffercache_size > 0) {
         result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
@@ -2759,7 +2777,7 @@ void FileMgr::removePending(FileMgr *old_file,
 
 // Note: fileMgrOpenlock should be held before calling this function.
 fdb_status FileMgr::destroyFile(std::string filename,
-                                FileMgrConfig *config,
+                                fdb_config *config,
                                 std::unordered_set<std::string> *destroy_file_set) {
     std::unordered_set<std::string> to_destroy_files;
     std::unordered_set<std::string> *destroy_set = (destroy_file_set
@@ -2822,11 +2840,9 @@ fdb_status FileMgr::destroyFile(std::string filename,
                                    disk_file.fMgrOps,
                                    &disk_file.fopsHandle,
                                    O_RDWR, 0666);
-        disk_file.blockSize = global_config.getBlockSize();
-        FileMgrConfig fmc;
-        disk_file.fileConfig = &fmc;
-        *disk_file.fileConfig = *config;
-        fdb_init_encryptor(&disk_file.fMgrEncryption, config->getEncryptionKey());
+        disk_file.blockSize = global_config.blocksize;
+        disk_file.fileConfig = *config;
+        fdb_init_encryptor(&disk_file.fMgrEncryption, &config->encryption_key);
         if (status != FDB_RESULT_SUCCESS) {
             if (status != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
@@ -2845,8 +2861,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
             } else { // Need to read DB header which contains old filename
                 disk_file.lastPos.store(offset);
                 // initialize CRC mode
-                if (disk_file.fileConfig &&
-                    disk_file.fileConfig->getOptions() & FILEMGR_CREATE_CRC32) {
+                if (disk_file.fileConfig.flags & FDB_OPEN_WITH_LEGACY_CRC) {
                     disk_file.crcMode = CRC32;
                 } else {
                     disk_file.crcMode = CRC_DEFAULT;
@@ -2987,7 +3002,7 @@ bool FileMgr::isInPlaceCompactionSet() {
     return ret;
 }
 
-void FileMgr::mutexOpenlock(FileMgrConfig *config) {
+void FileMgr::mutexOpenlock(fdb_config *config) {
     init(config);
     spin_lock(&fileMgrOpenlock);
 }

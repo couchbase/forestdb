@@ -114,7 +114,7 @@ size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
 
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
-    size_chunk = dhandle->getFile()->getConfig()->getChunkSize();
+    size_chunk = dhandle->getFile()->getConfig()->chunksize;
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
@@ -1546,7 +1546,6 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 
 static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
 {
-    FileMgrConfig fconfig;
     BTreeBlkHandle *new_bhandle;
     DocioHandle *new_dhandle;
     HBTrie *new_trie = NULL;
@@ -1665,14 +1664,12 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     }
     handle->staletree = new_staletree;
 
-    // set filemgr configuration
-    FdbEngine::initFileConfig(&handle->config, &fconfig);
-    fconfig.addOptions(FILEMGR_CREATE);
+    handle->config.flags |= FDB_OPEN_FLAG_CREATE;
 
     // open same file again, so the root kv handle can be redirected to this
     result = FileMgr::open(handle->filename,
                            handle->fileops,
-                           &fconfig,
+                           &handle->config,
                            &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
         handle->file->mutexUnlock();
@@ -1982,13 +1979,8 @@ fdb_status FdbEngine::init(fdb_config *config) {
 
             bgflusher_config bgf_config;
             threadpool_config thrd_config;
-            FileMgrConfig f_config;
-
             // Initialize file manager configs and global block cache
-            f_config.setBlockSize(_config.blocksize);
-            f_config.setNcacheBlock(_config.buffercache_size / _config.blocksize);
-            f_config.setSeqtreeOpt(_config.seqtree_opt);
-            FileMgr::init(&f_config);
+            FileMgr::init(&_config);
             FileMgr::setLazyFileDeletion(true,
                                          compactor_register_file_removing,
                                          compactor_is_file_removed);
@@ -2063,39 +2055,6 @@ fdb_status FdbEngine::destroyInstance() {
         }
     }
     return FDB_RESULT_SUCCESS;
-}
-
-void FdbEngine::initFileConfig(const fdb_config *config,
-                               FileMgrConfig *fconfig) {
-    fconfig->setBlockSize(config->blocksize);
-    fconfig->setNcacheBlock(config->buffercache_size / config->blocksize);
-    fconfig->setChunkSize(config->chunksize);
-
-    fconfig->addOptions(0x0);
-    fconfig->setSeqtreeOpt(config->seqtree_opt);
-
-    if (config->flags & FDB_OPEN_FLAG_CREATE) {
-        fconfig->addOptions(FILEMGR_CREATE);
-    }
-    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
-        fconfig->addOptions(FILEMGR_READONLY);
-    }
-    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
-        fconfig->addOptions(FILEMGR_SYNC);
-    }
-
-    fconfig->setFlag(0x0);
-    if ((config->durability_opt & FDB_DRB_ODIRECT) &&
-        config->buffercache_size) {
-        fconfig->addFlag(_ARCH_O_DIRECT);
-    }
-
-    fconfig->setPrefetchDuration(config->prefetch_duration);
-    fconfig->setNumWalShards(config->num_wal_partitions);
-    fconfig->setNumBcacheShards(config->num_bcache_partitions);
-    fconfig->setEncryptionKey(config->encryption_key);
-    fconfig->setBlockReusingThreshold(config->block_reusing_threshold);
-    fconfig->setNumKeepingHeaders(config->num_keeping_headers);
 }
 
 fdb_status FdbEngine::openFile(FdbFileHandle **ptr_fhandle,
@@ -2190,7 +2149,6 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                               fdb_filename_mode_t filename_mode,
                               const fdb_config *config)
 {
-    FileMgrConfig fconfig;
     KvsStat stat, empty_stat;
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
@@ -2237,8 +2195,6 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
-    FdbEngine::initFileConfig(config, &fconfig);
-
     if (filename_mode == FDB_VFILENAME) {
         actual_filename =
             compManager->getActualFileName(filename_str,
@@ -2262,11 +2218,6 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         target_filename = virtual_filename;
     }
 
-    // If the user is requesting legacy CRC pass that down to filemgr
-    if(config->flags & FDB_OPEN_WITH_LEGACY_CRC) {
-        fconfig.addOptions(FILEMGR_CREATE_CRC32);
-    }
-
     if (config->custom_file_ops) {
         handle->fileops = config->custom_file_ops;
     } else {
@@ -2274,7 +2225,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     }
     filemgr_open_result result = FileMgr::open(actual_filename,
                                                handle->fileops,
-                                               &fconfig, &handle->log_callback);
+                                               config, &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
         return (fdb_status) result.rv;
     }
@@ -2850,11 +2801,12 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
                 ErrLogCallback dummy_cb(fdb_dummy_log_callback, NULL);
-                fconfig.setOptions(FILEMGR_READONLY);
+                fdb_config dummy_config = *config;
+                dummy_config.flags = FDB_OPEN_FLAG_RDONLY;
                 filemgr_open_result result = FileMgr::open(
                                                     std::string(prev_filename),
                                                     handle->fileops,
-                                                    &fconfig,
+                                                    &dummy_config,
                                                     &dummy_cb);
                 if (result.file) {
                     FileMgr::removePending(result.file, handle->file,
@@ -4812,7 +4764,7 @@ fdb_status FdbEngine::getAllSnapMarkers(FdbFileHandle *fhandle,
     header_len = handle->file->accessHeader()->size;
     size = 0;
 
-    uint64_t num_keeping_headers = handle->file->getConfig()->getNumKeepingHeaders();
+    uint64_t num_keeping_headers = handle->file->getNumKeepingHeaders();
 
     // Reverse scan the file to locate the DB header with seqnum marker
     for (i = 0; header_len; ++i, ++size) {
@@ -5147,7 +5099,6 @@ fdb_status FdbEngine::destroyFile(const char *fname,
 #endif
 
     fdb_config config;
-    FileMgrConfig fconfig;
     fdb_status status = FDB_RESULT_SUCCESS;
     std::string filename(fname);
 
@@ -5167,14 +5118,13 @@ fdb_status FdbEngine::destroyFile(const char *fname,
     }
 
     FdbEngine::init(fdbconfig);
-    FdbEngine::initFileConfig(&config, &fconfig);
 
-    FileMgr::mutexOpenlock(&fconfig);
+    FileMgr::mutexOpenlock(&config);
 
     // Destroy the file whose name is exactly matched.
     // In auto compaction mode, exact matching file name does not exist in
     // the file system, so we allow failure returned by this function.
-    status = FileMgr::destroyFile(filename, &fconfig, NULL);
+    status = FileMgr::destroyFile(filename, &config, NULL);
     if (status != FDB_RESULT_SUCCESS &&
         config.compaction_mode != FDB_COMPACTION_AUTO) {
         FileMgr::mutexOpenunlock();
@@ -5203,8 +5153,7 @@ fdb_status FdbEngine::setBlockReusingParams(FdbFileHandle *fhandle,
         return FDB_RESULT_INVALID_HANDLE;
     }
     FileMgr *file = fhandle->getRootHandle()->file;
-    file->getConfig()->setBlockReusingThreshold(block_reusing_threshold);
-    file->getConfig()->setNumKeepingHeaders(num_keeping_headers);
+    file->setBlockReusingParams(block_reusing_threshold, num_keeping_headers);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -5244,10 +5193,10 @@ fdb_status FdbEngine::fetchHandleStats(fdb_kvs_handle *handle,
                   static_cast<uint64_t>(handle->last_wal_flush_hdr_bid),
                   ctx);
     stat_callback(handle, "Num_wal_shards",
-                  static_cast<uint64_t>(handle->file->getConfig()->getNumWalShards()),
+                  static_cast<uint64_t>(handle->file->getConfig()->num_wal_partitions),
                   ctx);
     stat_callback(handle, "Num_bcache_shards",
-                  static_cast<uint64_t>(handle->file->getConfig()->getNumBcacheShards()),
+                  static_cast<uint64_t>(handle->file->getConfig()->num_bcache_partitions),
                   ctx);
     stat_callback(handle, "Block_cache_hits",
                   static_cast<uint64_t>(handle->file->fetchBlockCacheHits()),
@@ -5681,18 +5630,18 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "file: fd %d\n", handle_to_fd(h->file->getFopsHandle()));
     fprintf(stderr, "file: lastPos %" _F64"\n", h->file->getPos());
     fprintf(stderr, "file: fMgrStatus %d\n", h->file->getFileStatus());
-    fprintf(stderr, "file: config: blocksize %d\n", h->file->getConfig()->getBlockSize());
-    fprintf(stderr, "file: config: ncacheblock %d\n",
-            h->file->getConfig()->getNcacheBlock());
-    fprintf(stderr, "file: config: flag %d\n", h->file->getConfig()->getFlag());
-    fprintf(stderr, "file: config: chunksize %d\n", h->file->getConfig()->getChunkSize());
-    fprintf(stderr, "file: config: options %x\n", h->file->getConfig()->getOptions());
+    fprintf(stderr, "file: config: blocksize %d\n", h->file->getConfig()->blocksize);
+    fprintf(stderr, "file: config: buffercache size %" _F64 "\n",
+            h->file->getConfig()->buffercache_size);
+    fprintf(stderr, "file: config: flag %d\n", h->file->getConfig()->flags);
+    fprintf(stderr, "file: config: chunksize %d\n", h->file->getConfig()->chunksize);
+    fprintf(stderr, "file: config: options %x\n", h->file->getConfig()->durability_opt);
     fprintf(stderr, "file: config: prefetch_duration %" _F64 "\n",
-            h->file->getConfig()->getPrefetchDuration());
+            h->file->getConfig()->prefetch_duration);
     fprintf(stderr, "file: config: num_wal_shards %d\n",
-            h->file->getConfig()->getNumWalShards());
+            h->file->getConfig()->num_wal_partitions);
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
-            h->file->getConfig()->getNumBcacheShards());
+            h->file->getConfig()->num_bcache_partitions);
     fprintf(stderr, "file: oldFileName %s\n", h->file->getOldFileName().empty()
                                                 ? "nil"
                                                 : h->file->getOldFileName().c_str());

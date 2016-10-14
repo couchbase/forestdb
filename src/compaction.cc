@@ -152,7 +152,7 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
                                    const fdb_encryption_key *new_encryption_key)
 {
     Compaction compaction;
-    FileMgrConfig fconfig;
+    fdb_config fconfig;
     FdbKvsHandle *handle = fhandle->getRootHandle();
     fdb_status status;
     LATENCY_STAT_START();
@@ -170,12 +170,11 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     // sync handle for the current file
     fdb_sync_db_header(handle);
 
-    // Set filemgr configurations for a new file
-    FdbEngine::initFileConfig(&handle->config, &fconfig);
-    fconfig.addOptions(FILEMGR_CREATE);
-    fconfig.addOptions(FILEMGR_EXCL_CREATE); // Fail if the file already exists
+    fconfig = handle->config;
+    fconfig.flags |= (FDB_OPEN_FLAG_CREATE
+                  | FDB_OPEN_FLAG_EXCL_CREATE); // fail if file already exists
     if (new_encryption_key) {
-        fconfig.setEncryptionKey(*new_encryption_key);
+        fconfig.encryption_key = *new_encryption_key;
     }
 
     // Create a new file for compaction
@@ -554,7 +553,7 @@ fdb_status Compaction::checkCompactionReadiness(FdbKvsHandle *handle,
 }
 
 fdb_status Compaction::createFile(const std::string file_name,
-                                  FileMgrConfig &fconfig,
+                                  fdb_config &fconfig,
                                   bool in_place_compaction,
                                   FdbKvsHandle *handle) {
     // Open a new file for compaction
@@ -1136,13 +1135,13 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
 
     compactor_prev_bid = 0;
     writer_prev_bid = handle->file->getPos() /
-                      handle->file->getConfig()->getBlockSize();
+                      handle->file->getConfig()->blocksize;
 
     // Init AIO buffer, callback, event instances.
     struct async_io_handle *aio_handle_ptr = NULL;
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->getConfig()->getBlockSize();
+    aio_handle.block_size = handle->file->getConfig()->blocksize;
     aio_handle.fops_handle = handle->file->getFopsHandle();
     if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
                                          &aio_handle) == FDB_RESULT_SUCCESS) {
@@ -1371,9 +1370,9 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
                 }
 
                 writer_curr_bid = handle->file->getPos() /
-                                  handle->file->getConfig()->getBlockSize();
+                                  handle->file->getConfig()->blocksize;
                 compactor_curr_bid = fileMgr->getPos()
-                                   / fileMgr->getConfig()->getBlockSize();
+                                   / fileMgr->getConfig()->blocksize;
                 updateWriteThrottlingProb(writer_curr_bid, compactor_curr_bid,
                                           &writer_prev_bid,
                                           &compactor_prev_bid,
@@ -1450,17 +1449,17 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
 
     timestamp_t cur_timestamp;
     fdb_status fs = FDB_RESULT_SUCCESS;
-    blocksize = handle->file->getConfig()->getBlockSize();
+    blocksize = handle->file->getConfig()->blocksize;
 
     compactor_prev_bid = 0;
     writer_prev_bid = handle->file->getPos() /
-                      handle->file->getConfig()->getBlockSize();
+                      handle->file->getConfig()->blocksize;
 
     // Init AIO buffer, callback, event instances.
     struct async_io_handle *aio_handle_ptr = NULL;
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->getConfig()->getBlockSize();
+    aio_handle.block_size = handle->file->getConfig()->blocksize;
     aio_handle.fops_handle = handle->file->getFopsHandle();
     if (handle->file->getOps()->aio_init(handle->file->getFopsHandle(),
                                          &aio_handle)== FDB_RESULT_SUCCESS) {
@@ -1707,9 +1706,9 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
             }
 
             writer_curr_bid = handle->file->getPos() /
-                              handle->file->getConfig()->getBlockSize();
+                              handle->file->getConfig()->blocksize;
             compactor_curr_bid = fileMgr->getPos() /
-                                 fileMgr->getConfig()->getBlockSize();
+                                 fileMgr->getConfig()->blocksize;
             updateWriteThrottlingProb(writer_curr_bid, compactor_curr_bid,
                                       &writer_prev_bid, &compactor_prev_bid,
                                       prob, handle->config.max_writer_lock_prob);
@@ -1767,7 +1766,7 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
     uint64_t start_bmp_revnum, stop_bmp_revnum;
     uint64_t cur_bmp_revnum = static_cast<uint64_t>(-1);
     size_t c;
-    size_t blocksize = handle->file->getConfig()->getBlockSize();
+    size_t blocksize = handle->file->getConfig()->blocksize;
     struct timeval tv;
     struct docio_object *doc;
     FdbKvsHandle new_handle;
@@ -2196,7 +2195,7 @@ void Compaction::appendBatchedDelta(FdbKvsHandle *handle,
         // Copy on write is a file-system / disk optimization, so it can't be
         // invoked if the blocks of the old-file have not been synced to disk
         bool flushed_blocks = (!got_lock || // blocks before committed DB header
-                !handle->file->getConfig()->getNcacheBlock()); // buffer cache is disabled
+                !handle->file->getConfig()->buffercache_size);// no buffercache
         if (flushed_blocks &&
             FileMgr::isCowSupported(handle->file, new_handle->file)) {
             cloneBatchedDelta(handle, new_handle, doc,

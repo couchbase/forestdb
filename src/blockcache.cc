@@ -422,7 +422,7 @@ fdb_status BlockCacheManager::flushDirtyBlocks(FileBlockCache *fcache,
     // Cross-shard dirty block list for sequential writes.
     std::map<bid_t, BlockCacheItem *> dirty_blocks;
 
-    if (fcache->getFileManager()->getConfig()->getFlag() & _ARCH_O_DIRECT) {
+    if (fcache->getFileManager()->getConfig()->durability_opt & FDB_DRB_ODIRECT) {
         o_direct = true;
     }
 
@@ -781,8 +781,8 @@ FileBlockCache* BlockCacheManager::createFileBlockCache(FileMgr *file) {
     cleanUpInvalidFileBlockCaches();
 
     size_t num_shards;
-    if (file->getConfig()->getNumBcacheShards()) {
-        num_shards = file->getConfig()->getNumBcacheShards();
+    if (file->getConfig()->buffercache_size) {
+        num_shards = file->getConfig()->num_bcache_partitions;
     } else {
         num_shards = DEFAULT_NUM_BCACHE_PARTITIONS;
     }

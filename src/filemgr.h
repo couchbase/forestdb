@@ -63,192 +63,6 @@
 
 class SuperblockBase;
 
-class FileMgrConfig {
-public:
-    FileMgrConfig()
-        : blocksize(FDB_BLOCKSIZE), ncacheblock(0), flag(0),
-          chunksize(sizeof(uint64_t)), options(0x00),
-          seqtree_opt(FDB_SEQTREE_NOT_USE), prefetch_duration(0),
-          num_wal_shards(DEFAULT_NUM_WAL_PARTITIONS),
-          num_bcache_shards(DEFAULT_NUM_BCACHE_PARTITIONS),
-          block_reusing_threshold(65/*default*/),
-          num_keeping_headers(5/*default*/)
-    {
-        encryption_key.algorithm = FDB_ENCRYPTION_NONE;
-        memset(encryption_key.bytes, 0, sizeof(encryption_key.bytes));
-    }
-
-    FileMgrConfig(int _blocksize, int _ncacheblock, int _flag,
-                  int _chunksize, uint8_t _options, uint8_t _seqtree_opt,
-                  uint64_t _prefetch_duration, uint64_t _num_wal_shards,
-                  uint64_t _num_bcache_shards,
-                  fdb_encryption_algorithm_t _algorithm,
-                  uint8_t _encryption_bytes,
-                  uint64_t _block_reusing_threshold,
-                  uint64_t _num_keeping_headers)
-        : blocksize(_blocksize),
-          ncacheblock(_ncacheblock),
-          flag(_flag),
-          chunksize(_chunksize),
-          options(_options),
-          seqtree_opt(_seqtree_opt),
-          prefetch_duration(_prefetch_duration),
-          num_wal_shards(_num_wal_shards),
-          num_bcache_shards(_num_bcache_shards),
-          block_reusing_threshold(_block_reusing_threshold),
-          num_keeping_headers(_num_keeping_headers)
-    {
-        encryption_key.algorithm = _algorithm;
-        memset(encryption_key.bytes,
-               _encryption_bytes,
-               sizeof(encryption_key.bytes));
-    }
-
-    void operator=(const FileMgrConfig& config) {
-        blocksize = config.blocksize;
-        ncacheblock = config.ncacheblock;
-        flag = config.flag;
-        seqtree_opt = config.seqtree_opt;
-        chunksize = config.chunksize;
-        options = config.options;
-        prefetch_duration = config.prefetch_duration;
-        num_wal_shards = config.num_wal_shards;
-        num_bcache_shards = config.num_bcache_shards;
-        encryption_key = config.encryption_key;
-        block_reusing_threshold.store(config.block_reusing_threshold.load(),
-                                      std::memory_order_relaxed);
-        num_keeping_headers.store(config.num_keeping_headers.load(),
-                                  std::memory_order_relaxed);
-    }
-
-    void setBlockSize(int to) {
-        blocksize = to;
-    }
-
-    void setNcacheBlock(int to) {
-        ncacheblock = to;
-    }
-
-    void setFlag(int to) {
-        flag = to;
-    }
-
-    void addFlag(int to) {
-        flag |= to;
-    }
-
-    void setChunkSize(int to) {
-        chunksize = to;
-    }
-
-    void setOptions(uint8_t option) {
-        options = option;
-    }
-
-    void addOptions(uint8_t option) {
-        options |= option;
-    }
-
-    void setSeqtreeOpt(uint8_t to) {
-        seqtree_opt = to;
-    }
-
-    void setPrefetchDuration(uint64_t to) {
-        prefetch_duration = to;
-    }
-
-    void setNumWalShards(uint16_t to) {
-        num_wal_shards = to;
-    }
-
-    void setNumBcacheShards(uint16_t to) {
-        num_bcache_shards = to;
-    }
-
-    void setEncryptionKey(fdb_encryption_algorithm_t to,
-                          uint8_t byte) {
-        encryption_key.algorithm = to;
-        memset(encryption_key.bytes, byte, sizeof(encryption_key.bytes));
-    }
-
-    void setEncryptionKey(const fdb_encryption_key &key) {
-        encryption_key = key;
-    }
-
-    void setBlockReusingThreshold(uint64_t to) {
-        block_reusing_threshold.store(to, std::memory_order_relaxed);
-    }
-
-    void setNumKeepingHeaders(uint64_t to) {
-        num_keeping_headers.store(to, std::memory_order_relaxed);
-    }
-
-    int getBlockSize() const {
-        return blocksize;
-    }
-
-    int getNcacheBlock() const {
-        return ncacheblock;
-    }
-
-    int getFlag() const {
-        return flag;
-    }
-
-    int getChunkSize() const {
-        return chunksize;
-    }
-
-    uint8_t getOptions() const {
-        return options;
-    }
-
-    uint8_t getSeqtreeOpt() const {
-        return seqtree_opt;
-    }
-
-    uint64_t getPrefetchDuration() const {
-        return prefetch_duration;
-    }
-
-    uint16_t getNumWalShards() const {
-        return num_wal_shards;
-    }
-
-    uint8_t getNumBcacheShards() const {
-        return num_bcache_shards;
-    }
-
-    fdb_encryption_key* getEncryptionKey() {
-        return &encryption_key;
-    }
-
-    uint64_t getBlockReusingThreshold() const {
-        return block_reusing_threshold.load(std::memory_order_relaxed);
-    }
-
-    uint64_t getNumKeepingHeaders() const {
-        return num_keeping_headers.load(std::memory_order_relaxed);
-    }
-
-private:
-    int blocksize;
-    int ncacheblock;
-    int flag;
-    int chunksize;
-    uint8_t options;
-    uint8_t seqtree_opt;
-    uint64_t prefetch_duration;
-    uint16_t num_wal_shards;
-    uint16_t num_bcache_shards;
-    fdb_encryption_key encryption_key;
-    // Stale block reusing threshold
-    std::atomic<uint64_t> block_reusing_threshold;
-    // Number of the last commit headders whose stale blocks should
-    // be kept for snapshot readers.
-    std::atomic<uint64_t> num_keeping_headers;
-};
-
 #ifndef _LATENCY_STATS
 #define LATENCY_STAT_START()
 #define LATENCY_STAT_END(file, type)
@@ -638,8 +452,8 @@ public:
         return fMgrStatus.load();
     }
 
-    FileMgrConfig* getConfig() {
-        return fileConfig;
+    fdb_config* getConfig() {
+        return &fileConfig;
     }
 
     const std::string& getOldFileName() {
@@ -672,6 +486,10 @@ public:
     void setKVHeader_UNLOCKED(KvsHeader *to) {
         kvHeader = to;
     }
+
+    void setBlockReusingParams(size_t blk_reuse_thres, size_t num_hdrs);
+    size_t getNumKeepingHeaders();
+    size_t getBlockReusingThreshold();
 
     KvsHeader* getKVHeader();
 
@@ -873,7 +691,7 @@ public:
                               FileMgr *new_file,
                               ErrLogCallback *log_callback);
 
-    static void init(FileMgrConfig *config);
+    static void init(const fdb_config *config);
 
     static void setLazyFileDeletion(bool enable,
                                     register_file_removal_func regis_func,
@@ -905,7 +723,7 @@ public:
 
     static filemgr_open_result open(std::string filename,
                                     struct filemgr_ops *ops,
-                                    FileMgrConfig *config,
+                                    const fdb_config *config,
                                     ErrLogCallback *log_callback);
 
     static void freeFunc(FileMgr *file);
@@ -940,7 +758,7 @@ public:
      * @return fdb_status: FDB_RESULT_SUCCESS on success
      */
     static fdb_status destroyFile(std::string filename,
-                                  FileMgrConfig *config,
+                                  fdb_config *config,
                                   std::unordered_set<std::string> *destroy_set);
 
     /**
@@ -963,7 +781,7 @@ public:
                                     bid_t clone_len);
 
 
-    static void mutexOpenlock(FileMgrConfig *config);
+    static void mutexOpenlock(fdb_config *config);
 
     static void mutexOpenunlock(void);
 
@@ -1258,7 +1076,7 @@ private:
     FileMgrHeader fMgrHeader;
     struct filemgr_ops *fMgrOps;
     std::atomic<uint8_t> fMgrStatus;
-    FileMgrConfig *fileConfig;
+    fdb_config fileConfig;
     std::string oldFileName;          // Old file name before compaction
     std::string newFileName;          // Latest filename after compaction
     std::atomic<FileBlockCache *> bCache;

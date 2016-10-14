@@ -86,7 +86,7 @@ private:
      * @return FDB_RESULT_SUCCESS on a successful file creation
      */
     fdb_status createFile(const std::string file_name,
-                          FileMgrConfig &fconfig,
+                          fdb_config &fconfig,
                           bool in_place_compaction,
                           FdbKvsHandle *handle);
 

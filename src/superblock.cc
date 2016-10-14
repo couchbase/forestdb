@@ -250,7 +250,7 @@ fdb_status Superblock::readLatest(ErrLogCallback *log_callback)
 
     // set last commit position
     if (curAllocBid.load() != BLK_NOT_FOUND) {
-        file->setLastCommit(curAllocBid.load() * file->getConfig()->getBlockSize());
+        file->setLastCommit(curAllocBid.load() * file->getBlockSize());
     } else {
         // otherwise, last_commit == file->pos
         // (already set by FileMgr::open() function)
@@ -1222,7 +1222,7 @@ sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
     }
 
     uint64_t block_reusing_threshold =
-                        file->getConfig()->getBlockReusingThreshold();
+                        file->getBlockReusingThreshold();
     if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
         // circular block reusing is disabled
         return SBD_NONE;
@@ -1236,7 +1236,7 @@ sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
     // at least # keeping headers should exist
     // since the last block reusing
     if (handle->cur_header_revnum <=
-        minLiveHdrRevnum + file->getConfig()->getNumKeepingHeaders()) {
+        minLiveHdrRevnum + file->getNumKeepingHeaders()) {
         return SBD_NONE;
     }
 
@@ -1264,7 +1264,7 @@ sb_decision_t Superblock::checkBlockReuse(FdbKvsHandle *handle)
                 }
             } else if ( (numFreeBlocks * 100 <
                          numInitFreeBlocks * SB_PRE_RECLAIM_RATIO)) {
-                if ( numInitFreeBlocks * file->getConfig()->getBlockSize()
+                if ( numInitFreeBlocks * file->getBlockSize()
                          > SB_MIN_BLOCK_REUSING_FILESIZE )  {
                     return SBD_RESERVE;
                 }

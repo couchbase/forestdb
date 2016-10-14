@@ -78,7 +78,15 @@ enum {
      * Opening existing files which use CRC32C with this flag results
      * in FDB_RESULT_INVALID_ARGS.
      */
-    FDB_OPEN_WITH_LEGACY_CRC = 4
+    FDB_OPEN_WITH_LEGACY_CRC = 4,
+
+    /**
+     * Open a ForestDB file with read-write mode but
+     * create a new empty file if and only if it doesn't exist.
+     *
+     * Opening existing files with this flag will return FDB_RESULT_EEXIST.
+     */
+    FDB_OPEN_FLAG_EXCL_CREATE = 8
 };
 
 /**

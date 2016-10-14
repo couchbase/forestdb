@@ -23,6 +23,7 @@
 #include "test.h"
 #include "blockcache.h"
 #include "filemgr.h"
+#include "configuration.h"
 #include "filemgr_ops.h"
 #include "crc32.h"
 
@@ -33,8 +34,11 @@ void basic_test()
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(4096, 5, 0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
-                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.buffercache_size = 5 * config.blocksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     int i;
     uint8_t buf[4096];
     std::string fname("./bcache_testfile");
@@ -82,8 +86,11 @@ void basic_test2()
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(4096, 5, 0x0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
-                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    fdb_config config = get_default_config();
+    config.buffercache_size = 5 * config.blocksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
+
     int i;
     uint8_t buf[4096];
     std::string fname("./bcache_testfile");
@@ -193,9 +200,10 @@ void multi_thread_test(int nblocks, int cachesize,
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(blocksize, cachesize, 0x0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE, 0x00,
-                         0, 0);
+    fdb_config config = get_default_config();
+    config.buffercache_size = cachesize * config.blocksize;
+    config.block_reusing_threshold = 0;
+    config.num_keeping_headers = 0;
 
     int n = nwriters + nreaders;
     uint64_t i, j;
