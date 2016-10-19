@@ -197,6 +197,7 @@ SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/bgflusher.cc
     ${PROJECT_SOURCE_DIR}/src/blockcache.cc
     ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
+    ${PROJECT_SOURCE_DIR}/src/bnode.cc
     ${PROJECT_SOURCE_DIR}/src/btree.cc
     ${PROJECT_SOURCE_DIR}/src/btree_kv.cc
     ${PROJECT_SOURCE_DIR}/src/btree_fast_str_kv.cc

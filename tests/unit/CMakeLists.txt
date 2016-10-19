@@ -108,6 +108,18 @@ target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(hbtrie_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
+add_executable(btree_new_test
+               btree_new_test.cc
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(btree_new_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(btree_new_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 add_executable(btree_kv_test
                btree_kv_test.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -128,6 +140,7 @@ add_test(btreeblock_test btreeblock_test)
 add_test(commit_log_test commit_log_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
+add_test(btree_new_test btree_new_test)
 add_test(btree_kv_test btree_kv_test)
 ADD_CUSTOM_TARGET(unit_tests
     COMMAND ctest
