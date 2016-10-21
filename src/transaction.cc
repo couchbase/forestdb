@@ -28,6 +28,7 @@
 #include "common.h"
 #include "list.h"
 #include "wal.h"
+#include "disk_write_queue.h"
 #include "memleak.h"
 
 // Global static variables
@@ -52,6 +53,72 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
         return fdb_engine->abortTransaction(fhandle);
     }
     return FDB_RESULT_ENGINE_NOT_INSTANTIATED;
+}
+
+FdbTransaction::FdbTransaction(fdb_isolation_level_t _isolation,
+                               FdbKvsHandle *_handle,
+                               uint64_t _prev_hdr_bid,
+                               uint64_t _prev_revnum,
+                               struct wal_txn_wrapper *_wrapper) :
+                                   isolation(_isolation),
+                                   handle(_handle),
+                                   txn_id(transaction_id++),
+                                   prev_hdr_bid(_prev_hdr_bid),
+                                   prev_revnum(_prev_revnum),
+                                   txn_items(nullptr),
+                                   wrapper(_wrapper) {
+    spin_init(&txn_lock);
+    wrapper->txn = this; // set up the back pointer
+}
+
+FdbTransaction::~FdbTransaction() {
+    if (txn_items) {
+        delete txn_items;
+    }
+    spin_destroy(&txn_lock);
+}
+
+size_t FdbTransaction::getItemCount() {
+    size_t ret = 0;
+    spin_lock(&txn_lock);
+    if (txn_items) {
+        ret = txn_items->getItemCount();
+    }
+    spin_unlock(&txn_lock);
+    return ret;
+}
+
+TxnItemList *FdbTransaction::getItemList() {
+    TxnItemList *ret = nullptr;
+    spin_lock(&txn_lock);
+    ret = txn_items;
+    spin_unlock(&txn_lock);
+    return ret;
+}
+
+void FdbTransaction::resetTxnItems() {
+    spin_lock(&txn_lock);
+    delete txn_items;
+    txn_items = nullptr;
+    spin_unlock(&txn_lock);
+}
+
+void FdbTransaction::resetTxnItem(wal_item *item) {
+    spin_lock(&txn_lock);
+    txn_items->items.at(item->dwq_index) = nullptr;
+    item->dwq_index = uint64_t(-1);
+    spin_unlock(&txn_lock);
+}
+
+uint64_t FdbTransaction::addTxnItem(wal_item *item, wal_item *old_item) {
+    uint64_t idx;
+    spin_lock(&txn_lock);
+    if (!txn_items) { // Initialize list on demand when first item is inserted.
+        txn_items = new TxnItemList(this);
+    }
+    idx = txn_items->addItem(item, old_item);
+    spin_unlock(&txn_lock);
+    return idx;
 }
 
 fdb_status FdbEngine::abortTransaction(FdbFileHandle *fhandle)
@@ -102,9 +169,8 @@ fdb_status FdbEngine::abortTransaction(FdbFileHandle *fhandle)
     file->getWal()->discardTxnEntries_Wal(handle->txn);
     file->getWal()->removeTransaction_Wal(handle->txn);
 
-    free(handle->txn->items);
     free(handle->txn->wrapper);
-    free(handle->txn);
+    delete handle->txn;
     handle->txn = NULL;
 
     file->mutexUnlock();
@@ -177,25 +243,21 @@ fdb_status FdbEngine::beginTransaction(FdbFileHandle *fhandle,
         }
     } while (fstatus == FILE_REMOVED_PENDING);
 
-    handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
-    handle->txn->wrapper = (struct wal_txn_wrapper *)
-                           malloc(sizeof(struct wal_txn_wrapper));
-    handle->txn->wrapper->txn = handle->txn;
-    handle->txn->handle = handle;
-    handle->txn->txn_id = ++transaction_id;
+    struct wal_txn_wrapper *txn_wrapper = (struct wal_txn_wrapper *)
+                                  malloc(sizeof(struct wal_txn_wrapper));
+    uint64_t txn_hdr_bid;
     if (file->getFileStatus() != FILE_COMPACT_OLD) {
         // keep previous header's BID
-        handle->txn->prev_hdr_bid = handle->last_hdr_bid;
+        txn_hdr_bid = handle->last_hdr_bid;
     } else {
         // if file status is COMPACT_OLD,
         // then this transaction will work on new file, and
         // there is no previous header until the compaction is done.
-        handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
+        txn_hdr_bid = BLK_NOT_FOUND;
     }
-    handle->txn->prev_revnum = handle->cur_header_revnum;
-    handle->txn->items = (struct list *)malloc(sizeof(struct list));
-    handle->txn->isolation = isolation_level;
-    list_init(handle->txn->items);
+    handle->txn = new FdbTransaction(isolation_level, handle, txn_hdr_bid,
+                                     handle->cur_header_revnum,
+                                     txn_wrapper);
     file->getWal()->addTransaction_Wal(handle->txn);
 
     file->mutexUnlock();
@@ -227,7 +289,7 @@ fdb_status FdbEngine::endTransaction(FdbFileHandle *fhandle,
     }
 
     fdb_status fs = FDB_RESULT_SUCCESS;
-    if (list_begin(handle->txn->items)) {
+    if (handle->txn->getItemCount()) {
         bool sync = !(handle->config.durability_opt & FDB_DRB_ASYNC);
         fs = commitWithKVHandle(handle, opt, sync);
     }
@@ -253,10 +315,8 @@ fdb_status FdbEngine::endTransaction(FdbFileHandle *fhandle,
         } while (fstatus == FILE_REMOVED_PENDING);
 
         file->getWal()->removeTransaction_Wal(handle->txn);
-
-        free(handle->txn->items);
         free(handle->txn->wrapper);
-        free(handle->txn);
+        delete handle->txn;
         handle->txn = NULL;
 
         file->mutexUnlock();

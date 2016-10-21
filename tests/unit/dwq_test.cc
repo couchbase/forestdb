@@ -202,9 +202,10 @@ struct backend_args {
 
 static std::atomic<bool> exit_flusher(false);
 
-void free_cb(wal_item* item, void *ctx) {
+fdb_status free_cb(wal_item* item, void *ctx) {
     assert(item);
     delete item;
+    return FDB_RESULT_SUCCESS;
 }
 
 void *backend_flusher_ops(void *args) {

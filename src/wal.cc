@@ -24,6 +24,7 @@
 #include "hash.h"
 #include "docio.h"
 #include "wal.h"
+#include "disk_write_queue.h"
 #include "hash_functions.h"
 #include "fdb_internal.h"
 #include "iterator.h"
@@ -781,20 +782,20 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
             }
 
+            struct wal_item *_item = nullptr;
             // Ensure only 1 wal_item per key resides in a given txn..
             if (caller == INS_BY_WRITER) {
-                struct wal_item *_item = getTxnItem_Wal(item->header, item->txn);
+                _item = getTxnItem_Wal(item->header, item->txn);
                 if (_item) {
-                    // ..by removing the previous transactional item..
-                    list_remove(txn->items, &_item->list_elem_txn);
                     _item->flag |= WAL_ITEM_NOT_IN_TXN;
+                    _item->dwq_index = -1;
                 }
             }
 
             // insert into header's list
             list_push_front(&header->items, &item->list_elem);
             // also insert into transaction's list
-            list_push_back(txn->items, &item->list_elem_txn);
+            txn->addTxnItem(item, _item);
             size++;
             mem_overhead.fetch_add(sizeof(struct wal_item),
                                    std::memory_order_relaxed);
@@ -895,7 +896,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         list_push_front(&header->items, &item->list_elem);
         if (caller == INS_BY_WRITER || caller == INS_BY_COMPACT_PHASE2) {
             // also insert into transaction's list
-            list_push_back(txn->items, &item->list_elem_txn);
+            txn->addTxnItem(item, nullptr);
         }
         if (item->txn == file->getGlobalTxn()) {
             avl_insert(&shandle->key_tree, &item->avl_keysnap, _snap_cmp_bykey);
@@ -1308,6 +1309,30 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
     uint64_t mem_overhead = 0;
     struct _fdb_key_cmp_info cmp_info;
 
+    spin_lock(&old_file->getWal()->lock);
+
+    // migrate all entries in txn list
+    e = list_begin(&old_file->getWal()->txn_list);
+    while(e) {
+        txn_wrapper = _get_entry(e, struct wal_txn_wrapper, le);
+        txn = txn_wrapper->txn;
+        // except for global_txn
+        if (txn != old_file->getGlobalTxn()) {
+            e = list_remove(&old_file->getWal()->txn_list, &txn_wrapper->le);
+            // Since all items are to be migrated, wipe them out old_file's
+            // item list in one shot..
+            txn->resetTxnItems();
+            list_push_front(&new_file->getWal()->txn_list, &txn_wrapper->le);
+            // remove previous header info & revnum
+            txn->prev_hdr_bid = BLK_NOT_FOUND;
+            txn->prev_revnum = 0;
+        } else {
+            e = list_next(e);
+        }
+    }
+
+    spin_unlock(&old_file->getWal()->lock);
+
     // Note that the caller (i.e., compactor) alreay owns the locks on
     // both old_file and new_file filemgr instances. Therefore, it is OK to
     // grab each partition lock individually and move all uncommitted items
@@ -1365,8 +1390,6 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
 
                     // remove from header's list
                     e = list_remove_reverse(&header->items, e);
-                    // remove from transaction's list
-                    list_remove(item->txn->items, &item->list_elem_txn);
                     // decrease num_flushable of old_file if non-transactional update
                     if (item->txn_id == old_file->getGlobalTxn()->txn_id) {
                         old_file->getWal()->num_flushable--;
@@ -1411,27 +1434,6 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
     old_file->getWal()->mem_overhead.fetch_sub(mem_overhead,
                                           std::memory_order_relaxed);
 
-    spin_lock(&old_file->getWal()->lock);
-
-    // migrate all entries in txn list
-    e = list_begin(&old_file->getWal()->txn_list);
-    while(e) {
-        txn_wrapper = _get_entry(e, struct wal_txn_wrapper, le);
-        txn = txn_wrapper->txn;
-        // except for global_txn
-        if (txn != old_file->getGlobalTxn()) {
-            e = list_remove(&old_file->getWal()->txn_list, &txn_wrapper->le);
-            list_push_front(&new_file->getWal()->txn_list, &txn_wrapper->le);
-            // remove previous header info & revnum
-            txn->prev_hdr_bid = BLK_NOT_FOUND;
-            txn->prev_revnum = 0;
-        } else {
-            e = list_next(e);
-        }
-    }
-
-    spin_unlock(&old_file->getWal()->lock);
-
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1452,7 +1454,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
 {
     int can_overwrite;
     struct wal_item *item, *_item;
-    struct list_elem *e1, *e2;
+    struct list_elem *e2;
     fdb_kvs_id_t kv_id;
     fdb_status status = FDB_RESULT_SUCCESS;
     size_t shard_num;
@@ -1466,9 +1468,18 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
         unFlushedTransactions = true; // TODO: Make commit O(1) operation!
     }
 
-    e1 = list_begin(txn->items);
-    while(e1) {
-        item = _get_entry(e1, struct wal_item, list_elem_txn);
+    TxnItemList *txn_items = txn->getItemList();
+    if (!txn_items) {
+        LATENCY_STAT_END(file, FDB_LATENCY_WAL_COMMIT);
+        return status;
+    }
+    for (auto &itemItr : txn_items->items) {
+        item = itemItr;
+        if (!item) {
+            // This transactional item could have been removed as part of KV
+            // Store removal or kv store rollback. Skip item and go to next.
+            continue;
+        }
         fdb_assert(item->txn_id == txn->txn_id, item->txn_id, txn->txn_id);
         // Grab the WAL key shard lock.
         shard_num = item->header->checksum % num_shards;
@@ -1574,12 +1585,11 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
             }
         }
 
-        // remove from transaction's list
-        e1 = list_remove(txn->items, e1); // save next elem
         item->flag |= WAL_ITEM_NOT_IN_TXN;
         spin_unlock(&key_shards[shard_num].lock);
     }
     mem_overhead.fetch_sub(_mem_overhead, std::memory_order_relaxed);
+    txn->resetTxnItems();
 
     LATENCY_STAT_END(file, FDB_LATENCY_WAL_COMMIT);
     return status;
@@ -3004,13 +3014,20 @@ WalItr::~WalItr()
 fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
 {
     struct wal_item *item;
-    struct list_elem *e;
     size_t shard_num, seq_shard_num;
     uint64_t _mem_overhead = 0;
+    TxnItemList *txn_items = txn->getItemList();
+    if (!txn_items) {
+        return FDB_RESULT_SUCCESS;
+    }
 
-    e = list_begin(txn->items);
-    while(e) {
-        item = _get_entry(e, struct wal_item, list_elem_txn);
+    for (auto &itemItr : txn_items->items) {
+        item = itemItr;
+        if (!item) {
+            // This transactional item could have been removed as part of KV
+            // Store removal or kv store rollback. Skip item and go to next.
+            continue;
+        }
         shard_num = item->header->checksum % num_shards;
         spin_lock(&key_shards[shard_num].lock);
 
@@ -3036,8 +3053,6 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
             free(item->header->key);
             free(item->header);
         }
-        // remove from txn's list
-        e = list_remove(txn->items, e);
         if (item->txn_id == file->getGlobalTxn()->txn_id ||
             item->flag & WAL_ITEM_COMMITTED) {
             num_flushable--;
@@ -3055,6 +3070,8 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
         spin_unlock(&key_shards[shard_num].lock);
     }
     mem_overhead.fetch_sub(_mem_overhead, std::memory_order_relaxed);
+    // free the vector of transactional items
+    txn->resetTxnItems();
 
     return FDB_RESULT_SUCCESS;
 }
@@ -3170,10 +3187,6 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                     // remove from header's list
                     e = list_remove(&header->items, e);
                     if (!(item->flag & WAL_ITEM_COMMITTED)) {
-                        if (!(item->flag & WAL_ITEM_NOT_IN_TXN)) {
-                            // and also remove from transaction's list
-                            list_remove(item->txn->items, &item->list_elem_txn);
-                        }
                         if (item->action != WAL_ACT_REMOVE) {
                             // mark as stale if item is not committed and not an immediate remove
                             file->markStale(item->offset, item->doc_size);
@@ -3203,6 +3216,11 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                             _wal_update_stat(kv_id, _WAL_DROP_SET);
                         }
                         num_flushable--;
+                    }
+                    if (type != WAL_DISCARD_ALL &&
+                        !(item->flag & WAL_ITEM_NOT_IN_TXN)) {
+                        // remove from the transctional vector..
+                        item->txn->resetTxnItem(item);
                     }
                     free(item);
                     size--;
@@ -3342,7 +3360,7 @@ fdb_txn * Wal::getEarliestTxn_Wal(fdb_txn *cur_txn)
         txn_wrapper = _get_entry(le, struct wal_txn_wrapper, le);
         txn = txn_wrapper->txn;
 
-        if (txn != cur_txn && list_begin(txn->items)) {
+        if (txn != cur_txn && txn->getItemCount()) {
             if (min_revnum == 0 || txn->prev_revnum < min_revnum) {
                 min_revnum = txn->prev_revnum;
                 ret = txn;

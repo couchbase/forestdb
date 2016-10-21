@@ -168,14 +168,17 @@ struct wal_item{
     };
     fdb_seqnum_t seqnum;
     uint64_t old_offset;
-    union { // for offset-based sorting for WAL flush
-        struct list_elem list_elem_txn; // for transaction
+    union {
+        // Wal Items are first indexed by their respective transactions' vector
+        // using this field. This field is valid only till txn commit.
+        uint64_t dwq_index;
+        // Once a transactional wal_item commits, it can be reflected in the
+        // main index using a sorted AVL tree or a simple unsorted list
+        // The following two elements are then used to index this wal_item
+        // respectively
         struct avl_node avl_flush;
         struct list_elem list_elem_flush;
     };
-    // TODO: Replace list_elem_txn with dwq_index
-    // Place holder for disk-write-queue index for the wal_item;
-    uint64_t dwq_index;
 };
 
 typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
@@ -507,6 +510,11 @@ private:
 
     fdb_status _close_Wal(wal_discard_t type, void *aux,
                           ErrLogCallback *log_callback);
+
+    /**
+     * Callback for each transactional item
+     */
+    fdb_status commitScanWalTxn(wal_item *item, void *ctx);
 
     fdb_status _persistedSnapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
                              union indexedValue *value_out);

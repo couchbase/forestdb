@@ -100,7 +100,7 @@ private:
     void *ctx_data;
 };
 
-typedef struct _fdb_transaction fdb_txn;
+typedef struct FdbTransaction fdb_txn;
 
 typedef uint64_t fdb_kvs_id_t;
 typedef uint16_t filemgr_header_len_t;
@@ -313,11 +313,48 @@ struct _fdb_key_cmp_info {
 };
 
 struct wal_txn_wrapper;
+struct wal_item;
+class TxnItemList;
 
 /**
  * ForestDB transaction structure definition.
  */
-struct _fdb_transaction {
+struct FdbTransaction {
+    FdbTransaction(fdb_isolation_level_t i,
+                   FdbKvsHandle *h,
+                   uint64_t _hdr_bid,
+                   uint64_t _revnum,
+                   struct wal_txn_wrapper *wr);
+    ~FdbTransaction();
+    /**
+     * Return the item count in a safe manner
+     */
+    size_t getItemCount();
+    /**
+     * Return the TxnItemList in a safe manner
+     */
+    TxnItemList *getItemList();
+    /**
+     * Add a mutation to the TxnItemList
+     * @param item - item to be inserted into the list
+     * @param old_item - optional previous uncommitted item to be de-duped
+     * @return index into the DiskWriteQueue vector for newly inserted item
+     */
+    uint64_t addTxnItem(wal_item *item, wal_item *old_item);
+    /**
+     * Reset the Transaction Item list
+     * Called when a transaction reaches the done state
+     */
+    void resetTxnItems();
+    /**
+     * Reset a Transactional Item
+     */
+    void resetTxnItem(wal_item *item);
+
+    /**
+     * Transaction isolation level.
+     */
+    fdb_isolation_level_t isolation;
     /**
      * ForestDB KV store handle.
      */
@@ -336,17 +373,17 @@ struct _fdb_transaction {
      */
     uint64_t prev_revnum;
     /**
-     * List of dirty WAL items.
+     * Vector of transactional items to be processed by DiskWriteQueue.
      */
-    struct list *items;
-    /**
-     * Transaction isolation level.
-     */
-    fdb_isolation_level_t isolation;
+    TxnItemList *txn_items;
     /**
      * Pointer to transaction wrapper.
      */
     struct wal_txn_wrapper *wrapper;
+    /**
+     * Lock to guard the allocation and deallocation of the items object above.
+     */
+    spin_t txn_lock;
 };
 
 /* Global KV store header for each file

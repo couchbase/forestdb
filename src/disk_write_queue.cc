@@ -43,16 +43,25 @@ void TxnItemList::customSort() {
     if (items.empty()) {
         return;
     }
+    (void)lastFlushIdx;
+    (void)flushIdx;
+    (void)txnState;
+    (void)ptxn;
 
     std::sort(items.begin(),
               items.end(),
               WalItemComparator::compare);
 }
 
-void TxnItemList::scan(txn_item_list_scan_cb* scan_callback, void* ctx) {
-    for (auto itr = items.begin(); itr != items.end(); ++itr) {
-        scan_callback(*itr, ctx);
+fdb_status TxnItemList::scan(txn_item_list_scan_cb* scan_callback, void* ctx) {
+    fdb_status ret = FDB_RESULT_SUCCESS;
+    for (auto &itr : items) {
+        ret = scan_callback(itr, ctx);
+        if (ret != FDB_RESULT_SUCCESS) {
+            return ret;
+        }
     }
+    return ret;
 }
 
 DiskWriteQueue::DiskWriteQueue(size_t transaction_threshold,
@@ -72,7 +81,7 @@ DiskWriteQueue::~DiskWriteQueue() {
 
 void DiskWriteQueue::addTxn(uint64_t id) {
     spin_lock(&mutablesLock);
-    mutablesMap[id] = std::unique_ptr<TxnItemList>(new TxnItemList());
+    mutablesMap[id] = std::unique_ptr<TxnItemList>(new TxnItemList(nullptr));
     spin_unlock(&mutablesLock);
 }
 
@@ -174,7 +183,7 @@ bool DiskWriteQueue::markImmutable_UNLOCKED(uint64_t txnId,
     if (isCommit) {
         mutablesMap.erase(itr);
     } else {
-        mutablesMap[txnId] = std::unique_ptr<TxnItemList>(new TxnItemList());
+        mutablesMap[txnId] = std::unique_ptr<TxnItemList>(new TxnItemList(nullptr));
     }
 
     return true;

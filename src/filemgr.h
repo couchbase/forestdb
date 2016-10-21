@@ -293,6 +293,8 @@ private:
     FileMgr *file;
 };
 
+class DiskWriteQueue;
+
 class FileMgr {
 public:
     FileMgr();
@@ -377,6 +379,10 @@ public:
 
     Wal* getWal() {
         return fMgrWal;
+    }
+
+    DiskWriteQueue *getDWQ() {
+        return fMgrDWQ;
     }
 
     uint64_t updateHeader(void *buf, size_t len);
@@ -473,7 +479,7 @@ public:
     }
 
     fdb_txn* getGlobalTxn() {
-        return &globalTxn;
+        return globalTxn;
     }
 
     void setInPlaceCompaction(bool in_place_compaction);
@@ -1073,6 +1079,7 @@ private:
     std::atomic<uint64_t> lastWritableBmpRevnum;
     std::atomic<uint8_t> ioInprog;
     Wal *fMgrWal;
+    DiskWriteQueue *fMgrDWQ; // pointer to disk write queue
     FileMgrHeader fMgrHeader;
     struct filemgr_ops *fMgrOps;
     std::atomic<uint8_t> fMgrStatus;
@@ -1080,7 +1087,7 @@ private:
     std::string oldFileName;          // Old file name before compaction
     std::string newFileName;          // Latest filename after compaction
     std::atomic<FileBlockCache *> bCache;
-    fdb_txn globalTxn;
+    fdb_txn *globalTxn;
     bool inPlaceCompaction;
     filemgr_fs_type_t fsType;
     KvsHeader *kvHeader;

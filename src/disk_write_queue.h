@@ -29,12 +29,26 @@
 #include "wal.h"
 
 // Scan callback for transaction item list
-typedef void txn_item_list_scan_cb(wal_item* item, void *ctx);
+typedef fdb_status txn_item_list_scan_cb(wal_item* item, void *ctx);
+enum class TxnState {
+    // Initial state of transaction after fdb_begin_transaction().
+    TXN_UNCOMMITTED = 0,
+    // State of transaction after fdb_end_transaction().
+    TXN_COMMITTED = 1,
+    // State of transaction after fdb_abort_transaction().
+    TXN_ABORTED = 2,
+    // State of transaction when all its items have been reflected in the
+    // partitioned file or all its entries have been cleaned up if aborted.
+    // This final state transition is done only by a background task.
+    TXN_DONE = 3
+};
 
 class TxnItemList {
 public:
-    TxnItemList()
-        : memoryUsage(0) { }
+    TxnItemList(fdb_txn *parent_txn)
+        : flushIdx(uint64_t(-1)), lastFlushIdx(uint64_t(-1)),
+          txnState(TxnState::TXN_UNCOMMITTED), memoryUsage(0),
+          ptxn(parent_txn) { }
 
     ~TxnItemList() { }
 
@@ -50,11 +64,40 @@ public:
 
     void customSort();
 
-    void scan(txn_item_list_scan_cb callback, void* ctx);
+    fdb_status scan(txn_item_list_scan_cb callback, void* ctx);
+
+    std::vector<wal_item*> items;
 
 private:
+
+    /** The index into the above vector to indicate the point up
+     *  to which background flusher has begun writing items to disk
+     *  Writer thread can de-duplicate uncommitted transactional
+     *  items if and only if the old_item’s index is greater than the
+     *  current flushIdx. Initialized to -1
+     */
+    std::atomic<uint64_t> flushIdx;
+
+    /** The index into the above vector to indicate the point up
+     *  to which last background flusher had completed.
+     *  This is used only by the background flusher task.
+     *  Initialized to -1 and set to flushIdx when a batch of
+     *  items are flushed to disk.
+     */
+    uint64_t lastFlushIdx;
+
+    /** State of the transaction based on the TxnState enum defined above.
+     */
+    std::atomic<TxnState> txnState;
+
+    /** Total memory used by all flushable items in current
+     *  transaction. Excludes memory of already flushed items.
+     */
     size_t memoryUsage;
-    std::vector<wal_item*> items;
+
+    /** Pointer to the parent transaction that owns this TxnItemList instance.
+     */
+    fdb_txn *ptxn;
 };
 
 /**

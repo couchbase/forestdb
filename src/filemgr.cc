@@ -34,6 +34,7 @@
 #include "blockcache.h"
 #include "compactor.h"
 #include "wal.h"
+#include "disk_write_queue.h"
 #include "list.h"
 #include "fdb_internal.h"
 #include "time_utils.h"
@@ -266,7 +267,7 @@ bool FileMgrMap::isStringMatchFound(const std::string &searchPattern) {
 FileMgr::FileMgr()
     : refCount(1), fMgrFlags(0x00), blockSize(global_config.blocksize),
       fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
-      ioInprog(0), fMgrWal(nullptr),
+      ioInprog(0), fMgrWal(nullptr), fMgrDWQ(nullptr),
       fMgrOps(nullptr),
       fMgrStatus(FILE_NORMAL), bCache(nullptr),
       inPlaceCompaction(false),
@@ -278,8 +279,6 @@ FileMgr::FileMgr()
 
     fMgrHeader.bid = 0;
     fMgrHeader.op_stat.reset();
-
-    memset(&globalTxn, 0, sizeof(fdb_txn));
 
     prefetchStatus = FILEMGR_PREFETCH_IDLE;
     prefetchTid = 0;
@@ -1144,22 +1143,27 @@ filemgr_open_result FileMgr::open(std::string filename,
     if (!file->fMgrWal) {
         file->fMgrWal = new Wal(file, FDB_WAL_NBUCKET);
     }
+    if (!file->fMgrDWQ) {
+        file->fMgrDWQ = new DiskWriteQueue(FDB_DEFAULT_COMMIT_LOG_SIZE,
+                                           global_config.wal_threshold);
+    }
 
     // init global transaction for the file
-    file->globalTxn.wrapper = (struct wal_txn_wrapper*)
-                               malloc(sizeof(struct wal_txn_wrapper));
-    file->globalTxn.wrapper->txn = &file->globalTxn;
-    file->globalTxn.handle = NULL;
+    struct wal_txn_wrapper *txn_wrapper = (struct wal_txn_wrapper*)
+                             malloc(sizeof(struct wal_txn_wrapper));
+    uint64_t txn_hdr_bid;
     if (file->getPos()) {
-        file->globalTxn.prev_hdr_bid = (file->getPos() / file->getBlockSize()) - 1;
+        txn_hdr_bid = (file->getPos() / file->getBlockSize()) - 1;
     } else {
-        file->globalTxn.prev_hdr_bid = BLK_NOT_FOUND;
+        txn_hdr_bid = BLK_NOT_FOUND;
     }
-    file->globalTxn.prev_revnum = 0;
-    file->globalTxn.items = (struct list *)malloc(sizeof(struct list));
-    list_init(file->globalTxn.items);
-    file->globalTxn.isolation = FDB_ISOLATION_READ_COMMITTED;
-    file->fMgrWal->addTransaction_Wal(&file->globalTxn);
+    file->globalTxn = new FdbTransaction(FDB_ISOLATION_READ_COMMITTED,
+                                         nullptr, // handle
+                                         txn_hdr_bid, // prev_hdr_bid
+                                         0, // prev_revnum
+                                         txn_wrapper);
+
+    file->fMgrWal->addTransaction_Wal(file->globalTxn);
 
     FdbEngine::getInstance()->getFileMgrMap().addEntry(filename, file);
 
@@ -1757,16 +1761,23 @@ void FileMgr::freeFunc(FileMgr *file)
         file->free_kv_header(file);
     }
 
-    // free global transaction
-    file->fMgrWal->removeTransaction_Wal(&file->globalTxn);
-    free(file->globalTxn.items);
-    free(file->globalTxn.wrapper);
+    // Remove global transaction from WAL
+    file->fMgrWal->removeTransaction_Wal(file->globalTxn);
+    free(file->globalTxn->wrapper);
 
     // destroy WAL
     if (file->fMgrWal) {
         file->fMgrWal->shutdown_Wal(NULL);
         delete file->fMgrWal;
         file->fMgrWal = NULL;
+    }
+
+    // Once WAL is shutdown, it is safe to delete the globalTxn
+    delete file->globalTxn;
+
+    // destroy the DiskWriteQueue
+    if (file->fMgrDWQ) {
+        delete file->fMgrDWQ;
     }
 
     // free file header
