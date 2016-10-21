@@ -68,7 +68,7 @@ struct hash_elem * hash_find(struct hash *hash, struct hash_elem *e);
 struct hash_elem * hash_find_by_hash_val(struct hash *hash, struct hash_elem *e,
                                          uint32_t hash_val);
 void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx);
-struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e);
+void hash_remove(struct hash *hash, struct hash_elem *e);
 void hash_free(struct hash *hash);
 void hash_free_active(struct hash *hash, hash_free_func *free_func);
 

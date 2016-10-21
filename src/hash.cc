@@ -160,24 +160,16 @@ void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx)
     return ret;
 }
 
-struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
+void hash_remove(struct hash *hash, struct hash_elem *e)
 {
     int bucket = hash->hash_func(hash, e);
-    struct hash_elem *hash_elem;
 
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );
 
 #ifdef _HASH_TREE
-    struct avl_node *node;
-    node = avl_search(hash->buckets + bucket, &e->avl, _hash_cmp_wrap);
-    if (node) {
-        avl_remove(hash->buckets + bucket, node);
-        IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-        hash_elem = _get_entry(node, struct hash_elem, avl);
-        return hash_elem;
-    }
-
+    avl_remove(hash->buckets + bucket, &e->avl);
 #else
+    struct hash_elem *hash_elem;
     struct list_elem *le;
     le = list_begin(hash->buckets + bucket);
     while(le) {
@@ -187,15 +179,13 @@ struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
 
             IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
 
-            return hash_elem;
+            return;
         }
         le = list_next(le);
     }
 #endif
 
     IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-
-    return NULL;
 }
 
 void hash_free(struct hash *hash)

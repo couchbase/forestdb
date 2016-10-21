@@ -70,9 +70,10 @@ void basic_test()
 
     for (i=1;i<16;i+=2){
         query.val = i;
-        e = hash_remove(&hash, &query.e);
+        e = hash_find(&hash, &query.e);
         result = _get_entry(e, struct item, e);
         TEST_CHK(result->val == query.val);
+        hash_remove(&hash, e);
     }
 
     for (i=0;i<16;++i){
@@ -84,6 +85,7 @@ void basic_test()
             TEST_CHK(result->val == query.val);
         }
     }
+    hash_free(&hash);
 
     TEST_RESULT("basic test");
 }
@@ -174,7 +176,7 @@ void twohash_test()
 
 int main()
 {
-    //basic_test();
+    basic_test();
     string_hash_test();
     //twohash_test();
 
