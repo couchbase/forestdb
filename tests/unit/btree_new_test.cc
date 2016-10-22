@@ -115,9 +115,133 @@ void bnode_basic_test()
     TEST_RESULT("bnode basic test");
 }
 
+void bnode_iterator_test()
+{
+    TEST_INIT();
+
+    Bnode *bnode = new Bnode();
+    BnodeIterator *bit;
+    BnodeResult ret;
+    BnodeIteratorResult bit_ret = BnodeIteratorResult::SUCCESS;
+    size_t i;
+    size_t n = 100;
+    char keybuf[64], valuebuf[64];
+
+    // add test
+    for (i=0; i<n; i++) {
+        sprintf(keybuf, "k%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*100);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    BtreeKv *kvp_out;
+
+    // forward iteration
+    bit = new BnodeIterator(bnode);
+    i = 0;
+    do {
+        kvp_out = bit->getKv();
+        if (!kvp_out) {
+            break;
+        }
+
+        sprintf(keybuf, "k%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*100);
+
+        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
+        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+        i++;
+
+        bit_ret = bit->next();
+    } while (bit_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bit;
+
+    // backward iteration
+    bit = new BnodeIterator(bnode);
+    bit_ret = bit->end();
+    TEST_CHK(bit_ret == BnodeIteratorResult::SUCCESS);
+
+    i = n;
+    do {
+        kvp_out = bit->getKv();
+        if (!kvp_out) {
+            break;
+        }
+
+        i--;
+        sprintf(keybuf, "k%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*100);
+
+        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
+        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+
+        bit_ret = bit->prev();
+    } while (bit_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == 0);
+    delete bit;
+
+    // assigning start_key (seekGreater)
+    i = n/2;
+    sprintf(keybuf, "k%07d\n", (int)i*10 + 5);
+    bit = new BnodeIterator(bnode, keybuf, 8);
+    i++;
+
+    do {
+        kvp_out = bit->getKv();
+        if (!kvp_out) {
+            break;
+        }
+
+        sprintf(keybuf, "k%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*100);
+        i++;
+
+        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
+        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+
+        bit_ret = bit->next();
+    } while (bit_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bit;
+
+    // seekSmaller
+    bit = new BnodeIterator(bnode);
+
+    i = n/2;
+    sprintf(keybuf, "k%07d\n", (int)i*10 - 5);
+    bit->seekSmallerOrEqual(keybuf, 8);
+    i--;
+
+    do {
+        kvp_out = bit->getKv();
+        if (!kvp_out) {
+            break;
+        }
+
+        sprintf(keybuf, "k%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*100);
+        i++;
+
+        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
+        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+
+        bit_ret = bit->next();
+    } while (bit_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bit;
+
+    delete bnode;
+
+    TEST_RESULT("bnode iterator test");
+}
+
 int main()
 {
     bnode_basic_test();
+    bnode_iterator_test();
     return 0;
 }
 

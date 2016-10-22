@@ -127,6 +127,8 @@ enum class BnodeResult {
 };
 
 class Bnode {
+    friend class BnodeIterator;
+
 public:
     Bnode() :
         flags(0),
@@ -315,3 +317,108 @@ private:
     // has not been flushed yet, the value is BLK_NOT_FOUND.
     uint64_t curOffset;
 };
+
+
+
+enum class BnodeIteratorResult {
+    // Succeeded.
+    SUCCESS,
+    // No more next/prev entry.
+    NO_MORE_ENTRY,
+    // Target B+tree node for the iterator is not valid.
+    INVALID_NODE
+};
+
+class BnodeIterator {
+public:
+    BnodeIterator(Bnode *_bnode);
+
+    /**
+     * Create an iterator with the given start key.
+     * At the beginning, iterator points to the smallest key greater
+     * than the start key.
+     */
+    BnodeIterator( Bnode *_bnode,
+                   void *start_key,
+                   size_t start_keylen );
+
+    ~BnodeIterator() {
+    }
+
+    /**
+     * Move the cursor to the given key.
+     * If exact key does not exist, start with the smallest key greater than
+     * the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult seekGreaterOrEqual( void *key,
+                                            size_t keylen );
+
+    /**
+     * Move the cursor to the given key.
+     * If exact key does not exist, start with the greatest key smaller than
+     * the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult seekSmallerOrEqual( void *key,
+                                            size_t keylen );
+
+    /**
+     * Move the cursor to the first key.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult begin();
+
+    /**
+     * Move the cursor to the last key.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult end();
+
+    /**
+     * Get key-value pair instance of the current cursor.
+     *
+     * @return Pointer to the current key-value pair instance.
+     */
+    BtreeKv* getKv() const {
+        return curKvp;
+    }
+
+    /**
+     * Move the cursor to the previous position.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult prev();
+
+    /**
+     * Move the cursor to the next position.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult next();
+
+private:
+    // B+tree node to iterate.
+    Bnode *bnode;
+    // Current key-value pair.
+    BtreeKv *curKvp;
+
+    /**
+     * Set 'curKvp' from the current AVL-tree node.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult fetchKvp( avl_node *entry );
+};
+
+
+

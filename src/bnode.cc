@@ -332,3 +332,96 @@ size_t Bnode::readNodeSize(void *buf)
     uint32_t enc32 = *( reinterpret_cast<uint32_t*>(buf) );
     return _endian_decode(enc32);
 }
+
+
+BnodeIterator::BnodeIterator(Bnode *_bnode)
+{
+    bnode = _bnode;
+    // start with the first key.
+    begin();
+}
+
+BnodeIterator::BnodeIterator( Bnode *_bnode,
+                              void *start_key,
+                              size_t start_keylen )
+{
+    bnode = _bnode;
+    // start with equal to or greater than 'start_key'.
+    seekGreaterOrEqual(start_key, start_keylen);
+}
+
+BnodeIteratorResult BnodeIterator::fetchKvp( avl_node *entry )
+{
+    if (!entry) {
+        curKvp = nullptr;
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+
+    curKvp = _get_entry(entry, BtreeKv, avl);
+    return BnodeIteratorResult::SUCCESS;
+}
+
+BnodeIteratorResult BnodeIterator::seekGreaterOrEqual( void *key,
+                                                       size_t keylen )
+{
+    if (!bnode) {
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+
+    BtreeKv query;
+    query.key = key;
+    query.keylen = keylen;
+
+    auto entry = avl_search_greater(&bnode->kvIdx, &query.avl, _bnode_cmp);
+    return fetchKvp(entry);
+}
+
+BnodeIteratorResult BnodeIterator::seekSmallerOrEqual( void *key,
+                                                       size_t keylen )
+{
+    if (!bnode) {
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+
+    BtreeKv query;
+    query.key = key;
+    query.keylen = keylen;
+
+    auto entry = avl_search_smaller(&bnode->kvIdx, &query.avl, _bnode_cmp);
+    return fetchKvp(entry);
+}
+
+BnodeIteratorResult BnodeIterator::begin()
+{
+    if (!bnode) {
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+
+    auto entry = avl_first(&bnode->kvIdx);
+    return fetchKvp(entry);
+}
+
+BnodeIteratorResult BnodeIterator::end()
+{
+    if (!bnode) {
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+
+    auto entry = avl_last(&bnode->kvIdx);
+    return fetchKvp(entry);
+}
+
+BnodeIteratorResult BnodeIterator::prev()
+{
+    auto entry = avl_prev( &curKvp->avl );
+    return fetchKvp(entry);
+}
+
+BnodeIteratorResult BnodeIterator::next()
+{
+    auto entry = avl_next( &curKvp->avl );
+    return fetchKvp(entry);
+}
+
+
+
