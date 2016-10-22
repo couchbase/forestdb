@@ -37,7 +37,6 @@ struct wal_item_header{
     struct hash_elem he_key;
     void *key;
     uint16_t keylen;
-    uint8_t chunksize;
     uint8_t flags; // parameters like FDB_DOC_MEMORY_SHARED
     uint32_t checksum; // cache key's checksum to avoid recomputation
     struct list items;
@@ -408,11 +407,9 @@ public:
      * immutable AVL trees
      * @param file - the underlying file
      * @param shandle - Snapshot handle created by snapshotOpenPersisted_Wal()
-     * @param is_multi_kv - Does the WAL have multiple KV Stores
      */
 
-    fdb_status copy2Snapshot_Wal(struct snap_handle *shandle,
-                                 bool is_multi_kv);
+    fdb_status copy2Snapshot_Wal(struct snap_handle *shandle);
 
     /**
      * Closes a WAL snapshot
