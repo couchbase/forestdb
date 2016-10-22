@@ -243,9 +243,7 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
     size_t size_seq = sizeof(fdb_seqnum_t);
     uint8_t *start_seq_kv;
     struct wal_item query;
-    struct wal_item_header query_key;
-    query.header = &query_key;
-
+    query.shandle = iterHandle->shandle;
     if (iterHandle->kvs) {
         int size_chunk = _handle->config.chunksize;
         // create an iterator handle for hb-trie
@@ -258,10 +256,6 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
                                              start_seq_kv,
                                              size_id + size_seq);
 
-        query_key.key = start_seq_kv;
-        kvid2buf(size_chunk, iterHandle->kvs->getKvsId(), start_seq_kv);
-        memcpy(start_seq_kv + size_chunk, &start_seq, size_seq);
-        query_key.keylen = size_chunk + size_seq;
         query.seqnum = start_seq;
         treeCursor = walIterator->searchGreater_WalItr(&query);
     } else {
@@ -269,8 +263,6 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
         seqtreeIterator = new BTreeIterator(iterHandle->seqtree,
                               (void *)( start_seq ? (&_start_seq) : (NULL) ));
 
-        query_key.key = (void*)NULL;
-        query_key.keylen = 0;
         query.seqnum = start_seq;
         treeCursor = walIterator->searchGreater_WalItr(&query);
     }

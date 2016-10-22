@@ -139,22 +139,13 @@ INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)
 }
 
 INLINE int __wal_cmp_byseq(struct wal_item *aa, struct wal_item *bb) {
-    if (aa->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
-        // multi KV instance mode
-        int size_chunk = aa->header->chunksize;
-        fdb_kvs_id_t id_aa, id_bb;
-        // KV ID is stored at the first 8 bytes in the key
-        buf2kvid(size_chunk, aa->header->key, &id_aa);
-        buf2kvid(size_chunk, bb->header->key, &id_bb);
-        if (id_aa < id_bb) {
-            return -1;
-        } else if (id_aa > id_bb) {
-            return 1;
-        } else {
-            return _CMP_U64(aa->seqnum, bb->seqnum);
-        }
+    if (aa->shandle->id < bb->shandle->id) {
+        return -1;
+    } else if (aa->shandle->id > bb->shandle->id) {
+        return 1;
+    } else {
+        return _CMP_U64(aa->seqnum, bb->seqnum);
     }
-    return _CMP_U64(aa->seqnum, bb->seqnum);
 }
 
 INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
@@ -459,8 +450,7 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
                                                        key_cmp_info, txn,
                                                        shandle);
         if (fs == FDB_RESULT_SUCCESS) {
-            fs = file->getWal()->copy2Snapshot_Wal(*shandle,
-                    (bool)key_cmp_info->kvs);
+            fs = file->getWal()->copy2Snapshot_Wal(*shandle);
         }
         return fs;
     } else { // In-memory snapshot using MVCC architecture..
@@ -784,7 +774,6 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         // create new header and new item
         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));
         list_init(&header->items);
-        header->chunksize = file->getConfig()->getChunkSize();
         header->checksum = static_cast<uint32_t>(chk_sum);
         header->keylen = keylen;
         header->key = (void *)malloc(header->keylen);
@@ -1104,13 +1093,9 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
             return FDB_RESULT_INVALID_CONFIG;
         }
         // search by seqnum
-        struct wal_item_header temp_header;
-
-        if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
-            temp_header.key = (void*)alca(uint8_t, file->getConfig()->getChunkSize());
-            kvid2buf(file->getConfig()->getChunkSize(), kv_id, temp_header.key);
-            item_query.header = &temp_header;
-        }
+        struct snap_handle query_shandle;
+        query_shandle.id = kv_id;
+        item_query.shandle = &query_shandle;
         item_query.seqnum = doc->seqnum;
 
         size_t shard_num = doc->seqnum % num_shards;
@@ -1372,12 +1357,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
 
         if (!(item->flag & WAL_ITEM_COMMITTED)) {
             // get KVS ID
-            if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
-                buf2kvid(item->header->chunksize, item->header->key, &kv_id);
-            } else {
-                kv_id = 0;
-            }
-
+            kv_id = item->shandle->id;
             item->flag |= WAL_ITEM_COMMITTED;
             if (item->txn != file->getGlobalTxn()) {
                 // increase num_flushable if it is transactional update
@@ -1568,11 +1548,7 @@ list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
     item->flag |= WAL_ITEM_FLUSHED_OUT;
 
     // get KVS ID
-    if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
-        buf2kvid(item->header->chunksize, item->header->key, &kv_id);
-    } else {
-        kv_id = 0;
-    }
+    kv_id = item->shandle->id;
     le = list_prev(le);
     if (!_wal_snap_is_immutable(item->shandle)) {
         releaseItem_Wal(shard_num, kv_id, item);
@@ -2047,14 +2023,12 @@ fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle,
-                                  bool is_multi_kv)
+fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
 {
     struct list_elem *ee;
     struct list_elem *hdr_e;
     struct wal_item *item;
     struct wal_item_header *header;
-    fdb_kvs_id_t kv_id = 0;
     fdb_doc doc;
     size_t i = 0;
 
@@ -2066,17 +2040,13 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle,
         hdr_e = list_begin(&key_shards[i]._list);
         while (hdr_e) {
             header = _get_entry(hdr_e, struct wal_item_header, le_key);
-            if (is_multi_kv) {
-                buf2kvid(header->chunksize, header->key, &kv_id);
-                if (kv_id != shandle->id) {
-                    hdr_e = list_next(hdr_e);
-                    continue;
-                }
-            }
             ee = list_begin(&header->items);
             while (ee) {
                 uint64_t offset;
                 item = _get_entry(ee, struct wal_item, list_elem);
+                if (item->shandle->id != shandle->id) { // not my KV Store
+                    break; // Skip this key list entirely
+                }
                 // Skip any uncommitted item, if not part of either global or
                 // the current transaction
                 if (!(item->flag & WAL_ITEM_COMMITTED) &&
@@ -2271,19 +2241,6 @@ WalItr::WalItr(FileMgr *file,
     this->shandle = shandle;
     _wal = file->getWal();
     direction = FDB_ITR_DIR_NONE;
-}
-
-INLINE bool _wal_is_my_kvs(struct wal_item_header *header,
-                           struct snap_handle *shandle)
-{
-    if (shandle->cmp_info.kvs) {
-        fdb_kvs_id_t kv_id;
-        buf2kvid(header->chunksize, header->key, &kv_id);
-        if (kv_id != shandle->id) {
-            return false;
-        }
-    }
-    return true;
 }
 
 struct wal_item* WalItr::_searchGreaterByKey_WalItr(struct wal_item *query)
@@ -3068,7 +3025,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
         while (hdr_e) {
             header = _get_entry(hdr_e, struct wal_item_header, le_key);
             if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
-                buf2kvid(header->chunksize, header->key, &kv_id);
+                buf2kvid(file->getConfig()->getChunkSize(), header->key, &kv_id);
                 // begin while loop only on matching KV ID
                 e = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
             } else {
