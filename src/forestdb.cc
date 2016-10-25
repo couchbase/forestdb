@@ -1930,19 +1930,26 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle)
 static bool compactor_is_file_removed(const char *filename) {
     std::string file_name(filename);
     FdbEngine *engine = FdbEngine::getInstance();
-    fdb_assert(engine, engine, nullptr);
+    if (!engine) { // Silence Clang analyzer false alarm
+        fdb_assert(false, nullptr, nullptr);
+        return true; // code should never reach here
+    }
     return engine->getCompactionManager().isFileRemoved(file_name);
 }
 
 static fdb_status compactor_register_file_removing(FileMgr *file,
                                                    ErrLogCallback *log_callback) {
     FdbEngine *engine = FdbEngine::getInstance();
-    fdb_assert(engine, engine, nullptr);
+    if (!engine) { // silence Clang analyzer false alarm
+        fdb_assert(false, nullptr, nullptr);
+        return FDB_RESULT_NO_DB_INSTANCE; // code should never reach here
+    }
     return engine->getCompactionManager().registerFileRemoval(file, log_callback);
 }
 
 FdbEngine::FdbEngine(const fdb_config &config) {
     compManager = new CompactionManager();
+    bgFlushManager = new BgFlushManager();
    // Initialize breakpad
    _dbg_handle_crashes(config.breakpad_minidump_dir);
 }
@@ -1977,7 +1984,6 @@ fdb_status FdbEngine::init(fdb_config *config) {
             }
 #endif
 
-            bgflusher_config bgf_config;
             threadpool_config thrd_config;
             // Initialize file manager configs and global block cache
             FileMgr::init(&_config);
@@ -1989,11 +1995,6 @@ fdb_status FdbEngine::init(fdb_config *config) {
                 Superblock::initBmpMask();
             }
 
-            // Initialize background flusher daemon
-            // Temporarily disable background flushers until blockcache contention
-            // issue is resolved.
-            bgf_config.num_threads = 0; //_config.num_bgflusher_threads;
-            BgFlusher::createBgFlusher(&bgf_config);
             // Initialize HBtrie's memory pool
             HBTrie::initMemoryPool(get_num_cores(), _config.buffercache_size);
 
@@ -2022,9 +2023,12 @@ fdb_status FdbEngine::destroyDaemonTasksAndResources() {
         delete compManager;
         compManager = nullptr;
     }
+    BgFlushManager *bgfMgr = bgFlushManager.load();
+    if (bgfMgr) {
+        delete bgfMgr;
+        bgFlushManager = nullptr;
+    }
 
-    // TODO: Refactor BgFlusher and FileMgr to make them as FdbEngine's members.
-    BgFlusher::destroyBgFlusher();
     fdb_status status = FileMgr::shutdown();
     if (status != FDB_RESULT_SUCCESS) {
         return status;
@@ -2827,12 +2831,8 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                                               &handle->log_callback);
         }
         if (status == FDB_RESULT_SUCCESS) {
-            BgFlusher *bgf = BgFlusher::getBgfInstance();
-            if (bgf) {
-                status = bgf->registerFile_BgFlusher(handle->file,
-                                                     (fdb_config *)config,
-                                                     &handle->log_callback);
-            }
+            status = bgFlushManager.load()->registerFileBgF(handle->file,
+                                                        &handle->log_callback);
         }
     }
     if (status != FDB_RESULT_SUCCESS) {
@@ -5049,9 +5049,10 @@ fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
             // read-only file is not registered in compactor
             compManager->deregisterFile(handle->file);
         }
-        BgFlusher *bgf = BgFlusher::getBgfInstance();
-        if (bgf) {
-            bgf->deregisterFile_BgFlusher(handle->file);
+
+        fs = bgFlushManager.load()->deregisterFileBgF(handle->file);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
         }
     }
 

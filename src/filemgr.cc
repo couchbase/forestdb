@@ -1761,6 +1761,12 @@ void FileMgr::freeFunc(FileMgr *file)
         file->free_kv_header(file);
     }
 
+    // Cancel any potential background flusher task if still running
+    BgFlushTask *bgfTask = file->getBgFlusherTask();
+    if (bgfTask) {
+        bgfTask->cancel();
+    }
+
     // Remove global transaction from WAL
     file->fMgrWal->removeTransaction_Wal(file->globalTxn);
     free(file->globalTxn->wrapper);
@@ -2687,6 +2693,10 @@ static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
     }
     file->releaseSpinLock();
     return (void *)NULL;
+}
+
+bool FileMgr::notifyBgFlusherTask() {
+    return ExecutorPool::get()->wake(bgFlushTask->getId());
 }
 
 FileMgr* FileMgr::searchStaleLinks() {

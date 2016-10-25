@@ -328,8 +328,6 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
         prob = 20;
     }
 
-    bool file_switched = false; // bg flusher file
-
     // It is guaranteed that new delta updates during the compaction are not written
     // in reused blocks, but are appended at the end of file. This minimizes code
     // changes in delta migration routine.
@@ -346,15 +344,6 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
             // latest commit. They also should be moved.
             // But at this time, we should grab the old file's lock to prevent
             // any additional updates on it.
-            // Also stop flushing blocks from old file in favor of new file
-            if (!file_switched) {
-                BgFlusher *bgf = BgFlusher::getBgfInstance();
-                if (bgf) {
-                    bgf->switchFile_BgFlusher(handle->file, compaction.fileMgr,
-                                              &handle->log_callback);
-                }
-                file_switched = true;
-            }
             handle->file->mutexLock();
             got_lock = true;
 
@@ -377,15 +366,6 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
                 handle->file->mutexUnlock();
             }
             compaction.cleanUpCompactionErr(handle);
-
-            // failure in compaction means switch back to old file
-            if (file_switched) {
-                BgFlusher *bgf = BgFlusher::getBgfInstance();
-                if (bgf) {
-                    bgf->switchFile_BgFlusher(compaction.fileMgr, handle->file,
-                                              &handle->log_callback);
-                }
-            }
 
             return fs;
         }
@@ -447,13 +427,6 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
         handle->file->mutexUnlock();
         compaction.fileMgr->mutexUnlock();
         compaction.cleanUpCompactionErr(handle);
-        if (file_switched) {
-            BgFlusher *bgf = BgFlusher::getBgfInstance();
-            if (bgf) {
-                bgf->switchFile_BgFlusher(compaction.fileMgr, handle->file,
-                                          &handle->log_callback);
-            }
-        }
         return fs;
     }
 

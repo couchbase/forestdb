@@ -40,6 +40,7 @@
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"
+#include "globaltask.h"
 #include "partiallock.h"
 #include "atomic.h"
 #include "checksum.h"
@@ -203,7 +204,7 @@ enum {
 class Wal;
 class KvsHeader;
 class FileBlockCache;
-class CompactionTask;
+class BgFlushTask;
 
 typedef struct {
     mutex_t mutex;
@@ -537,6 +538,16 @@ public:
 
     void releaseSpinLock() {
         spin_unlock(&fMgrLock);
+    }
+
+    bool notifyBgFlusherTask();
+
+    void setBgFlusherTask(BgFlushTask *bgfTask) {
+        bgFlushTask = reinterpret_cast<GlobalTask *>(bgfTask);
+    }
+
+    BgFlushTask *getBgFlusherTask() {
+        return reinterpret_cast<BgFlushTask *>(bgFlushTask.get());
     }
 
     void mutexLock();
@@ -1089,6 +1100,7 @@ private:
     std::atomic<FileBlockCache *> bCache;
     fdb_txn *globalTxn;
     bool inPlaceCompaction;
+    ExTask bgFlushTask; // ExecutorPool task to flush docs to file
     filemgr_fs_type_t fsType;
     KvsHeader *kvHeader;
     void (*free_kv_header)(FileMgr *file); // callback function

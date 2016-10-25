@@ -93,7 +93,7 @@ fdb_config get_default_config(void) {
     fconfig.max_writer_lock_prob = 100;
     // 4 daemon compactor threads by default
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
-    fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
+    fconfig.num_bgflusher_threads = 0; // TODO: Remove after golang deps fix-up
     if (num_cores/2 > FDB_EXPOOL_NUM_THREADS &&
         num_cores/2 < FDB_EXPOOL_MAX_THREADS) {
         fconfig.num_background_threads = num_cores / 2;
@@ -237,13 +237,6 @@ bool validate_fdb_config(fdb_config *fconfig) {
         return false;
     }
 
-    if (fconfig->num_bgflusher_threads > MAX_NUM_BGFLUSHER_THREADS) {
-        fdb_log(NULL, FDB_RESULT_INVALID_ARGS,
-                "Config Error: Num bgflusher threads (%" _F64 ") greater than "
-                "allowed value (%d)!\n",
-                (uint64_t)fconfig->num_bgflusher_threads, MAX_NUM_BGFLUSHER_THREADS);
-        return false;
-    }
     if (fconfig->num_keeping_headers == 0) {
         // num_keeping_headers should be greater than zero
         return false;

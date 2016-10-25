@@ -254,7 +254,6 @@ void do_bench() {
     fconfig.compactor_sleep_duration = 600;
     fconfig.prefetch_duration = 0;
     fconfig.num_compactor_threads = 1;
-    fconfig.num_bgflusher_threads = 0;
 
     // open 16 dbfiles each with 16 kvs
     for (i = 0; i < n_kvs; ++i){

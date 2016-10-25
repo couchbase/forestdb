@@ -20,50 +20,98 @@
 #include <atomic>
 #include <mutex>
 #include <time.h>
+#include <algorithm>
+#include <atomic>
+#include <unordered_map>
+#include <mutex>
+#include <string>
 
+#include "globaltask.h"
+#include "taskable.h"
 #include "internal_types.h"
 
-struct bgflusher_config{
-    size_t num_threads;
-};
-
-// Singleton Instance of Background Flusher
-class BgFlusher {
+class BgFlushManager : public Taskable {
 public:
-    static BgFlusher *getBgfInstance();
-    static BgFlusher *createBgFlusher(struct bgflusher_config *config);
-    static void destroyBgFlusher();
+    BgFlushManager();
+    ~BgFlushManager();
 
-    fdb_status registerFile_BgFlusher(FileMgr *file,
-                                      fdb_config *config,
-                                      ErrLogCallback *log_callback);
-    void switchFile_BgFlusher(FileMgr *old_file,
-                              FileMgr *new_file,
-                              ErrLogCallback *log_callback);
-    void deregisterFile_BgFlusher(FileMgr *file);
+    const std::string& getName() const { return taskableName; }
+
+    /**
+     * Returns the address of self (just some unique value)
+     */
+    task_gid_t getGID() const {
+        return task_gid_t(this);
+    }
+
+    /**
+     * Default set to LOW_BUCKET_PRIORITY
+     */
+    bucket_priority_t getWorkloadPriority() const {
+        return LOW_BUCKET_PRIORITY;
+    }
+
+    /**
+     * Unused but implementation of a pure virtual function.
+     */
+    void setWorkloadPriority(bucket_priority_t prio) { }
+
+    /**
+     * Default set to WRITE_HEAVY
+     */
+    WorkLoadPolicy& getWorkLoadPolicy(void) {
+        return workLoadPolicy;
+    }
+
+    /**
+     * TODO: Implement latency stats/histogram for Task scheduling wait times
+     */
+    void logQTime(type_id_t id, hrtime_t enqTime) { }
+
+    /**
+     * TODO: Implement latency stats/histogram for Task run times
+     */
+    void logRunTime(type_id_t id, hrtime_t runTime) { }
+
+    /**
+     * Creates a BgFlushTask within the given file
+     * @param file - the file which is to be background flushed.
+     * @param log_callback - to log errors in case of failures.
+     * @return fdb_status - fdb_error on failure & FDB_RESULT_SUCCESS otherwise
+     */
+    fdb_status registerFileBgF(FileMgr *file,
+                               ErrLogCallback *log_callback);
+
+    /**
+     * On last close of the file, cancels background flush task of given file
+     * @param file - the file which is to be background flushed.
+     * @return fdb_status - fdb_error on failure & FDB_RESULT_SUCCESS otherwise
+     */
+    fdb_status deregisterFileBgF(FileMgr *file);
+
+    DISALLOW_COPY_AND_ASSIGN(BgFlushManager);
 
 private:
-    BgFlusher(size_t num_threads);
-    ~BgFlusher();
+   const std::string taskableName;
+   WorkLoadPolicy workLoadPolicy;
+};
 
-    friend void *bgflusher_thread(void *voidargs);
+class BgFlushTask : public GlobalTask {
+public:
+    BgFlushTask(BgFlushManager &m, FileMgr *f);
 
-    void * bgflusherThread();
-
-    static std::atomic<BgFlusher *> bgflusherInstance;
-    static std::mutex bgfLock;
-
-    size_t numBgFlusherThreads;
-    thread_t *bgflusherThreadIds;
-
-    size_t bgFlusherSleepInSecs;
-
-    mutex_t syncMutex;
-    thread_cond_t syncCond;
-
-    std::atomic<uint8_t> bgflusherTerminateSignal;
-
-    struct avl_tree openFiles;
-
-    DISALLOW_COPY_AND_ASSIGN(BgFlusher);
+    bool run();
+    std::string getDescription() {
+        return desc;
+    }
+    uint32_t incrOpenHandles() {
+        return ++openHandles;
+    }
+    uint32_t decrOpenHandles() {
+        return --openHandles;
+    }
+private:
+    FileMgr *fileToFlush;
+    std::string desc;
+    uint32_t openHandles;
 };

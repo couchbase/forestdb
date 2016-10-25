@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "common.h"
+#include "bgflusher.h"
 #include "compactor.h"
 #include "configuration.h"
 #include "internal_types.h"
@@ -952,4 +953,9 @@ private:
 
     FileMgrMap fileMap;
     CompactionManager *compManager;
+    // Why atomic? During multi-thread shutdown, we require that the thread
+    // shutting down and the thread doing the last file close do not read an
+    // inconsistent view of the bgFlushManager. Although this scenario should
+    // not occur in normal operation, making it atomic silences ThreadSanitizer
+    std::atomic<BgFlushManager *> bgFlushManager;
 };

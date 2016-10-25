@@ -73,10 +73,6 @@
 #define FDB_COMPACTOR_SLEEP_DURATION (28800)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
 
-#define FDB_BGFLUSHER_SLEEP_DURATION (2)
-#define FDB_BGFLUSHER_DIRTY_THRESHOLD (1024) //if more than this 4MB dirty
-                                             // wake up any sleeping bgflusher
-
 #define FDB_DEFAULT_COMMIT_LOG_SIZE (16777216) // 16MB
 
 #define BCACHE_NBUCKET (4099) // a prime number
@@ -134,8 +130,12 @@
 #define DEFAULT_NUM_COMPACTOR_THREADS (4)
 #define MAX_NUM_COMPACTOR_THREADS (128)
 
-#define DEFAULT_NUM_BGFLUSHER_THREADS (0) // temporarily disable bgflusher
-#define MAX_NUM_BGFLUSHER_THREADS (64)
+// Default Background Flusher Sleep Duration
+// The Background Flusher Task is event driven and is woken up on demand
+// However since the ExecutorPool framework requires that all tasks have a
+// default sleep duration, we define the bg flush durtaion to be a very
+// large value
+#define FDB_DEFAULT_BGFLUSHER_SLEEP (999999.9)
 
 #define FDB_EXPOOL_NUM_THREADS (4)
 #define FDB_EXPOOL_MAX_THREADS (128)

@@ -21,7 +21,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <map>
+#include <unordered_map>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -29,7 +29,6 @@
 #include "globaltask.h"
 #include "taskable.h"
 #include "internal_types.h"
-#include "sync_object.h"
 
 struct compactor_config {
     size_t sleep_duration;
@@ -333,8 +332,8 @@ private:
     // Compaction Taskable context
     CompactionMgrTaskable compactionTaskable;
 
-    // Map of files registered for compaction
-    std::map<std::string, ExTask> pendingCompactions;
+    // Hash Table of files registered for compaction
+    std::unordered_map<std::string, ExTask> pendingCompactions;
 
     // Unordered_set of files registered for file removal
     std::unordered_set<std::string> fileRemovalList;
