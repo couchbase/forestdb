@@ -367,10 +367,14 @@ typedef enum {
      * Fail to read the log file for the given log ID.
      */
     FDB_RESULT_LOG_FILE_NOT_FOUND = -75,
+    /**
+     * Failure to acquire lock
+     */
+    FDB_RESULT_LOCK_FAIL = -76,
 
     // Any new error codes can be added here.
 
-    FDB_RESULT_LAST = FDB_RESULT_LOG_FILE_NOT_FOUND // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_LOCK_FAIL // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

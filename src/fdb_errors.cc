@@ -241,6 +241,8 @@ const char* FdbEngine::getErrorMsg(fdb_status err_code)
             return "ForestDB engine not instantiated yet";
         case FDB_RESULT_LOG_FILE_NOT_FOUND:
             return "Log file not found";
+        case FDB_RESULT_LOCK_FAIL:
+            return "Unable to acquire/release lock";
 
         default:
             return "unknown error";

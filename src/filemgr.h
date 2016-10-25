@@ -396,6 +396,7 @@ enum {
 class Wal;
 class KvsHeader;
 class FileBlockCache;
+class FileBnodeCache;
 
 typedef struct {
     mutex_t mutex;
@@ -719,6 +720,14 @@ public:
         return bCache.load(std::memory_order_relaxed);
     }
 
+    void setBnodeCache(FileBnodeCache* to) {
+        bnodeCache.store(to, std::memory_order_relaxed);
+    }
+
+    FileBnodeCache* getBnodeCache() {
+        return bnodeCache.load(std::memory_order_relaxed);
+    }
+
     uint64_t getBCacheItems();
 
     uint64_t getBCacheVictims();
@@ -831,8 +840,6 @@ public:
                             ErrLogCallback *log_callback,
                             bool read_on_cache_miss);
 
-    ssize_t readBlock(void *buf, bid_t bid);
-
     fdb_status writeOffset(bid_t bid, uint64_t offset,
                            uint64_t len, void *buf, bool final_write,
                            ErrLogCallback *log_callback);
@@ -840,7 +847,21 @@ public:
     fdb_status write_FileMgr(bid_t bid, void *buf,
                              ErrLogCallback *log_callback);
 
+    /* Reads block of data from offset, calculated as bid * blocksize,
+       decrypts if necessary */
+    ssize_t readBlock(void *buf, bid_t bid);
+
+    /* Writes block(s) of data at offset, calculated as start_bid * blocksize,
+       encrypts if necessary */
     ssize_t writeBlocks(void *buf, unsigned num_blocks, bid_t start_bid);
+
+    /* Reads block of data from specified offset,
+       decrypts if necessary */
+    ssize_t readBuf(void *buf, size_t nbytes, cs_off_t offset);
+
+    /* Writes chunk of data at specified offset,
+       encrypts if necessary */
+    ssize_t writeBuf(void *buf, size_t nbytes, cs_off_t offset);
 
     int isWritable(bid_t bid);
 
@@ -1311,6 +1332,7 @@ private:
     std::string oldFileName;          // Old file name before compaction
     std::string newFileName;          // Latest filename after compaction
     std::atomic<FileBlockCache *> bCache;
+    std::atomic<FileBnodeCache *> bnodeCache;
     fdb_txn globalTxn;
     bool inPlaceCompaction;
     filemgr_fs_type_t fsType;

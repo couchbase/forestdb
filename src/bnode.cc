@@ -103,7 +103,8 @@ Bnode::Bnode() :
     curOffset(BLK_NOT_FOUND),
     cmpFunc(nullptr)
 {
-    avl_init(&kvIdx, NULL);
+    avl_init(&kvIdx, nullptr);
+    list_elem.prev = list_elem.next = nullptr;
 }
 
 Bnode::~Bnode()

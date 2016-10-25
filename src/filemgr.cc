@@ -281,7 +281,7 @@ FileMgr::FileMgr()
       fopsHandle(nullptr), lastPos(0), lastCommit(0), lastWritableBmpRevnum(0),
       ioInprog(0), fMgrWal(nullptr), exPoolCtx(this), fMgrOps(nullptr),
       fMgrStatus(FILE_NORMAL), fileConfig(nullptr), bCache(nullptr),
-      inPlaceCompaction(false),
+      bnodeCache(nullptr), inPlaceCompaction(false),
       fsType(0), kvHeader(nullptr), throttlingDelay(0), fMgrVersion(0),
       fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
       staleData(nullptr), latestDirtyUpdate(nullptr),
@@ -474,34 +474,133 @@ void FileMgr::shutdownTempBuf()
 
 // Read a block from the file, decrypting if necessary.
 ssize_t FileMgr::readBlock(void *buf, bid_t bid) {
-    ssize_t result = fMgrOps->pread(fopsHandle, buf, blockSize, blockSize * bid);
-    if (fMgrEncryption.ops && result > 0) {
-        if (result != (ssize_t)blockSize) {
-            return FDB_RESULT_READ_FAIL;
-        }
-        fdb_status status = fdb_decrypt_block(&fMgrEncryption, buf, result, bid);
-        if (status != FDB_RESULT_SUCCESS) {
-            return status;
-        }
-    }
-    return result;
+    return readBuf(buf, blockSize, blockSize * bid);
 }
 
 // Write consecutive block(s) to the file, encrypting if necessary.
 ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
-        bid_t start_bid) {
-    size_t blocksize = blockSize;
-    cs_off_t offset = start_bid * blocksize;
-    size_t nbytes = num_blocks * blocksize;
-    if (fMgrEncryption.ops == NULL) {
-        return fMgrOps->pwrite(fopsHandle, buf, nbytes, offset);
-    } else {
-        uint8_t *encrypted_buf;
-        if (nbytes > 4096) {
-            encrypted_buf = (uint8_t*)malloc(nbytes);
+                             bid_t start_bid) {
+    return writeBuf(buf,
+                    num_blocks * blockSize,
+                    start_bid * blockSize);
+}
+
+// Read buf from file, decrypting if necessary.
+ssize_t FileMgr::readBuf(void* buf, size_t nbytes, cs_off_t offset) {
+    if (nbytes > blockSize) {
+        // This API will issue a pread for a buffer that is less than
+        // or equal to the specified blocksize.
+        fdb_log(nullptr, FDB_RESULT_READ_FAIL,
+                "FileMgr::readBuf: Exceeded the max allowed buffer size: "
+                "%s > %s!",
+                std::to_string(nbytes).c_str(),
+                std::to_string(blockSize).c_str());
+        return FDB_RESULT_READ_FAIL;
+    }
+    if (fMgrEncryption.ops == nullptr) {
+        return fMgrOps->pread(fopsHandle, buf, nbytes, offset);
+    } else {    // Decryption (at a block level)
+        void* new_buf;
+        size_t new_nbytes;
+        cs_off_t new_offset;
+        size_t offset_in_block = offset % blockSize;
+        if (offset_in_block) {
+            /**
+             * Offset falls within a block.
+             */
+            new_offset = offset - offset_in_block;
+            new_buf = malloc(blockSize);
+            new_nbytes = blockSize;
         } else {
-            // most common case (writing single block)
-            encrypted_buf = alca(uint8_t, nbytes);
+            /**
+             * Offset falls at the start of a block.
+             */
+            new_offset = offset;
+            new_buf = buf;
+            new_nbytes = nbytes;
+        }
+
+        ssize_t result = fMgrOps->pread(fopsHandle, new_buf,
+                                        new_nbytes, new_offset);
+
+        if (result != (ssize_t)new_nbytes) {
+            if (new_offset != offset) {
+                free(new_buf);
+            }
+            fdb_log(nullptr, FDB_RESULT_READ_FAIL,
+                    "FileMgr::readBuf: pread failed with result: %s",
+                    std::to_string(result).c_str());
+            return result;
+        }
+        fdb_status status = fdb_decrypt_block(&fMgrEncryption,
+                                              new_buf,
+                                              result,
+                                              new_offset / blockSize);
+        if (status != FDB_RESULT_SUCCESS) {
+            if (new_offset != offset) {
+                free(new_buf);
+            }
+            fdb_log(nullptr, status,
+                    "FileMgr::readBuf: fdb_decrypt_block failed!");
+            return status;
+        }
+
+        if (offset_in_block) {
+            memcpy(buf, (uint8_t*)new_buf + offset_in_block, nbytes);
+            if (new_offset != offset) {
+                free(new_buf);
+            }
+        }
+
+        return result;
+    }
+}
+
+// Write buf to file, encrypting if necessary.
+ssize_t FileMgr::writeBuf(void* buf, size_t nbytes, cs_off_t offset) {
+    if (fMgrEncryption.ops == nullptr) {
+        return fMgrOps->pwrite(fopsHandle, buf, nbytes, offset);
+    } else {    // Encryption (at a block level)
+        void* new_buf;
+        size_t new_nbytes;
+        cs_off_t new_offset;
+        size_t offset_in_block = offset % blockSize;
+        if (offset_in_block) {
+            /**
+             * Offset falls within a block.
+             *
+             * In this case, we will need to issue a pread on that block's
+             * starting offset, decrypt the block and append buf and then
+             * encrypt the new buf at a block level and pwrite, as
+             * encryption happens at a block level.
+             */
+
+            new_offset = offset - offset_in_block;
+            new_nbytes = nbytes + offset_in_block;
+            new_buf = malloc(new_nbytes);
+
+            ssize_t result = readBuf(new_buf, offset_in_block, new_offset);
+            if (result != static_cast<ssize_t>(offset_in_block)) {
+                free(new_buf);
+                return result;
+            }
+
+            memcpy((uint8_t*)new_buf + offset_in_block, buf, nbytes);
+
+        } else {
+            /**
+             * Offset falls at the start of a block.
+             */
+            new_buf = buf;
+            new_nbytes = nbytes;
+            new_offset = offset;
+        }
+
+        uint8_t* encrypted_buf;
+        if (new_nbytes > FDB_BLOCKSIZE) {
+            encrypted_buf = (uint8_t*) malloc(new_nbytes);
+        } else {
+            encrypted_buf = alca(uint8_t, new_nbytes);
         }
 
         if (!encrypted_buf) {
@@ -510,11 +609,16 @@ ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
 
         fdb_status status = fdb_encrypt_blocks(&fMgrEncryption,
                                                encrypted_buf,
-                                               buf,
-                                               blocksize,
-                                               num_blocks,
-                                               start_bid);
-        if (nbytes > 4096) {
+                                               new_buf,
+                                               blockSize,
+                                               ((new_nbytes - 1)/blockSize) + 1,
+                                               new_offset / blockSize);
+
+        if (offset_in_block) {
+            free(new_buf);
+        }
+
+        if (new_nbytes > FDB_BLOCKSIZE) {
             free(encrypted_buf);
         }
 

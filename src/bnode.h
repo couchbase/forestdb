@@ -25,6 +25,7 @@
 #include "common.h"
 #include "avltree.h"
 #include "atomic.h"
+#include "list.h"
 
 class Bnode;
 
@@ -171,6 +172,7 @@ class Bnode {
 
 public:
     Bnode();
+
     ~Bnode();
 
     /**
@@ -191,7 +193,7 @@ public:
                                          Bnode *ptr,
                                          bool value_check = false );
 
-    size_t getNodeSize() const {
+    uint32_t getNodeSize() const {
         return nodeSize;
     }
 
@@ -453,6 +455,9 @@ public:
                sizeof(uint16_t);  // metaSize
     }
 
+    // list elem for {clean} list
+    struct list_elem list_elem;
+
 private:
     // Disk space of B+tree node.
     uint32_t nodeSize;
@@ -476,7 +481,7 @@ private:
     std::atomic<uint64_t> refCount;
     // File offset where this node is written. If this node is dirty so that
     // has not been flushed yet, the value is BLK_NOT_FOUND.
-    uint64_t curOffset;
+    std::atomic<uint64_t> curOffset;
     // List of block IDs where this node is written.
     // Note that blocks cannot be consecutive due to CBR.
     std::vector<bid_t> bidList;
