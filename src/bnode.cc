@@ -45,6 +45,45 @@ INLINE int _bnode_cmp(avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
+
+void BtreeKv::updateKey( void *_key,
+                         size_t _keylen ) {
+
+    if (keylen != _keylen) {
+        key = (void*)realloc(key, _keylen);
+    }
+
+    keylen = static_cast<uint16_t>(_keylen);
+    memcpy(key, _key, keylen);
+}
+
+void BtreeKv::updateValue( void *_value,
+                           size_t _valuelen ) {
+
+    if ( value ) {
+        if (valuelen != _valuelen) {
+            value = (void*)realloc(value, _valuelen);
+        }
+    } else {
+        value = (void*)malloc(_valuelen);
+    }
+
+    valuelen = static_cast<uint16_t>(_valuelen);
+    memcpy(value, _value, valuelen);
+    child_ptr = nullptr;
+}
+
+void BtreeKv::updateChildPtr( Bnode *_child_ptr ) {
+    if ( value ) {
+        free(value);
+        value = nullptr;
+        valuelen = 0;
+    }
+    child_ptr = _child_ptr;
+}
+
+
+
 Bnode::~Bnode()
 {
     BtreeKv *kvp;

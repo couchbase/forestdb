@@ -89,6 +89,32 @@ struct BtreeKv {
         return ret;
     }
 
+    /**
+     * Update key.
+     *
+     * @param _key New key.
+     * @param _keylen Length of new key.
+     */
+    void updateKey( void *_key,
+                    size_t _keylen );
+
+    /**
+     * Update value.
+     *
+     * @param _value New value.
+     * @param _valuelen Length of new value.
+     */
+    void updateValue( void *_value,
+                      size_t _valuelen );
+
+    /**
+     * Update the pointer to the child node.
+     * If previous value already exists, free it.
+     *
+     * @param _value New pointer to the child node.
+     */
+    void updateChildPtr( Bnode *_child_ptr );
+
     // AVL-tree element.
     struct avl_node avl;
     // Key string,
