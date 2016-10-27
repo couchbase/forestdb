@@ -109,8 +109,9 @@ struct BtreeKvPair {
     BtreeKvPair() { }
     BtreeKvPair( void *_key,   uint32_t _keylen,
                  void *_value, uint32_t _valuelen ) :
-        key(_key), value(_value), keylen(_keylen), valuelen(_valuelen)
-    { }
+        key(_key), value(_value), keylen(_keylen), valuelen(_valuelen) { }
+    BtreeKvPair( const BsaItem &kv ) :
+        key(kv.key), value(kv.value), keylen(kv.keylen), valuelen(kv.valuelen){}
 
     // Key.
     void *key;
@@ -143,6 +144,7 @@ struct BtreeKey {
 struct NodeActionItem;
 
 class BtreeV2 {
+    friend class BtreeIteratorV2;
 public:
     BtreeV2();
 
@@ -445,3 +447,150 @@ private:
     uint64_t nentry;
 };
 
+class BtreeIteratorV2 {
+public:
+    BtreeIteratorV2(BtreeV2 *_btree);
+
+    /**
+     * Create an iterator with the given start key.
+     * At the beginning, iterator points to the smallest key greater
+     * than or equal to the start key.
+     */
+    BtreeIteratorV2(BtreeV2 *_btree,
+                    void *start_key,
+                    size_t start_keylen );
+
+    ~BtreeIteratorV2();
+
+    /**
+     * Move the cursor to the given key.
+     * If exact key does not exist, start with the smallest key greater than
+     * the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult seekGreaterOrEqualBT(void *key,
+                                             size_t keylen);
+
+    /**
+     * Move the cursor to the given key.
+     * If exact key does not exist, start with the greatest key smaller than
+     * the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult seekSmallerOrEqualBT(void *key,
+                                             size_t keylen);
+
+    /**
+     * Move the cursor to the first key.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult beginBT();
+
+    /**
+     * Move the cursor to the last key.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult endBT();
+
+    /**
+     * Get key-value pair instance of the current cursor.
+     *
+     * @return Pointer to the current key-value pair instance.
+     */
+    BtreeKvPair getKvBT();
+
+    /**
+     * Move the cursor to the previous position.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult prevBT();
+
+    /**
+     * Move the cursor to the next position.
+     *
+     * @return SUCCESS on success.
+     */
+    BnodeIteratorResult nextBT();
+
+    /**
+     * Returns the Btree of this iterator.
+     * @return btree of iterator.
+     */
+    BtreeV2 *getBtree() const {
+        return btree;
+    }
+
+private:
+
+    // B+tree node to iterate.
+    BtreeV2 *btree;
+    /**
+     *     BtreeV2          BnodeIterators     BtreeV2           BnodeIterators
+     *     [root] <----------bnodeItrs[1]      [root] <----------bnodeItrs[1]
+     *      /  \                      | |       /  \                      | |
+     *     /    \                     | |      /    \                     | |
+     * [leafA] [leafB]   /---bnodeItrs[0]   [leafA] [leafB]<-----bnodeItrs[0]
+     *   ^               |
+     *   |_______________/
+     * (bnodeItrs at index 0 pointed at leafA) (Same bnodeItrs[0] now at leafB)
+     */
+    // Cursors inside Bnode at each level
+    BnodeIterator *bnodeItrs;
+    // Result of last iterator movement. This is needed since getBT() should
+    // fail if nextBT(), prevBT() etc fail.
+    BnodeIteratorResult lastResult;
+
+    /**
+     * Recursively descend from root to leaf to expected key as in diagram above
+     * @param node_offset - disk offset where bnode is located
+     * @param key - input key to match with a smaller or equal key in Btree
+     * @param keylen - length of input key to match
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult seekSmallerOrEqualRecursiveBT(uint64_t node_offset,
+                                                      void *key,
+                                                      size_t keylen);
+    /**
+     * Recursively descend from root to leaf to expected key as in diagram above
+     * @param node_offset - disk offset where bnode is located
+     * @param key - input key to match with a greater or equal key in Btree
+     * @param keylen - length of input key to match
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult seekGreaterOrEqualRecursiveBT(uint64_t node_offset,
+                                                      void *key,
+                                                      size_t keylen);
+    /**
+     * Recursively descend from root to leaf to smallest key as in diagram above
+     * @param node_offset - disk offset where bnode is located
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult beginRecursiveBT(uint64_t node_offset);
+    /**
+     * Recursively descend from root to leaf to largest key as in diagram above
+     * @param node_offset - disk offset where bnode is located
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult endRecursiveBT(uint64_t node_offset);
+    /**
+     * Recursively iterate up and or down the Tree to previous key in Btree
+     * @param level - starting level to iterate
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult prevRecursiveBT(uint16_t level);
+    /**
+     * Recursively iterate up and or down the Tree to next key in Btree
+     * @param level - starting level to iterate
+     * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
+     */
+    BnodeIteratorResult nextRecursiveBT(uint16_t level);
+};

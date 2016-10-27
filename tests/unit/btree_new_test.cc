@@ -266,6 +266,227 @@ void bnode_iterator_test()
     TEST_RESULT("bnode iterator test");
 }
 
+void btree_iterator_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    BtreeIteratorV2 *bti;
+    BtreeKvPair kvp_out;
+    BnodeIteratorResult bti_ret = BnodeIteratorResult::SUCCESS;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 1000;
+    char valuebuf[16];
+    BtreeKvPair *kv_arr = (BtreeKvPair *)malloc(n * sizeof(BtreeKvPair));
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(160000,
+                                              160000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    for (i=0; i<n; i++) {
+        kv_arr[i].key = malloc(9);
+        kv_arr[i].value = malloc(9);
+        sprintf((char *)kv_arr[i].key, "k%07d", (int)i*2 + 10);
+        sprintf((char *)kv_arr[i].value, "v%07d", (int)i*2 + 10);
+        kv_arr[i].keylen = kv_arr[i].valuelen = 8;
+        btree->insert( kv_arr[i] );
+    }
+
+    TEST_CHK(btree->getNentry() == n);
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    BtreeKvPair kv;
+    kv.value = (void*)valuebuf;
+
+    // retrieval check (clean node traversal)
+    for (i=0; i<n; ++i) {
+        kv.key = kv_arr[i].key;
+        kv.keylen = kv_arr[i].keylen;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv_arr[i].value, kv.value, kv.valuelen);
+    }
+
+    // forward iteration
+    bti = new BtreeIteratorV2(btree);
+    i = 0;
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+        i++;
+
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    // reverse iteration
+    bti = new BtreeIteratorV2(btree);
+    bti_ret = bti->endBT();
+    TEST_CHK(bti_ret == BnodeIteratorResult::SUCCESS);
+
+    i = n;
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        i--;
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        bti_ret = bti->prevBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == 0);
+    delete bti;
+
+    // assigning start_key (seekGreater)
+    i = n/2;
+    bti = new BtreeIteratorV2(btree, kv_arr[i].key, 8);
+
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        i++;
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    // Special CASE 1 of seekGreater to non-existent key
+    i = n/2 - 2;
+    sprintf(valuebuf, "k%07d", (int)i*2 + 11);
+    bti = new BtreeIteratorV2(btree, valuebuf, 8);
+    i++; // Actual key falls between i = 498 and i = 499
+
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        i++;
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    // Special CASE 2 of seekGreater to non-existent key
+    i = n/2 - 1;
+    sprintf(valuebuf, "k%07d", (int)i*2 + 11);
+    bti = new BtreeIteratorV2(btree, valuebuf, 8);
+    i++; // Actual key falls between i = 499 and i = 500
+
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        i++;
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    // Special CASE 3 of seekGreater to non-existent key
+    i = 0;
+    sprintf(valuebuf, "k%07d", (int)i*2 + 9);
+    bti = new BtreeIteratorV2(btree, valuebuf, 8);
+    // Actual key falls even before smallest key i = 0
+
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        i++;
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    // seekSmaller
+    bti = new BtreeIteratorV2(btree);
+
+    i = n/2;
+    bti->seekSmallerOrEqualBT(kv_arr[i].key, 8);
+
+    do {
+        kvp_out = bti->getKvBT();
+        if (!kvp_out.key) {
+            break;
+        }
+
+        TEST_CMP(kvp_out.key, kv_arr[i].key, kvp_out.keylen);
+        TEST_CMP(kvp_out.value, kv_arr[i].value, kvp_out.valuelen);
+
+        i++;
+
+        bti_ret = bti->nextBT();
+    } while (bti_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bti;
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    for (i=0; i<n; ++i) {
+        free(kv_arr[i].key);
+        free(kv_arr[i].value);
+    }
+    free(kv_arr);
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree iterator test");
+}
+
 void bnode_split_test()
 {
     TEST_INIT();
@@ -1407,6 +1628,7 @@ int main()
 
     btree_basic_test();
     btree_remove_test();
+    btree_iterator_test();
     btree_multiple_block_test();
     btree_metadata_test();
     btree_smaller_greater_test();

@@ -841,6 +841,14 @@ public:
      */
     BnodeIteratorResult next();
 
+    /**
+     * Returns the bnode of this iterator
+     * @return the bnode of this iterator
+     */
+    Bnode *getIteratorBnode() const {
+        return bnode;
+    }
+
 private:
     // B+tree node to iterate.
     Bnode *bnode;

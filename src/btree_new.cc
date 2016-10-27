@@ -912,3 +912,363 @@ BtreeV2Result BtreeV2::_writeDirtyNodes( Bnode *cur_node )
 
     return BtreeV2Result::SUCCESS;
 }
+
+BtreeIteratorV2::BtreeIteratorV2(BtreeV2 *_btree) :
+                                 btree(_btree),
+                                 lastResult(BnodeIteratorResult::NO_MORE_ENTRY)
+{
+    // Initialize the array of BnodeIterators as one single zero filled blob
+    uint8_t *bnodeArrayBuf = new uint8_t[sizeof(BnodeIterator)
+                                         * btree->height]();
+    // This allows use of in-place new & saves allocator calls during iteration
+    bnodeItrs = reinterpret_cast<BnodeIterator *>(bnodeArrayBuf);
+    // start with the first key.
+    beginBT();
+}
+
+BtreeIteratorV2::BtreeIteratorV2(BtreeV2 *_btree,
+                                 void *start_key,
+                                 size_t start_keylen) :
+                                 btree(_btree),
+                                 lastResult(BnodeIteratorResult::NO_MORE_ENTRY)
+{
+    // Initialize the array of BnodeIterators as one single zero filled blob
+    uint8_t *bnodeArrayBuf = new uint8_t[sizeof(BnodeIterator)
+                                         * btree->height]();
+    // This allows use of in-place new & saves allocator calls during iteration
+    bnodeItrs = reinterpret_cast<BnodeIterator *>(bnodeArrayBuf);
+    // start with equal to or greater than 'start_key'.
+    seekGreaterOrEqualBT(start_key, start_keylen);
+}
+
+BtreeIteratorV2::~BtreeIteratorV2() {
+    uint8_t *bnodeArrayBuf = reinterpret_cast<uint8_t *>(bnodeItrs);
+    // Release memory for all the Bnode Iterators in one single deallocation
+    delete [] bnodeArrayBuf;
+}
+
+BtreeKvPair BtreeIteratorV2::getKvBT()
+{
+    if (lastResult != BnodeIteratorResult::SUCCESS) {
+        BtreeKvPair retKv(nullptr, 0, nullptr, 0);
+        return retKv;
+    }
+
+    // Return the key-value at the leaf index which is always 0 in bnodeItrs
+    return BtreeKvPair(bnodeItrs[0].getKv());
+}
+
+BnodeIteratorResult BtreeIteratorV2::seekGreaterOrEqualBT(void *key,
+                                                          size_t keylen)
+{
+    if (!btree || btree->rootAddr.offset == BLK_NOT_FOUND) {
+        lastResult = BnodeIteratorResult::INVALID_NODE;
+    } else {
+        lastResult = seekGreaterOrEqualRecursiveBT(btree->rootAddr.offset, key, keylen);
+    }
+    return lastResult;
+}
+
+/**
+ * When an exact match is not present we have 3 cases to handle as shown below:
+ * level 2: [10, 20]
+ * level 1: [10, 13, 16] [20, 23, 26]
+ *          Leaf nodeA   Leaf nodeB
+ * CASE 1: If we call this function with key '15', it should visit '10' in
+ *         level 2 and then fetch '16' in level 1 leaf nodeA.
+ * CASE 2: But if we call it with key '17', it should first visit '16' in
+ *         level 1 leaf nodeA and as an exact match is not found, repeat with
+ *         searchGreaterOrEqual() in intermediate node, finally landing on '20'
+ *         in level 1 leaf nodeB.
+ * CASE 3: Search key '5', Search smaller with intermediate node fails.
+ *         Re-try with searchGreaterOrEqual() in intermediate node finally
+ *         landing on '10' in leaf nodeA.
+ */
+BnodeIteratorResult
+BtreeIteratorV2::seekGreaterOrEqualRecursiveBT(uint64_t node_offset,
+                                               void *key, size_t keylen)
+{
+    BnodeIteratorResult result;
+    Bnode *node;
+    uint64_t curIdx;
+    if (node_offset != BLK_NOT_FOUND) {
+        // clean node .. read from file.
+        node = btree->bMgr->readNode(node_offset);
+    } else {
+        // B+tree has not been populated yet.
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+    if (node->getLevel() > 1) {
+        uint64_t next_offset = BLK_NOT_FOUND;
+        // intermediate node
+        curIdx = node->getLevel() - 1; // (leaves start at level 1)
+        Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+        if (oldBnode) { // Release reference on old bnode as it will be replaced
+            btree->bMgr->releaseCleanNode(oldBnode);
+        }
+        new (&bnodeItrs[curIdx]) BnodeIterator(node);
+        // First search smaller in intermediate node (Case 1 in example above)
+        result = bnodeItrs[curIdx].seekSmallerOrEqual(key, keylen);
+        if (result == BnodeIteratorResult::SUCCESS) {
+            // Found an intermediate path to leaf where key can exist,
+            // recursively search within that path to locate greater key..
+            BsaItem kvp = bnodeItrs[curIdx].getKv();
+            next_offset = BtreeV2::value2offset(kvp);
+            result = seekGreaterOrEqualRecursiveBT(next_offset, key, keylen);
+        } //else smaller than the smallest key, retry with searchGreaterOrEqual
+          //(CASE 3 above)
+        if (result == BnodeIteratorResult::NO_MORE_ENTRY) {
+            // Seek key is greater than the largest key in this sub-btree
+            // (Case 2 in example above) Repeat search in the higher sub-btree
+            result = bnodeItrs[curIdx].seekGreaterOrEqual(key, keylen);
+            if (result != BnodeIteratorResult::SUCCESS) {
+                // not found
+                return result;
+            }
+            // recursive call
+            BsaItem kvp = bnodeItrs[curIdx].getKv();
+            uint64_t retry_offset = BtreeV2::value2offset(kvp);
+            if (next_offset != retry_offset) {
+                // If there indeed are more entries present in this node
+                return seekGreaterOrEqualRecursiveBT(retry_offset, key, keylen);
+            }//else no more entries, the answer we have is the best already..
+        }
+        return result;
+    }
+
+    // leaf node
+    curIdx = node->getLevel() - 1; // (leaves are at level 1)
+    Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+    if (oldBnode) { // Release reference on old bnode as it will be replaced
+        btree->bMgr->releaseCleanNode(oldBnode);
+    }
+    new (&bnodeItrs[curIdx]) BnodeIterator(node);
+    return bnodeItrs[curIdx].seekGreaterOrEqual(key, keylen);
+}
+
+BnodeIteratorResult BtreeIteratorV2::seekSmallerOrEqualBT(void *key,
+                                                          size_t keylen)
+{
+    if (!btree || btree->rootAddr.offset == BLK_NOT_FOUND) {
+        lastResult = BnodeIteratorResult::INVALID_NODE;
+    } else {
+        lastResult = seekSmallerOrEqualRecursiveBT(btree->rootAddr.offset, key, keylen);
+    }
+    return lastResult;
+}
+
+BnodeIteratorResult
+BtreeIteratorV2::seekSmallerOrEqualRecursiveBT(uint64_t node_offset,
+                                               void *key, size_t keylen)
+{
+    BnodeIteratorResult result;
+    Bnode *node;
+    uint64_t curIdx;
+    if (node_offset != BLK_NOT_FOUND) {
+        // clean node .. read from file.
+        node = btree->bMgr->readNode(node_offset);
+    } else {
+        // B+tree has not been populated yet.
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+    if (node->getLevel() > 1) {
+        // intermediate node
+        curIdx = node->getLevel() - 1; // (leaves start at level 1)
+        Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+        if (oldBnode) { // Release reference on old bnode as it will be replaced
+            btree->bMgr->releaseCleanNode(oldBnode);
+        }
+        new (&bnodeItrs[curIdx]) BnodeIterator(node);
+        // Trivially works since intermediate nodes already cache the smallest
+        result = bnodeItrs[curIdx].seekSmallerOrEqual(key, keylen);
+        if (result != BnodeIteratorResult::SUCCESS) {
+            // not found
+            return result;
+        }
+        // recursive call
+        BsaItem kvp = bnodeItrs[curIdx].getKv();
+        uint64_t next_offset = BtreeV2::value2offset(kvp);
+        return seekSmallerOrEqualRecursiveBT(next_offset, key, keylen);
+    }
+
+    // leaf node
+    curIdx = node->getLevel() - 1; // (leaves are at level 1)
+    Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+    if (oldBnode) { // Release reference on old bnode as it will be replaced
+        btree->bMgr->releaseCleanNode(oldBnode);
+    }
+    new (&bnodeItrs[curIdx]) BnodeIterator(node);
+    return bnodeItrs[curIdx].seekSmallerOrEqual(key, keylen);
+}
+
+BnodeIteratorResult BtreeIteratorV2::beginBT()
+{
+    if (!btree || btree->rootAddr.offset == BLK_NOT_FOUND) {
+        lastResult = BnodeIteratorResult::INVALID_NODE;
+    } else {
+        lastResult = beginRecursiveBT(btree->rootAddr.offset);
+    }
+    return lastResult;
+}
+
+BnodeIteratorResult BtreeIteratorV2::beginRecursiveBT(uint64_t node_offset)
+{
+    BnodeIteratorResult result;
+    Bnode *node;
+    uint64_t curIdx;
+    if (node_offset != BLK_NOT_FOUND) {
+        // clean node .. read from file.
+        node = btree->bMgr->readNode(node_offset);
+    } else {
+        // B+tree has not been populated yet.
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+    if (node->getLevel() > 1) {
+        // intermediate node
+        curIdx = node->getLevel() - 1; // (leaves start at level 1)
+        Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+        if (oldBnode) { // Release reference on old bnode as it will be replaced
+            btree->bMgr->releaseCleanNode(oldBnode);
+        }
+        new (&bnodeItrs[curIdx]) BnodeIterator(node);
+        result = bnodeItrs[curIdx].begin();
+        if (result != BnodeIteratorResult::SUCCESS) {
+            // not found
+            return result;
+        }
+        // recursive call
+        BsaItem kvp = bnodeItrs[curIdx].getKv();
+        uint64_t next_offset = BtreeV2::value2offset(kvp);
+        return beginRecursiveBT(next_offset);
+    }
+
+    // leaf node
+    curIdx = node->getLevel() - 1; // (leaves are at level 1)
+    Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+    if (oldBnode) { // Release reference on old bnode as it will be replaced
+        btree->bMgr->releaseCleanNode(oldBnode);
+    }
+    new (&bnodeItrs[curIdx]) BnodeIterator(node);
+    return bnodeItrs[curIdx].begin();
+}
+
+BnodeIteratorResult BtreeIteratorV2::endBT()
+{
+    if (!btree || btree->rootAddr.offset == BLK_NOT_FOUND) {
+        lastResult = BnodeIteratorResult::INVALID_NODE;
+    } else {
+        lastResult = endRecursiveBT(btree->rootAddr.offset);
+    }
+    return lastResult;
+}
+
+BnodeIteratorResult BtreeIteratorV2::endRecursiveBT(uint64_t node_offset)
+{
+    BnodeIteratorResult result;
+    Bnode *node;
+    uint64_t curIdx;
+    if (node_offset != BLK_NOT_FOUND) {
+        // clean node .. read from file.
+        node = btree->bMgr->readNode(node_offset);
+    } else {
+        // B+tree has not been populated yet.
+        return BnodeIteratorResult::INVALID_NODE;
+    }
+    if (node->getLevel() > 1) {
+        // intermediate node
+        curIdx = node->getLevel() - 1; // (leaves start at level 1)
+        Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+        if (oldBnode) { // Release reference on old bnode as it will be replaced
+            btree->bMgr->releaseCleanNode(oldBnode);
+        }
+        new (&bnodeItrs[curIdx]) BnodeIterator(node);
+        result = bnodeItrs[curIdx].end();
+        if (result != BnodeIteratorResult::SUCCESS) {
+            // not found
+            return result;
+        }
+        // recursive call
+        BsaItem kvp = bnodeItrs[curIdx].getKv();
+        uint64_t next_offset = BtreeV2::value2offset(kvp);
+        return endRecursiveBT(next_offset);
+    }
+
+    // leaf node
+    curIdx = node->getLevel() - 1; // (leaves are at level 1)
+    Bnode *oldBnode = bnodeItrs[curIdx].getIteratorBnode();
+    if (oldBnode) { // Release reference on old bnode as it will be replaced
+        btree->bMgr->releaseCleanNode(oldBnode);
+    }
+    new (&bnodeItrs[curIdx]) BnodeIterator(node);
+    return bnodeItrs[curIdx].end();
+}
+
+BnodeIteratorResult BtreeIteratorV2::prevBT()
+{
+    if (lastResult != BnodeIteratorResult::SUCCESS) {
+        return lastResult;
+    }
+    lastResult = bnodeItrs[0].prev();
+    if (lastResult != BnodeIteratorResult::SUCCESS) {
+        // As current leaf node does not have any more entries, recursively
+        // search its parent node.
+        lastResult = prevRecursiveBT(1);
+    }
+    return lastResult;
+}
+
+BnodeIteratorResult BtreeIteratorV2::prevRecursiveBT(uint16_t level)
+{
+    if (level > 0) {
+        BnodeIteratorResult ret = bnodeItrs[level].prev();
+        if (ret != BnodeIteratorResult::SUCCESS) {
+            if (level == btree->height - 1) {
+                // reached up to root and no more entries to go
+                return ret;
+            }
+            // Intermediate node but not the root, recurse up higher
+            return prevRecursiveBT(level + 1);
+        }
+        // Intermediate node in the Btree has an entry => read that bnode
+        BsaItem kvp = bnodeItrs[level].getKv();
+        uint64_t child_offset = BtreeV2::value2offset(kvp);
+        return endRecursiveBT(child_offset); //Reverse iteration => Fetch end
+    }
+    // Leaf node level simply return the previous entry
+    return bnodeItrs[level].prev();
+}
+
+BnodeIteratorResult BtreeIteratorV2::nextBT()
+{
+    if (lastResult != BnodeIteratorResult::SUCCESS) {
+        return lastResult;
+    }
+    lastResult = bnodeItrs[0].next();
+    if (lastResult != BnodeIteratorResult::SUCCESS) {
+        // As current leaf node does not have any more entries, recursively
+        // search its parent node.
+        lastResult = nextRecursiveBT(1);
+    }
+    return lastResult;
+}
+
+BnodeIteratorResult BtreeIteratorV2::nextRecursiveBT(uint16_t level)
+{
+    if (level > 0) {
+        BnodeIteratorResult ret = bnodeItrs[level].next();
+        if (ret != BnodeIteratorResult::SUCCESS) {
+            if (level == btree->height - 1) {
+                // reached up to root and no more entries to go
+                return ret;
+            }
+            // Intermediate node but not the root, recurse up higher
+            return nextRecursiveBT(level + 1);
+        }
+        // Intermediate node in the Btree has an entry => read that bnode
+        BsaItem kvp = bnodeItrs[level].getKv();
+        uint64_t child_offset = BtreeV2::value2offset(kvp);
+        return beginRecursiveBT(child_offset);//Forward iteration => Fetch start
+    }
+    // Leaf node level simply return the next entry
+    return bnodeItrs[level].next();
+}
