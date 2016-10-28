@@ -20,6 +20,7 @@
 #include <map>
 #include <list>
 #include <unordered_set>
+#include <vector>
 
 #include "common.h"
 #include "avltree.h"
@@ -251,6 +252,19 @@ public:
         dirtySet.clear();
     }
 
+    void addBidList(bid_t bid) {
+        bidList.push_back(bid);
+    }
+    bid_t getBidFromList(size_t idx) {
+        return bidList[idx];
+    }
+    size_t getBidListSize() const {
+        return bidList.size();
+    }
+    void clearBidList() {
+        bidList.clear();
+    }
+
     /**
      * Update meta data section.
      *
@@ -443,6 +457,9 @@ private:
     // File offset where this node is written. If this node is dirty so that
     // has not been flushed yet, the value is BLK_NOT_FOUND.
     uint64_t curOffset;
+    // List of block IDs where this node is written.
+    // Note that blocks cannot be consecutive due to CBR.
+    std::vector<bid_t> bidList;
     // Set of key-value pair instances pointing to dirty child nodes.
     std::unordered_set<BtreeKv *> dirtySet;
 };
