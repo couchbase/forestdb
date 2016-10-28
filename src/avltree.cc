@@ -427,6 +427,7 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 {
     __AVL_DEBUG_INSERT(node);
 
+    struct avl_node *node_original = node;
     struct avl_node *p=NULL,*cur;
     int cmp, bf, bf_old;
 
@@ -523,7 +524,7 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 
     __AVL_DEBUG_DISPLAY(tree);
 
-    return node;
+    return node_original;
 }
 
 void avl_remove(struct avl_tree *tree,

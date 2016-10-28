@@ -23,7 +23,6 @@
 #include "common.h"
 #include "bnode.h"
 
-
 void bnode_basic_test()
 {
     TEST_INIT();
@@ -60,6 +59,32 @@ void bnode_basic_test()
         TEST_CMP(value_out, valuebuf, valuelen_out);
     }
 
+    // find min key test
+    void* key_out;
+    size_t keylen_out;
+    i = 0;
+    sprintf(keybuf, "k%07d\n", (int)i);
+    ret = bnode->findMinKey(key_out, keylen_out);
+    TEST_CHK(ret == BnodeResult::SUCCESS);
+    TEST_CMP(key_out, keybuf, keylen_out);
+
+    // update test
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*20);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*20);
+        ret = bnode->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+        TEST_CMP(value_out, valuebuf, valuelen_out);
+    }
+
     // export/import test
     char temp_buf[3000];
     memset(temp_buf, 'x', 3000);
@@ -78,7 +103,7 @@ void bnode_basic_test()
     bnode_copy->importRaw((void*)temp_buf, true);
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%07d\n", (int)i);
-        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        sprintf(valuebuf, "v%07d\n", (int)i*20);
         ret = bnode_copy->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
         TEST_CHK(ret == BnodeResult::SUCCESS);
         TEST_CMP(value_out, valuebuf, valuelen_out);
@@ -238,10 +263,79 @@ void bnode_iterator_test()
     TEST_RESULT("bnode iterator test");
 }
 
+void bnode_split_test()
+{
+    TEST_INIT();
+
+    Bnode *bnode = new Bnode();
+    BnodeResult ret;
+    size_t i;
+    size_t n = 160;
+    char keybuf[64], valuebuf[64];
+
+    // add
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    // make this node clean.
+    bnode->setCurOffset(0);
+
+    std::list<Bnode *> new_nodes;
+    Bnode *bnode_out;
+    BnodeIterator *bit;
+    BnodeIteratorResult bit_ret = BnodeIteratorResult::SUCCESS;
+    BtreeKv *kvp_out;
+    size_t nentry_total = 0;
+
+    bnode->splitNode(1024, new_nodes);
+    i = 0;
+
+    auto entry = new_nodes.begin();
+    while (entry != new_nodes.end()) {
+        bnode_out = *entry;
+        nentry_total += bnode_out->getNentry();
+
+        bit = new BnodeIterator(bnode_out);
+        do {
+            kvp_out = bit->getKv();
+            if (!kvp_out) {
+                break;
+            }
+
+            sprintf(keybuf, "k%07d\n", (int)i);
+            sprintf(valuebuf, "v%07d\n", (int)i*10);
+            i++;
+
+            TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
+            TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+
+            bit_ret = bit->next();
+        } while (bit_ret == BnodeIteratorResult::SUCCESS);
+        delete bit;
+
+        entry = new_nodes.erase(entry);
+        delete bnode_out;
+    }
+
+    TEST_CHK(i == n);
+    TEST_CHK(nentry_total == n);
+
+    delete bnode;
+
+    TEST_RESULT("bnode split test");
+}
+
+
 int main()
 {
     bnode_basic_test();
     bnode_iterator_test();
+    bnode_split_test();
     return 0;
 }
 

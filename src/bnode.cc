@@ -45,7 +45,6 @@ INLINE int _bnode_cmp(avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-
 void BtreeKv::updateKey( void *_key,
                          size_t _keylen ) {
 
@@ -155,9 +154,34 @@ BnodeResult Bnode::addKv( void *key,
         return ret;
     }
 
-    BtreeKv *kvp = new BtreeKv( key, keylen,
-                                value, valuelen,
-                                child_ptr, use_existing_memory);
+    BtreeKv *kvp, query;
+    query.key = key;
+    query.keylen = keylen;
+    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    if ( entry ) {
+        // same key already exists .. just update value only
+        kvp = _get_entry(entry, BtreeKv, avl);
+
+        if (kvp->value) {
+            nodeSize -= kvp->valuelen;
+        } else if (kvp->child_ptr) {
+            nodeSize -= sizeof(uint64_t);
+        }
+
+        if (value) {
+            nodeSize += valuelen;
+            kvp->updateValue(value, valuelen);
+        } else {
+            nodeSize += sizeof(uint64_t);
+            kvp->updateChildPtr(child_ptr);
+        }
+
+        return BnodeResult::SUCCESS;
+    }
+
+    kvp = new BtreeKv( key, keylen,
+                       value, valuelen,
+                       child_ptr, use_existing_memory);
 
     avl_insert(&kvIdx, &kvp->avl, _bnode_cmp);
 
@@ -165,6 +189,23 @@ BnodeResult Bnode::addKv( void *key,
         nentry++;
         nodeSize += kvp->getKvSize();
     }
+
+    return BnodeResult::SUCCESS;
+}
+
+BnodeResult Bnode::attachKv( BtreeKv *kvp )
+{
+    if ( !kvp ) {
+        return BnodeResult::INVALID_ARGS;
+    }
+
+    struct avl_node *ret = avl_insert(&kvIdx, &kvp->avl, _bnode_cmp);
+    if ( ret != &kvp->avl ) {
+        // alraedy existing key
+        return BnodeResult::EXISTING_KEY;
+    }
+    nentry++;
+    nodeSize += kvp->getKvSize();
 
     return BnodeResult::SUCCESS;
 }
@@ -195,6 +236,68 @@ BnodeResult Bnode::findKv( void *key,
     return BnodeResult::SUCCESS;
 }
 
+BtreeKv* Bnode::findKv( void *key,
+                        size_t keylen )
+{
+    BnodeResult ret = inputSanityCheck(key, keylen, NULL, 0, NULL, false);
+    if (ret != BnodeResult::SUCCESS) {
+        return nullptr;
+    }
+
+    BtreeKv *kvp, query;
+    query.key = key;
+    query.keylen = keylen;
+    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    if (!entry) {
+        return nullptr;
+    }
+    kvp = _get_entry(entry, BtreeKv, avl);
+    return kvp;
+
+}
+
+BtreeKv* Bnode::findKvSmallerOrEqual( void *key,
+                        size_t keylen,
+                        bool return_smallest )
+{
+    BnodeResult ret = inputSanityCheck(key, keylen, NULL, 0, NULL, false);
+    if (ret != BnodeResult::SUCCESS) {
+        return nullptr;
+    }
+
+    BtreeKv *kvp, query;
+    query.key = key;
+    query.keylen = keylen;
+    auto entry = avl_search_smaller(&kvIdx, &query.avl, _bnode_cmp);
+    if (!entry) {
+        if (return_smallest) {
+            // given key is smaller than the smallest key.
+            // return the first element.
+            entry = avl_first(&kvIdx);
+        } else {
+            return nullptr;
+        }
+    }
+    kvp = _get_entry(entry, BtreeKv, avl);
+    return kvp;
+
+}
+
+BnodeResult Bnode::findMinKey( void*& key,
+                           size_t& keylen )
+{
+    BtreeKv *kvp;
+    auto entry = avl_first(&kvIdx);
+    if (!entry) {
+        return BnodeResult::KEY_NOT_FOUND;
+    }
+    kvp = _get_entry(entry, BtreeKv, avl);
+    key = kvp->key;
+    keylen = kvp->keylen;
+
+    return BnodeResult::SUCCESS;
+}
+
 BnodeResult Bnode::removeKv( void *key,
                              size_t keylen )
 {
@@ -218,6 +321,105 @@ BnodeResult Bnode::removeKv( void *key,
     delete kvp;
 
     return BnodeResult::SUCCESS;
+}
+
+BnodeResult Bnode::detachKv( BtreeKv *kvp )
+{
+    if ( !kvp ) {
+        return BnodeResult::INVALID_ARGS;
+    }
+
+    avl_remove(&kvIdx, &kvp->avl);
+    nentry--;
+    nodeSize -= kvp->getKvSize();
+
+    return BnodeResult::SUCCESS;
+}
+
+BnodeResult Bnode::splitNode( size_t nodesize_limit,
+                              std::list<Bnode *>& new_nodes )
+{
+    // Split the current node into several new nodes.
+    Bnode *bnode = nullptr;
+    size_t num_nodes = 0;
+
+    size_t est_num_nodes = (nodeSize / nodesize_limit) + 1;
+    size_t est_split_nodesize = nodeSize / est_num_nodes;
+
+    if ( est_num_nodes < 2 ||
+         nentry < 4 ) {
+        // At least 2 nodes should be created after split,
+        // and each split node should contain at least 2 entries.
+        return BnodeResult::SUCCESS;
+    }
+
+    if (curOffset != BLK_NOT_FOUND) {
+        // It means that this node is clean: not writable.
+        // In that case, we need to allocate an additional new dirty node
+        // for the current node as well.
+        bnode = new Bnode();
+        bnode->setLevel( level );
+        new_nodes.push_back(bnode);
+        num_nodes++;
+    } else {
+        bnode = this;
+    }
+
+    BtreeKv *kvp;
+    size_t cur_nodesize = Bnode::getDiskSpaceOfEmptyNode();
+    auto entry = avl_first(&kvIdx);
+    while (entry) {
+        kvp = _get_entry(entry, BtreeKv, avl);
+        entry = avl_next(entry);
+
+        if (num_nodes) {
+            // move the KV instance
+            detachKv( kvp );
+            bnode->attachKv( kvp );
+        }
+
+        if ( !entry ) {
+            break;
+        }
+
+        // Note: each split node should contain at least 2 entries,
+        // although it exceeds the node size limit.
+        cur_nodesize += kvp->getKvSize();
+        if ( cur_nodesize > est_split_nodesize &&
+             bnode->getNentry() > 1 ) {
+            bnode = new Bnode();
+            bnode->setLevel( level );
+            new_nodes.push_back(bnode);
+            num_nodes++;
+            cur_nodesize = Bnode::getDiskSpaceOfEmptyNode();
+        }
+    }
+
+    return BnodeResult::SUCCESS;
+}
+
+Bnode* Bnode::cloneNode()
+{
+    Bnode *dst = new Bnode();
+
+    // copy level, flags, and meta data
+    dst->setLevel( level );
+    dst->setFlags( flags );
+    dst->setMeta( meta, metaSize, false );
+
+    // copy all key-value pair instances
+    BtreeKv *kvp;
+    auto entry = avl_first(&kvIdx);
+    while (entry) {
+        kvp = _get_entry(entry, BtreeKv, avl);
+        entry = avl_next(entry);
+
+        dst->addKv( kvp->key, kvp->keylen,
+                    kvp->value, kvp->valuelen, kvp->child_ptr,
+                    true, false );
+    }
+
+    return dst;
 }
 
 BnodeResult Bnode::exportRaw(void *buf)

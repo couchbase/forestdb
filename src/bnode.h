@@ -18,6 +18,7 @@
 #pragma once
 
 #include <map>
+#include <list>
 
 #include "common.h"
 #include "avltree.h"
@@ -149,7 +150,11 @@ enum class BnodeResult {
     // Node is already populated.
     NODE_IS_NOT_EMPTY,
     // Buffer is not valid.
-    INVALID_BUFFER
+    INVALID_BUFFER,
+    // Invalid parameters.
+    INVALID_ARGS,
+    // The same key already exists.
+    EXISTING_KEY
 };
 
 class Bnode {
@@ -166,11 +171,7 @@ public:
         refCount(0),
         curOffset(BLK_NOT_FOUND)
     {
-        nodeSize = sizeof(nodeSize) +
-                   sizeof(level)    +
-                   sizeof(nentry)   +
-                   sizeof(flags)    +
-                   sizeof(metaSize);
+        nodeSize = Bnode::getDiskSpaceOfEmptyNode();
         avl_init(&kvIdx, NULL);
     }
     ~Bnode();
@@ -178,10 +179,10 @@ public:
     /**
      * Check if given parameters are correct.
      *
-     * @param keylen Length of key.
      * @param key Key string.
-     * @param valuelen Length of value.
+     * @param keylen Length of key.
      * @param value Value string.
+     * @param valuelen Length of value.
      * @param ptr Pointer to child B+tree node.
      * @param value_check Flag to check 'value' and 'ptr' or not.
      * @return SUCCESS on success.
@@ -200,6 +201,9 @@ public:
     size_t getLevel() const {
         return level;
     }
+    void setLevel(size_t _level) {
+        level = static_cast<uint16_t>(_level);
+    }
 
     size_t getNentry() const {
         return nentry;
@@ -207,6 +211,9 @@ public:
 
     uint32_t getFlags() const {
         return flags;
+    }
+    void setFlags(uint32_t _flags) {
+        flags = _flags;
     }
 
     size_t getMetaSize() const {
@@ -232,6 +239,9 @@ public:
     uint64_t getCurOffset() const {
         return curOffset;
     }
+    void setCurOffset(uint64_t _offset) {
+        curOffset = _offset;
+    }
 
     /**
      * Update meta data section.
@@ -248,10 +258,10 @@ public:
     /**
      * Insert a key-value pair into the B+tree node.
      *
-     * @param keylen Length of key.
      * @param key Key string.
-     * @param valuelen Length of value.
+     * @param keylen Length of key.
      * @param value Value string.
+     * @param valuelen Length of value.
      * @param child_ptr Pointer to child B+tree node.
      * @param inc_nentry Flag to update internal stats or not.
      * @param use_existing_memory If true, new memory blob will not be allocated
@@ -267,12 +277,20 @@ public:
                        bool use_existing_memory = false );
 
     /**
+     * Insert an existing key-value pair instance into the node.
+     *
+     * @param kvp Pointer to key-value pair instance to be added.
+     * @return SUCCESS on success.
+     */
+    BnodeResult attachKv( BtreeKv *kvp );
+
+    /**
      * Find a value corresponding to the given key.
      *
-     * @param keylen Length of key.
      * @param key Key string.
-     * @param valuelen_out Length of value to be returned.
+     * @param keylen Length of key.
      * @param value_out Value string to be returned.
+     * @param valuelen_out Length of value to be returned.
      * @param ptr_out Pointer to child B+tree node to be returned.
      * @return SUCCESS on success.
      */
@@ -283,6 +301,42 @@ public:
                         Bnode*& ptr_out );
 
     /**
+     * Find a key-value pair instance corresponding to the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @return Key-value pair instance.
+     */
+    BtreeKv* findKv( void *key,
+                     size_t keylen );
+
+    /**
+     * Find a key-value pair instance whose key is smaller than or
+     * equal to the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @param return_smallest Flag that decides the behavior when neither
+     *        exact key nor key smaller than the given key exists.
+     *        If the flag is true, this function returns the smallest
+     *        key in the node, if not, returns NULL.
+     * @return Key-value pair instance.
+     */
+    BtreeKv* findKvSmallerOrEqual( void *key,
+                                   size_t keylen,
+                                   bool return_smallest = false );
+
+    /**
+     * Get the smallest key in the node.
+     *
+     * @param key Key string to be returned.
+     * @param keylen Length of key to be returned.
+     * @return SUCCESS on success.
+     */
+    BnodeResult findMinKey( void*& key,
+                            size_t& keylen );
+
+    /**
      * Remove a key-value pair.
      *
      * @param keylen Length of key.
@@ -291,6 +345,32 @@ public:
      */
     BnodeResult removeKv( void *key,
                           size_t keylen );
+
+    /**
+     * Detach the given key-value pair instance from the node,
+     * but do not free the memory.
+     *
+     * @param kvp Pointer to key-value pair instance to be removed.
+     * @return SUCCESS on success.
+     */
+    BnodeResult detachKv( BtreeKv *kvp );
+
+    /**
+     * Split the node into multiple new nodes.
+     *
+     * @param nodesize_limit Maximum size that a single node can grow.
+     * @param new_nodes Pointer to list that new nodes will be inserted.
+     * @return SUCCESS on success.
+     */
+    BnodeResult splitNode( size_t nodesize_limit,
+                           std::list<Bnode *>& new_nodes );
+
+    /**
+     * Create a clone of the given node.
+     *
+     * @return New node created as a result of this function call.
+     */
+    Bnode * cloneNode();
 
     /**
      * Convert logical B+tree node structure to raw binary data.
@@ -318,8 +398,21 @@ public:
      */
     static size_t readNodeSize(void *buf);
 
+    /**
+     * Return the disk space of an empty B+tree node.
+     *
+     * @return Disk space of an empty B+tree node.
+     */
+    static size_t getDiskSpaceOfEmptyNode() {
+        return sizeof(uint32_t) + // nodeSize
+               sizeof(uint16_t) + // level
+               sizeof(uint16_t) + // nentry
+               sizeof(uint32_t) + // flags
+               sizeof(uint16_t);  // metaSize
+    }
+
 private:
-    // Size of B+tree node.
+    // Disk space of B+tree node.
     uint32_t nodeSize;
     // Flags
     uint32_t flags;
