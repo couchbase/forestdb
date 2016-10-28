@@ -19,6 +19,7 @@
 
 #include <map>
 #include <list>
+#include <unordered_set>
 
 #include "common.h"
 #include "avltree.h"
@@ -243,6 +244,13 @@ public:
         curOffset = _offset;
     }
 
+    std::unordered_set<BtreeKv *>& getDirtySet() {
+        return dirtySet;
+    }
+    void clearDirtySet() {
+        dirtySet.clear();
+    }
+
     /**
      * Update meta data section.
      *
@@ -435,6 +443,8 @@ private:
     // File offset where this node is written. If this node is dirty so that
     // has not been flushed yet, the value is BLK_NOT_FOUND.
     uint64_t curOffset;
+    // Set of key-value pair instances pointing to dirty child nodes.
+    std::unordered_set<BtreeKv *> dirtySet;
 };
 
 

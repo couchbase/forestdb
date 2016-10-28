@@ -162,6 +162,11 @@ BnodeResult Bnode::addKv( void *key,
         // same key already exists .. just update value only
         kvp = _get_entry(entry, BtreeKv, avl);
 
+        if (kvp->child_ptr) {
+            // remove from dirty child set
+            dirtySet.erase( kvp );
+        }
+
         if (kvp->value) {
             nodeSize -= kvp->valuelen;
         } else if (kvp->child_ptr) {
@@ -174,6 +179,8 @@ BnodeResult Bnode::addKv( void *key,
         } else {
             nodeSize += sizeof(uint64_t);
             kvp->updateChildPtr(child_ptr);
+            // add to dirty child set
+            dirtySet.insert( kvp );
         }
 
         return BnodeResult::SUCCESS;
@@ -188,6 +195,11 @@ BnodeResult Bnode::addKv( void *key,
     if (inc_nentry) {
         nentry++;
         nodeSize += kvp->getKvSize();
+    }
+
+    if (child_ptr) {
+        // add to dirty child set
+        dirtySet.insert( kvp );
     }
 
     return BnodeResult::SUCCESS;
@@ -206,6 +218,11 @@ BnodeResult Bnode::attachKv( BtreeKv *kvp )
     }
     nentry++;
     nodeSize += kvp->getKvSize();
+
+    if ( kvp->child_ptr ) {
+        // add to dirty child set
+        dirtySet.insert( kvp );
+    }
 
     return BnodeResult::SUCCESS;
 }
@@ -316,6 +333,11 @@ BnodeResult Bnode::removeKv( void *key,
     kvp = _get_entry(entry, BtreeKv, avl);
     avl_remove(&kvIdx, entry);
 
+    if ( kvp->child_ptr ) {
+        // remove from dirty child set
+        dirtySet.erase( kvp );
+    }
+
     nentry--;
     nodeSize -= kvp->getKvSize();
     delete kvp;
@@ -332,6 +354,11 @@ BnodeResult Bnode::detachKv( BtreeKv *kvp )
     avl_remove(&kvIdx, &kvp->avl);
     nentry--;
     nodeSize -= kvp->getKvSize();
+
+    if ( kvp->child_ptr ) {
+        // remove from dirty child set
+        dirtySet.erase( kvp );
+    }
 
     return BnodeResult::SUCCESS;
 }
