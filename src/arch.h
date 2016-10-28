@@ -82,7 +82,7 @@
 #define realloc(ptr, size) je_realloc(ptr, size)
 #define free(addr) je_free(addr)
 #define posix_memalign(memptr, alignment, size) \
-	je_posix_memalign(memptr, alignment, size)
+        je_posix_memalign(memptr, alignment, size)
 #define memalign(alignment, size) je_memalign(alignment, size)
 #define aligned_malloc(size, align) je_aligned_malloc(size, align)
 #define aligned_free(addr) je_aligned_free(addr)
@@ -92,6 +92,7 @@
     #include <inttypes.h>
     #include <alloca.h>
     #include <TargetConditionals.h>
+    #include <AvailabilityMacros.h>
 
     #define INLINE extern inline
 
@@ -115,12 +116,25 @@
     #ifndef spin_t
         // spinlock
         #include <libkern/OSAtomic.h>
-        #define spin_t OSSpinLock
-        #define spin_lock(arg) OSSpinLockLock(arg)
-        #define spin_trylock(arg) OSSpinLockTry(arg)
-        #define spin_unlock(arg) OSSpinLockUnlock(arg)
-        #define SPIN_INITIALIZER (spin_t)(0)
-        #define spin_init(arg) *(arg) = (spin_t)(0)
+        #ifndef MAC_OS_X_VERSION_10_12
+            #define MAC_OS_X_VERSION_10_12 101200
+        #endif
+        #if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_12
+            #include <os/lock.h>
+            #define spin_t os_unfair_lock
+            #define spin_lock(arg) os_unfair_lock_lock(arg)
+            #define spin_trylock(arg) os_unfair_lock_trylock(arg)
+            #define spin_unlock(arg) os_unfair_lock_unlock(arg)
+            #define SPIN_INITIALIZER OS_UNFAIR_LOCK_INIT
+            #define spin_init(arg) *(arg) = OS_UNFAIR_LOCK_INIT
+        #else
+            #define spin_t OSSpinLock
+            #define spin_lock(arg) OSSpinLockLock(arg)
+            #define spin_trylock(arg) OSSpinLockTry(arg)
+            #define spin_unlock(arg) OSSpinLockUnlock(arg)
+            #define SPIN_INITIALIZER (spin_t)(0)
+            #define spin_init(arg) *(arg) = (spin_t)(0)
+        #endif
         #define spin_destroy(arg)
     #endif
     #ifndef mutex_t

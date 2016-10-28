@@ -1824,14 +1824,10 @@ fdb_status filemgr_shutdown()
                 bcache_shutdown();
             }
             filemgr_initialized = 0;
-#ifndef SPIN_INITIALIZER
-            initial_lock_status = 0;
-#else
-            initial_lock = SPIN_INITIALIZER;
-#endif
             _filemgr_shutdown_temp_buf();
             spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
+            initial_lock_status = 0;
             spin_destroy(&initial_lock);
 #endif
         } else {
