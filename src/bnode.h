@@ -418,6 +418,14 @@ public:
     BnodeResult importRaw(void *buf, bool use_existing_memory = false);
 
     /**
+     * For debugging-purpose, print out a list of key-value pairs in the node.
+     *
+     * @param start_idx Start index number of key-value pair to be printed out.
+     * @param num_to_print Number of key-value pairs to be printed out.
+     */
+    void DBG_printNode(size_t start_idx, size_t num_to_print = 1);
+
+    /**
      * Read raw B+tree node data size from the given buffer.
      *
      * @param buf Memory area containing raw data.

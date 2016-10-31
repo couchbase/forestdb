@@ -622,6 +622,39 @@ size_t Bnode::readNodeSize(void *buf)
     return _endian_decode(enc32);
 }
 
+void Bnode::DBG_printNode(size_t start_idx, size_t num_to_print)
+{
+    size_t i = 0;
+    BtreeKv *kvp;
+    auto entry = avl_first(&kvIdx);
+    while (entry) {
+        if (i >= start_idx + num_to_print) {
+            break;
+        }
+
+        kvp = _get_entry(entry, BtreeKv, avl);
+
+        if (i >= start_idx) {
+            printf("[%d] %.*s, ", (int)i, (int)kvp->keylen, (char*)kvp->key);
+            if (kvp->child_ptr) {
+                printf("PTR 0x%" _X64 " ", (uint64_t)kvp->child_ptr);
+            } else {
+                if (level == 1) {
+                    printf("%.*s ", (int)kvp->valuelen, (char*)kvp->value);
+                } else {
+                    uint64_t offset = *(reinterpret_cast<uint64_t*>(kvp->value));
+                    offset = _endian_decode(offset);
+                    printf("OFF 0x%" _X64 " ", offset);
+                }
+            }
+            printf("%c\n", (kvp->existing_memory)?('T'):('F'));
+        }
+
+        i++;
+        entry = avl_next(entry);
+    }
+}
+
 
 BnodeIterator::BnodeIterator(Bnode *_bnode)
 {
