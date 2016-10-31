@@ -139,6 +139,14 @@ void Bnode::setMeta( void* new_meta,
         meta = (void*)malloc(meta_size);
         memcpy(meta, new_meta, meta_size);
     }
+
+    if (metaSize != meta_size) {
+        // should adapt on-disk node size
+        nodeSize -= metaSize;
+        nodeSize += meta_size;
+        // update meta data size
+        metaSize = meta_size;
+    }
 }
 
 BnodeResult Bnode::addKv( void *key,
