@@ -159,23 +159,18 @@ enum class BnodeResult {
     EXISTING_KEY
 };
 
+/**
+ * Definition of variable-length key comparison function.
+ */
+typedef int btree_new_cmp_func( void *key1, size_t keylen1,
+                                void *key2, size_t keylen2,
+                                void *aux );
+
 class Bnode {
     friend class BnodeIterator;
 
 public:
-    Bnode() :
-        flags(0),
-        level(1),
-        nentry(0),
-        metaSize(0),
-        metaExistingMemory(false),
-        meta(nullptr),
-        refCount(0),
-        curOffset(BLK_NOT_FOUND)
-    {
-        nodeSize = Bnode::getDiskSpaceOfEmptyNode();
-        avl_init(&kvIdx, NULL);
-    }
+    Bnode();
     ~Bnode();
 
     /**
@@ -243,6 +238,18 @@ public:
     }
     void setCurOffset(uint64_t _offset) {
         curOffset = _offset;
+    }
+
+    btree_new_cmp_func *getCmpFunc() const {
+        return cmpFunc;
+    }
+    void setCmpFunc(btree_new_cmp_func *_func) {
+        cmpFunc = _func;
+        if (cmpFunc) {
+            kvIdx.aux = (void*)this;
+        } else {
+            kvIdx.aux = nullptr;
+        }
     }
 
     std::unordered_set<BtreeKv *>& getDirtySet() {
@@ -475,6 +482,8 @@ private:
     std::vector<bid_t> bidList;
     // Set of key-value pair instances pointing to dirty child nodes.
     std::unordered_set<BtreeKv *> dirtySet;
+    // Key comparison function. Lexicographical order by default.
+    btree_new_cmp_func *cmpFunc;
 };
 
 
@@ -502,6 +511,10 @@ public:
                    size_t start_keylen );
 
     ~BnodeIterator() {
+    }
+
+    Bnode *getBnode() const {
+        return bnode;
     }
 
     /**

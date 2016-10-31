@@ -25,26 +25,6 @@
 #include "internal_types.h"
 #include "bnode.h"
 
-INLINE int _bnode_cmp(avl_node *a, struct avl_node *b, void *aux)
-{
-    BtreeKv *aa, *bb;
-    aa = _get_entry(a, BtreeKv, avl);
-    bb = _get_entry(b, BtreeKv, avl);
-
-    if (aa->keylen == bb->keylen) {
-        return memcmp(aa->key, bb->key, aa->keylen);
-    } else {
-        size_t len = MIN(aa->keylen, bb->keylen);
-        int cmp = memcmp(aa->key, bb->key, len);
-        if (cmp != 0) {
-            return cmp;
-        } else {
-            return static_cast<int>( static_cast<int>(aa->keylen) -
-                                     static_cast<int>(bb->keylen) );
-        }
-    }
-}
-
 void BtreeKv::updateKey( void *_key,
                          size_t _keylen ) {
 
@@ -82,6 +62,49 @@ void BtreeKv::updateChildPtr( Bnode *_child_ptr ) {
 }
 
 
+INLINE int avlCmpBnode(avl_node *a, struct avl_node *b, void *aux)
+{
+    BtreeKv *aa, *bb;
+    aa = _get_entry(a, BtreeKv, avl);
+    bb = _get_entry(b, BtreeKv, avl);
+
+    if (aux) {
+        // custom compare function is defined
+        Bnode *bnode = reinterpret_cast<Bnode*>(aux);
+        btree_new_cmp_func *func = bnode->getCmpFunc();
+        return func(aa->key, aa->keylen, bb->key, bb->keylen, aux);
+
+    } else {
+        // lexicographical order
+        if (aa->keylen == bb->keylen) {
+            return memcmp(aa->key, bb->key, aa->keylen);
+        } else {
+            size_t len = MIN(aa->keylen, bb->keylen);
+            int cmp = memcmp(aa->key, bb->key, len);
+            if (cmp != 0) {
+                return cmp;
+            } else {
+                return static_cast<int>( static_cast<int>(aa->keylen) -
+                                         static_cast<int>(bb->keylen) );
+            }
+        }
+    }
+}
+
+Bnode::Bnode() :
+    nodeSize( Bnode::getDiskSpaceOfEmptyNode() ),
+    flags(0),
+    level(1),
+    nentry(0),
+    metaSize(0),
+    metaExistingMemory(false),
+    meta(nullptr),
+    refCount(0),
+    curOffset(BLK_NOT_FOUND),
+    cmpFunc(nullptr)
+{
+    avl_init(&kvIdx, NULL);
+}
 
 Bnode::~Bnode()
 {
@@ -178,7 +201,7 @@ BnodeResult Bnode::addKv( void *key,
     BtreeKv *kvp, query;
     query.key = key;
     query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
     if ( entry ) {
         // same key already exists .. just update value only
         kvp = _get_entry(entry, BtreeKv, avl);
@@ -211,7 +234,7 @@ BnodeResult Bnode::addKv( void *key,
                        value, valuelen,
                        child_ptr, use_existing_memory);
 
-    avl_insert(&kvIdx, &kvp->avl, _bnode_cmp);
+    avl_insert(&kvIdx, &kvp->avl, avlCmpBnode);
 
     if (inc_nentry) {
         nentry++;
@@ -232,7 +255,7 @@ BnodeResult Bnode::attachKv( BtreeKv *kvp )
         return BnodeResult::INVALID_ARGS;
     }
 
-    struct avl_node *ret = avl_insert(&kvIdx, &kvp->avl, _bnode_cmp);
+    struct avl_node *ret = avl_insert(&kvIdx, &kvp->avl, avlCmpBnode);
     if ( ret != &kvp->avl ) {
         // alraedy existing key
         return BnodeResult::EXISTING_KEY;
@@ -262,7 +285,7 @@ BnodeResult Bnode::findKv( void *key,
     BtreeKv *kvp, query;
     query.key = key;
     query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
     if (!entry) {
         return BnodeResult::KEY_NOT_FOUND;
     }
@@ -285,7 +308,7 @@ BtreeKv* Bnode::findKv( void *key,
     BtreeKv *kvp, query;
     query.key = key;
     query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
     if (!entry) {
         return nullptr;
     }
@@ -306,7 +329,7 @@ BtreeKv* Bnode::findKvSmallerOrEqual( void *key,
     BtreeKv *kvp, query;
     query.key = key;
     query.keylen = keylen;
-    auto entry = avl_search_smaller(&kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search_smaller(&kvIdx, &query.avl, avlCmpBnode);
     if (!entry) {
         if (return_smallest) {
             // given key is smaller than the smallest key.
@@ -347,7 +370,7 @@ BnodeResult Bnode::removeKv( void *key,
     BtreeKv *kvp, query;
     query.key = key;
     query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
     if (!entry) {
         return BnodeResult::KEY_NOT_FOUND;
     }
@@ -694,7 +717,7 @@ BnodeIteratorResult BnodeIterator::seekGreaterOrEqual( void *key,
     query.key = key;
     query.keylen = keylen;
 
-    auto entry = avl_search_greater(&bnode->kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search_greater(&bnode->kvIdx, &query.avl, avlCmpBnode);
     return fetchKvp(entry);
 }
 
@@ -709,7 +732,7 @@ BnodeIteratorResult BnodeIterator::seekSmallerOrEqual( void *key,
     query.key = key;
     query.keylen = keylen;
 
-    auto entry = avl_search_smaller(&bnode->kvIdx, &query.avl, _bnode_cmp);
+    auto entry = avl_search_smaller(&bnode->kvIdx, &query.avl, avlCmpBnode);
     return fetchKvp(entry);
 }
 
@@ -744,6 +767,4 @@ BnodeIteratorResult BnodeIterator::next()
     auto entry = avl_next( &curKvp->avl );
     return fetchKvp(entry);
 }
-
-
 

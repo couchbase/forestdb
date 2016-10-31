@@ -330,12 +330,78 @@ void bnode_split_test()
     TEST_RESULT("bnode split test");
 }
 
+static int bnode_custom_cmp_func(void *key1, size_t keylen1,
+    void *key2, size_t keylen2, void *aux)
+{
+    // only compare the last digit (8th byte)
+    char chr1 = *((char*)key1 + 7);
+    char chr2 = *((char*)key2 + 7);
+    if (chr1 < chr2) {
+        return -1;
+    } else if (chr1 > chr2) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void bnode_custom_cmp_test()
+{
+    TEST_INIT();
+
+    Bnode *bnode = new Bnode();
+    BnodeIterator *bit;
+    BnodeResult ret;
+    BnodeIteratorResult bit_ret = BnodeIteratorResult::SUCCESS;
+    size_t i, idx = 0;
+    size_t n = 10;
+    char keybuf[64], valuebuf[64];
+
+    bnode->setCmpFunc(bnode_custom_cmp_func);
+
+    // add test
+    for (i=0; i<n; i++) {
+        idx += 7;
+        sprintf(keybuf, "k%07d\n", (int)idx);
+        sprintf(valuebuf, "v%07d\n", (int)idx);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    BtreeKv *kvp_out;
+
+    // forward iteration
+    bit = new BnodeIterator(bnode);
+    i = 0;
+    do {
+        kvp_out = bit->getKv();
+        if (!kvp_out) {
+            break;
+        }
+
+        // get 8th character
+        char last_chr = *((char*)kvp_out->key + 7);
+        // it should be in an ascending order
+        TEST_CHK( last_chr == '0'+(char)i );
+        i++;
+
+        bit_ret = bit->next();
+    } while (bit_ret == BnodeIteratorResult::SUCCESS);
+    TEST_CHK(i == n);
+    delete bit;
+
+    delete bnode;
+
+    TEST_RESULT("bnode custom compare function test");
+}
 
 int main()
 {
     bnode_basic_test();
     bnode_iterator_test();
     bnode_split_test();
+    bnode_custom_cmp_test();
     return 0;
 }
 
