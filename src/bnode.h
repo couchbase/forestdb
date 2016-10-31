@@ -278,6 +278,11 @@ public:
                   bool use_existing_memory = false );
 
     /**
+     * Clear meta data section.
+     */
+    void clearMeta();
+
+    /**
      * Insert a key-value pair into the B+tree node.
      *
      * @param key Key string.

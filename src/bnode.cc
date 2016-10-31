@@ -149,6 +149,19 @@ void Bnode::setMeta( void* new_meta,
     }
 }
 
+void Bnode::clearMeta()
+{
+    if (meta && !metaExistingMemory) {
+        free(meta);
+    }
+
+    nodeSize -= metaSize;
+
+    metaExistingMemory = false;
+    meta = nullptr;
+    metaSize = 0;
+}
+
 BnodeResult Bnode::addKv( void *key,
                           size_t keylen,
                           void *value,
