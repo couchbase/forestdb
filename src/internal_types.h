@@ -46,6 +46,8 @@ class WalItr;
 #define FDB_MAX_KEYLEN_INTERNAL (65520)
 
 // Versioning information...
+// Version 003 - New non-block aligned BtreeV2
+#define FILEMGR_MAGIC_003 (UINT64_C(0xdeadcafebeefc003))
 // Version 002 - added stale-block tree info
 #define FILEMGR_MAGIC_002 (UINT64_C(0xdeadcafebeefc002))
 // Version 001 - added delta size to DB header and CRC-32C
@@ -55,7 +57,7 @@ class WalItr;
 //               unexpected behavior or crash, this magic number is no longer
 //               supported.)
 #define FILEMGR_MAGIC_000 (UINT64_C(0xdeadcafebeefbeef))
-#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_002
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_003
 
 
 /**

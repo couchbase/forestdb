@@ -25,7 +25,7 @@
 #include "filemgr.h"
 
 INLINE filemgr_magic_t ver_get_latest_magic() {
-    return FILEMGR_MAGIC_002;
+    return FILEMGR_MAGIC_003;
 }
 bool ver_is_valid_magic(filemgr_magic_t magic);
 bool ver_is_magic_000(filemgr_magic_t magic);
@@ -33,6 +33,7 @@ bool ver_is_atleast_magic_001(filemgr_magic_t magic);
 bool ver_staletree_support(filemgr_magic_t magic);
 bool ver_superblock_support(filemgr_magic_t magic);
 bool ver_non_consecutive_doc(filemgr_magic_t magic);
+bool ver_btreev2_format(filemgr_magic_t magic);
 size_t ver_get_new_filename_off(filemgr_magic_t magic);
 
 /**

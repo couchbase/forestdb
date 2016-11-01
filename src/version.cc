@@ -71,11 +71,21 @@ bool ver_superblock_support(filemgr_magic_t magic)
     return false;
 }
 
+bool ver_btreev2_format(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_003
+    if (magic >= FILEMGR_MAGIC_003 && magic <= FILEMGR_LATEST_MAGIC) {
+        return true;
+    }
+    return false;
+}
+
 size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     switch(magic) {
         case FILEMGR_MAGIC_000: return 64;
         case FILEMGR_MAGIC_001: return 72;
         case FILEMGR_MAGIC_002: return 80;
+        case FILEMGR_MAGIC_003: return 80;
     }
     return (size_t) -1;
 }
@@ -85,6 +95,7 @@ size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic) {
         case FILEMGR_MAGIC_000: return 40;
         case FILEMGR_MAGIC_001: return 48;
         case FILEMGR_MAGIC_002: return 56;
+        case FILEMGR_MAGIC_003: return 56;
     }
     return (size_t) -1;
 }
@@ -97,6 +108,8 @@ const char* ver_get_version_string(filemgr_magic_t magic) {
         return "ForestDB v1.x format";
     case FILEMGR_MAGIC_002:
         return "ForestDB v2.x format";
+    case FILEMGR_MAGIC_003:
+        return "ForestDB v3.x format";
     }
     return "unknown";
 }
