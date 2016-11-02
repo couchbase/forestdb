@@ -22,9 +22,12 @@
 #include "hbtrie.h"
 #include "list.h"
 #include "btree.h"
+#include "btreeblock.h"
+#include "btree_new.h"
 #include "btree_kv.h"
 #include "btree_fast_str_kv.h"
 #include "internal_types.h"
+#include "version.h"
 
 #include "memleak.h"
 
@@ -54,21 +57,20 @@ typedef enum {
 } hbmeta_opt;
 
 struct btreelist_item {
-    BTree btree;
-    chunkno_t chunkno;
-    bid_t child_rootbid;
     struct list_elem e;
+    BTree btree;
+    bid_t child_rootbid;
+    chunkno_t chunkno;
     uint8_t leaf;
 };
 
 struct btreeit_item {
+    struct list_elem le;
     BTree btree;
     BTreeIterator *btree_it;
     chunkno_t chunkno;
-    struct list_elem le;
     uint8_t leaf;
 };
-
 #define _is_leaf_btree(chunkno) ((chunkno) & CHUNK_FLAG)
 #define _get_chunkno(chunkno) ((chunkno) & (~(CHUNK_FLAG)))
 
@@ -134,7 +136,7 @@ int HBTrie::reformKeyReverse(void *key, int keylen)
 
 HBTrie::HBTrie() :
     chunksize(0), valuelen(0), flag(0x0), leaf_height_limit(0), btree_nodesize(0),
-    root_bid(0), btreeblk_handle(NULL), doc_handle(NULL),
+    root_bid(0), btreeblk_handle(NULL), fileHB(NULL), doc_handle(NULL),
     btree_kv_ops(NULL), btree_leaf_kv_ops(NULL), readkey(NULL), map(NULL),
     last_map_chunk(NULL)
 {
@@ -143,17 +145,26 @@ HBTrie::HBTrie() :
 
 HBTrie::HBTrie(HBTrie *_trie)
 {
-    init(_trie->getChunkSize(), _trie->getValueLen(),
+    initTrie(_trie->getChunkSize(), _trie->getValueLen(),
          _trie->getBtreeNodeSize(), _trie->getRootBid(),
-         _trie->getBtreeBlkHandle(), _trie->getDocHandle(),
-         _trie->getReadKey());
+         _trie->getBtreeBlkHandle(), _trie->getFileMgr(),
+         _trie->getDocHandle(), _trie->getReadKey());
 }
 
-HBTrie::HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-    BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey)
+HBTrie::HBTrie(int _chunksize, int _valuelen, int _btree_nodesize,
+               bid_t _root_bid, BTreeBlkHandle* _btreeblk_handle,
+               void* _doc_handle, hbtrie_func_readkey* _readkey)
 {
-    init(_chunksize, _valuelen, _btree_nodesize, _root_bid,
-         _btreeblk_handle, _doc_handle, _readkey);
+    initTrie(_chunksize, _valuelen, _btree_nodesize, _root_bid,
+             _btreeblk_handle, _btreeblk_handle->getFile(), _doc_handle,
+             _readkey);
+}
+
+HBTrie::HBTrie(int _chunksize, int _valuelen, int _btree_nodesize,
+               bid_t _root_bid, BnodeMgr* _bnodeMgr, FileMgr *_file)
+{
+    initTrie(_chunksize, _valuelen, _btree_nodesize, _root_bid,
+             _bnodeMgr, _file, nullptr, nullptr);
 }
 
 HBTrie::~HBTrie()
@@ -163,15 +174,23 @@ HBTrie::~HBTrie()
     freeLastMapChunk();
 }
 
-void HBTrie::init(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-                  BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey)
+void HBTrie::initTrie(int _chunksize, int _valuelen, int _btree_nodesize,
+                      bid_t _root_bid, void* _btreestorage_handle,
+                      FileMgr *_file, void* _doc_handle,
+                      hbtrie_func_readkey* _readkey)
 {
     chunksize = _chunksize;
     valuelen = _valuelen;
     btree_nodesize = _btree_nodesize;
     root_bid = _root_bid;
-    btreeblk_handle = _btreeblk_handle;
-    doc_handle = _doc_handle;
+    fileHB = _file;
+    if (!_doc_handle) {
+        bnodeMgr = reinterpret_cast<BnodeMgr *>(_btreestorage_handle);
+        doc_handle = nullptr;
+    } else {
+        btreeblk_handle = reinterpret_cast<BTreeBlkHandle *>(_btreestorage_handle);
+        doc_handle = _doc_handle;
+    }
     readkey = _readkey;
     flag = 0x0;
     leaf_height_limit = 0;
@@ -2140,32 +2159,6 @@ hbtrie_result HBTrieIterator::next(void *key_buf,
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
     hr = _next(item, key_buf, keylen_out, value_buf, 0x0);
-    flagsSetFwd();
-    if (hr == HBTRIE_RESULT_SUCCESS) {
-        flagsClrFailed();
-        flagsSetMoved();
-    } else {
-        flagsSetFailed();
-    }
-    return hr;
-
-}
-
-hbtrie_result HBTrieIterator::nextPartial(void *key_buf,
-                                          size_t& keylen_out,
-                                          void *value_buf)
-{
-    hbtrie_result hr;
-
-    if (flagsIsFwd() && flagsIsFailed()) {
-        return HBTRIE_RESULT_FAIL;
-    }
-
-    struct list_elem *e = list_begin(&btreeit_list);
-    struct btreeit_item *item = NULL;
-    if (e) item = _get_entry(e, struct btreeit_item, le);
-
-    hr = _next(item, key_buf, keylen_out, value_buf, HBTRIE_PARTIAL_MATCH);
     flagsSetFwd();
     if (hr == HBTRIE_RESULT_SUCCESS) {
         flagsClrFailed();

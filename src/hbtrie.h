@@ -20,6 +20,7 @@
 
 #include "common.h"
 #include "btree.h"
+#include "btree_new.h"
 #include "list.h"
 #include "memory_pool.h"
 
@@ -77,6 +78,8 @@ typedef enum {
 #define HBTRIE_FLAG_COMPACT (0x01)
 struct btree_blk_ops;
 struct btree_kv_ops;
+class FileMgr;
+class BnodeMgr;
 
 /**
  * HB+trie handle definition.
@@ -88,12 +91,13 @@ public:
     HBTrie(HBTrie *_trie);
 
     HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-           BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey);
+           BTreeBlkHandle* _btreeblk_handle, void* _doc_handle,
+           hbtrie_func_readkey* _readkey);
+
+    HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
+           BnodeMgr* _bnodeMgr, FileMgr *_file);
 
     ~HBTrie();
-
-    void init(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-              BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey);
 
     void allocLastMapChunk() {
         last_map_chunk = (void *)malloc(chunksize);
@@ -132,6 +136,14 @@ public:
 
     BTreeBlkHandle* getBtreeBlkHandle() const {
         return btreeblk_handle;
+    }
+
+    BnodeMgr *getBnodeMgr() const {
+        return bnodeMgr;
+    }
+
+    FileMgr *getFileMgr() const {
+        return fileHB;
     }
 
     void* getDocHandle() const {
@@ -277,7 +289,11 @@ private:
     uint8_t leaf_height_limit;
     uint32_t btree_nodesize;
     bid_t root_bid;
-    BTreeBlkHandle *btreeblk_handle;
+    union {
+        BTreeBlkHandle *btreeblk_handle;
+        BnodeMgr *bnodeMgr;
+    };
+    FileMgr *fileHB;
     void *doc_handle;
     void *aux;
 
@@ -287,6 +303,13 @@ private:
     hbtrie_cmp_map *map;
     btree_cmp_args cmp_args;
     void *last_map_chunk;
+
+    /**
+     * Internal common HBTrie constructor initialization
+     */
+    void initTrie(int _chunksize, int _valuelen, int _btree_nodesize,
+              bid_t _root_bid, void* _btreestorage_handle,
+              FileMgr *_file, void* _doc_handle, hbtrie_func_readkey* _readkey);
 
     inline int getNchunkRaw(void *rawkey, int rawkeylen) const
     {
@@ -433,16 +456,6 @@ public:
      * @return HBTRIE_RESULT_SUCCESS on success.
      */
     hbtrie_result next(void *key_buf, size_t& keylen_out, void *value_buf);
-    /**
-     * Get next key. This API does not return the entire key but the sub-string
-     * indexed by HB+trie only.
-     *
-     * @param key_buf Pointer to the buffer where key will be read.
-     * @param keylen_out Reference to the length of the key.
-     * @param value_buf Pointer to the buffer where value will be read.
-     * @return HBTRIE_RESULT_SUCCESS on success.
-     */
-    hbtrie_result nextPartial(void *key_buf, size_t& keylen_out, void *value_buf);
     /**
      * Get next value only.
      *

@@ -24,7 +24,9 @@
 #include "internal_types.h"
 
 class BTreeBlkHandle;
+class BnodeMgr;
 class BTree;
+class BtreeV2;
 // Windows MSVC has a buggy standard library for std::atomic<const char *>
 // Any attempts to set a const char * using atomic::store()
 // method fails since atomic::store() is defined as
@@ -130,11 +132,15 @@ public:
      * Stale block B+-Tree instance.
      * Maps from 'commit revision number' to 'stale block info' system document.
      */
-    BTree *staletree;
+    union {
+        BtreeV2 *staletreeV2; // for BtreeV2 format
+        BTree *staletree;
+    };
     /**
      * Sequence B+-Tree instance.
      */
     union {
+        BtreeV2 *seqtreeV2; // single KV instance mode with BtreeV2
         BTree *seqtree; // single KV instance mode
         HBTrie *seqtrie; // multi KV instance mode
     };
@@ -146,10 +152,16 @@ public:
      * Doc IO handle instance.
      */
     DocioHandle *dhandle;
-    /**
-     * B+-Tree handle instance.
-     */
-    BTreeBlkHandle *bhandle;
+    union {
+        /**
+         * B+-Tree handle instance.
+         */
+        BTreeBlkHandle *bhandle;
+        /**
+         * BtreeV2 Node Manager instance.
+         */
+        BnodeMgr *bnodeMgr;
+    };
     /**
      * File manager IO operation handle.
      */

@@ -24,6 +24,7 @@
 #include "file_handle.h"
 #include "filemgr.h"
 #include "fdb_internal.h"
+#include "version.h"
 
 extern int _kvs_cmp_name(struct avl_node *a, struct avl_node *b, void *aux);
 
@@ -143,7 +144,11 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
 
     file = kv_handle.file;
     dhandle = kv_handle.dhandle;
-    bhandle = kv_handle.bhandle;
+    if (ver_btreev2_format(file->getVersion())) {
+        bnodeMgr = kv_handle.bnodeMgr;
+    } else {
+        bhandle = kv_handle.bhandle;
+    }
     fileops = kv_handle.fileops;
 
     config = kv_handle.config;

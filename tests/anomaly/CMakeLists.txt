@@ -10,6 +10,10 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
     ${PROJECT_SOURCE_DIR}/src/btree.cc
     ${PROJECT_SOURCE_DIR}/src/btree_kv.cc
+    ${PROJECT_SOURCE_DIR}/src/btree_new.cc
+    ${PROJECT_SOURCE_DIR}/src/bnode.cc
+    ${PROJECT_SOURCE_DIR}/src/bnodemgr.cc
+    ${PROJECT_SOURCE_DIR}/src/bnodecache.cc
     ${PROJECT_SOURCE_DIR}/src/btree_fast_str_kv.cc
     ${PROJECT_SOURCE_DIR}/src/btreeblock.cc
     ${PROJECT_SOURCE_DIR}/src/checksum.cc
