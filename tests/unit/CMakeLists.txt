@@ -130,6 +130,18 @@ add_executable(btree_kv_test
 target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT})
 
+add_executable(bnodecache_test
+               bnodecache_test.cc
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(bnodecache_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+set_target_properties(bnodecache_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
+
 # add test target
 add_test(hash_test hash_test)
 add_test(mempool_test mempool_test)
@@ -140,8 +152,10 @@ add_test(btreeblock_test btreeblock_test)
 add_test(commit_log_test commit_log_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
-add_test(btree_new_test btree_new_test)
 add_test(btree_kv_test btree_kv_test)
+add_test(btree_new_test btree_new_test)
+add_test(bnodecache_test bnodecache_test)
+
 ADD_CUSTOM_TARGET(unit_tests
     COMMAND ctest
 )
