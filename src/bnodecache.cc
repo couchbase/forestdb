@@ -888,93 +888,84 @@ void BnodeCacheMgr::performEviction() {
     // Select the victim and then the clean blocks from the victim file, eject
     // items until memory usage falls 4K (max btree node size) less than
     // the allowed bnodeCacheLimit.
-    // TODO: Implement a daemon task that does this eviction, rather than the
-    // reader/writer doing it.
-    if (bnodeCacheCurrentUsage.load() >= bnodeCacheLimit) {
-        while (bnodeCacheCurrentUsage.load() > (bnodeCacheLimit - 4096)) {
-            // Firstly, select the victim file
-            victim = chooseEvictionVictim();
-            if (victim && victim->setEvictionInProgress(true)) {
-                // Check whether the file has at least one block to be evicted,
-                // if not try picking a random victim again
-                if (victim->numItems.load() == 0) {
-                    victim->refCount--;
-                    victim->setEvictionInProgress(false);
-                    victim = nullptr;
-                }
-            } else if (victim) {
+    // TODO: Maybe implement a daemon task that does this eviction,
+    //       rather than the reader/writer doing it.
+    while (bnodeCacheCurrentUsage.load() >= bnodeCacheLimit) {
+        // Firstly, select the victim file
+        victim = chooseEvictionVictim();
+        if (victim && victim->setEvictionInProgress(true)) {
+            // Check whether the file has at least one block to be evicted,
+            // if not try picking a random victim again
+            if (victim->numItems.load() == 0) {
                 victim->refCount--;
+                victim->setEvictionInProgress(false);
                 victim = nullptr;
             }
-
-            if (victim == nullptr) {
-                continue;
-            }
-
-            size_t num_shards = victim->getNumShards();
-            size_t i = random(num_shards);
-            bool found_victim_shard = false;
-            BnodeCacheShard* bshard = nullptr;
-
-            for (size_t toVisit = num_shards; toVisit; --toVisit) {
-                i = (i + 1) % num_shards;   // Round-robin over empty shards
-                bshard = victim->shards[i].get();
-                spin_lock(&bshard->lock);
-                if (bshard->empty()) {
-                    spin_unlock(&bshard->lock);
-                    continue;
-                }
-
-                if (list_empty(&bshard->cleanNodes)) {
-                    spin_unlock(&bshard->lock);
-                    // When the victim shard has no clean index node, evict
-                    // some dirty blocks from shards.
-                    if (flushDirtyIndexNodes(victim, true, false)
-                                                        != FDB_RESULT_SUCCESS) {
-                        break;
-                    }
-                    continue;       // Select another shard victim again
-                }
-
-                elem = list_pop_front(&bshard->cleanNodes);
-                if (elem) {
-                    item = reinterpret_cast<Bnode*>(elem);
-                    if (item->getRefCount() == 0) {
-                        found_victim_shard = true;
-                        break;
-                    } else {
-                        list_push_back(&bshard->cleanNodes,
-                                       &item->list_elem);
-                    }
-                }
-                spin_unlock(&bshard->lock);
-            }
-
-            if (!found_victim_shard) {
-                // Couldn't spot any non-empty shards event after 'num_shards'
-                // attempts. The file is *likely* empty. Try picking another
-                // victim until the memory usage falls below the required
-                // threshold.
-                continue;
-            }
-
-            victim->numVictims++;
-
-            victim->numItems--;
-            // Remove from the shard nodes list
-            bshard->allNodes.erase(item->getCurOffset());
-            // Decrement mem usage stat
-            bnodeCacheCurrentUsage.fetch_sub(item->getNodeSize());
-
-            // Free bnode instance
-            delete item;
-
-            spin_unlock(&bshard->lock);
-
+        } else if (victim) {
             victim->refCount--;
-            victim->setEvictionInProgress(false);
             victim = nullptr;
         }
+
+        if (victim == nullptr) {
+            continue;
+        }
+
+        size_t num_shards = victim->getNumShards();
+        size_t i = random(num_shards);
+        BnodeCacheShard* bshard = nullptr;
+        size_t toVisit = num_shards;
+
+        while (bnodeCacheCurrentUsage.load() > (bnodeCacheLimit - 4096) &&
+               toVisit-- != 0) {
+            i = (i + 1) % num_shards;   // Round-robin over empty shards
+            bshard = victim->shards[i].get();
+            spin_lock(&bshard->lock);
+            if (bshard->empty()) {
+                spin_unlock(&bshard->lock);
+                continue;
+            }
+
+            if (list_empty(&bshard->cleanNodes)) {
+                spin_unlock(&bshard->lock);
+                // When the victim shard has no clean index node, evict
+                // some dirty blocks from shards.
+                fdb_status status = flushDirtyIndexNodes(victim, true, false);
+                if (status != FDB_RESULT_SUCCESS) {
+                    fdb_log(nullptr, status,
+                            "BnodeCacheMgr::performEviction(): Flushing dirty "
+                            "index nodes failed for shard %s in file '%s'",
+                            std::to_string(i).c_str(),
+                            victim->getFileName().c_str());
+                    return;
+                }
+                spin_lock(&bshard->lock);
+            }
+
+            elem = list_pop_front(&bshard->cleanNodes);
+            if (elem) {
+                item = reinterpret_cast<Bnode*>(elem);
+                if (item->getRefCount() == 0) {
+                    victim->numVictims++;
+
+                    victim->numItems--;
+                    // Remove from the shard nodes list
+                    bshard->allNodes.erase(item->getCurOffset());
+                    // Decrement mem usage stat
+                    bnodeCacheCurrentUsage.fetch_sub(item->getNodeSize());
+
+                    // Free bnode instance
+                    delete item;
+                } else {
+                    list_push_back(&bshard->cleanNodes,
+                            &item->list_elem);
+                }
+            }
+            spin_unlock(&bshard->lock);
+        }
+
+        victim->refCount--;
+        victim->setEvictionInProgress(false);
+        victim = nullptr;
     }
 }
 
