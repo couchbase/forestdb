@@ -25,6 +25,11 @@
 #include "internal_types.h"
 #include "bnode.h"
 
+BtreeKv::BtreeKv() : key(nullptr), value(nullptr), keylen(0), valuelen(0),
+                     existing_memory(true), child_ptr(nullptr) {
+    memset(&avl, 0, sizeof(struct avl_node)); // keep Coverity happy
+}
+
 void BtreeKv::updateKey( void *_key,
                          size_t _keylen ) {
 
@@ -680,18 +685,18 @@ void Bnode::DBG_printNode(size_t start_idx, size_t num_to_print)
 }
 
 
-BnodeIterator::BnodeIterator(Bnode *_bnode)
+BnodeIterator::BnodeIterator(Bnode *_bnode) : bnode(_bnode),
+                                              curKvp(nullptr)
 {
-    bnode = _bnode;
     // start with the first key.
     begin();
 }
 
 BnodeIterator::BnodeIterator( Bnode *_bnode,
                               void *start_key,
-                              size_t start_keylen )
+                              size_t start_keylen ) : bnode(_bnode),
+                                                      curKvp(nullptr)
 {
-    bnode = _bnode;
     // start with equal to or greater than 'start_key'.
     seekGreaterOrEqual(start_key, start_keylen);
 }

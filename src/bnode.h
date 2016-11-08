@@ -35,9 +35,7 @@ class Bnode;
  */
 struct BtreeKv {
 
-    BtreeKv() :
-        key(nullptr), value(nullptr), keylen(0), valuelen(0),
-        existing_memory(true), child_ptr(nullptr) { }
+    BtreeKv();
 
     BtreeKv( void* _key,
              size_t _keylen,
