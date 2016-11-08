@@ -48,9 +48,99 @@ struct wal_item_header{
 };
 
 struct wal_kvs_snaps; // forward declaration for snap_handle
+struct wal_item; // forward declaration for snap_handle
 typedef uint64_t wal_snapid_t;
 #define OPEN_SNAPSHOT_TAG ((wal_snapid_t)(-1)) // any latest snapshot item
-struct snap_handle {
+struct Snapshot {
+    Snapshot(); // Empty default constructor for dummy snapshot handles
+    /**
+     * @param snap_kvid - ID of KV Store this snapshot belongs to
+     * @param snap_range_start - Id of this snapshot
+     * @param snap_range_end - Id of oldest snapshot whose items are shared
+     *                         with this snapshot
+     * @param cmp_info - Custom compare callback context
+     * @param parentFile - FileMgr instance where this Snapshot belongs.
+     * @param parent_kvs - Parent KV Store list where this snapshot belongs.
+     */
+    Snapshot(fdb_kvs_id_t snap_kvid, wal_snapid_t snap_range_start,
+             wal_snapid_t snap_range_end, _fdb_key_cmp_info *cmp_info,
+             FileMgr *parentFile,
+             struct wal_kvs_snaps *parent_kvs);
+    ~Snapshot();
+
+    /**
+     * Under the auspices of the WAL lock, this function is used to initialize
+     * a snapshot with a given sequence number and a copy of all the active
+     * transactions at this point in time
+     * @param txn - transaction under which the snapshot is taken
+     * @param snap_seqnum - the highest sequence number seen in this snapshot
+     * @param txn_list_to_snapshot - the WAL's list of active transactions
+     * @return - FDB_RESULT_SUCCESS or an error code upon failure
+     */
+    fdb_status initSnapshot(fdb_txn *txn, fdb_seqnum_t snap_seqnum,
+                            struct list *txn_list_to_snapshot);
+
+    /**
+     * Persisted snapshot opened from disk must have its own immutable index
+     * That is not shared with other snapshots present in the WAL
+     * This routine is used by _fdb_restore_wal() to load immutable items into it
+     * @param doc - the immutable document to be inserted into the snapshot
+     * @param offset - offset of the immutable doc
+     */
+    fdb_status snapInsertDoc(fdb_doc *doc, uint64_t offset);
+
+    /**
+     * Persisted snapshots opened from disk have their own immutable indexes
+     * that are not shared with other snapshots present in the WAL
+     * This routine is used by find_Wal() to locate an item from the above.
+     * @param doc - the immutable document to be returned from the snapshot
+     * @param offset - offset of the immutable doc to be returned
+     */
+    fdb_status snapFindDoc(fdb_doc *doc, uint64_t *offset);
+
+    /**
+     * Index a WAL item into this snapshot by key. Also displace an older item
+     * from its snapshot (which may be same as this snapshot or a different one)
+     * @param item - new item to be indexed into the WAL
+     * @param old_item - old item to be un-indexed from its snapshot if indexed
+     */
+    void snapAddItemByKey(wal_item *item, wal_item *old_item);
+
+    /**
+     * Index a WAL item into this snapshot by sequence number. Optionally
+     * displace an older item from its snapshot.
+     * @param item - new item to be indexed into the WAL
+     * @param old_item - old item to be un-indexed from its snapshot if indexed
+     */
+    void snapAddItemBySeq(wal_item *item, wal_item *old_item);
+
+    /**
+     * The following functions are used for iteration of this snapshot's items
+     */
+    struct wal_item * snapGetGreaterByKey(struct wal_item *query);
+    struct wal_item * snapGetGreaterBySeq(struct wal_item *query);
+    struct wal_item * snapGetSmallerByKey(struct wal_item *query);
+    struct wal_item * snapGetSmallerBySeq(struct wal_item *query);
+    struct wal_item * nextSnapItemByKey(struct wal_item *cur_item);
+    struct wal_item * nextSnapItemBySeq(struct wal_item *cur_item);
+    struct wal_item * prevSnapItemByKey(struct wal_item *cur_item);
+    struct wal_item * prevSnapItemBySeq(struct wal_item *cur_item);
+    struct wal_item * firstSnapItemByKey(void);
+    struct wal_item * firstSnapItemBySeq(void);
+    struct wal_item * lastSnapItemByKey(void);
+    struct wal_item * lastSnapItemBySeq(void);
+
+    /**
+     * Remove an item from this snapshot
+     * @param item - item to be removed from the key & seqnum indexes
+     */
+    void snapRemoveItem(wal_item *item);
+
+    /**
+     * Release memory of all indexed items in this snapshot
+     */
+    void snapFreeItems();
+
     /**
      * Link to the list of snapshots for a kv store.
      */
@@ -101,10 +191,11 @@ struct snap_handle {
      */
     fdb_txn *snap_txn;
     /**
-     * Global transaction pointer to distinguish from local transactions
+     * Parent file where this snapshot belongs. It is required for fetching
+     * the global transaction pointer to distinguish from local transactions
      * for partially committed items.
      */
-    fdb_txn *global_txn;
+    FileMgr *snapFile;
     /**
      * Active transaction list to hide partially committed items whose
      * transaction is still being ended.
@@ -161,7 +252,7 @@ struct wal_item{
     struct wal_item_header *header;
     fdb_txn *txn;
     uint64_t txn_id; // used to track closed transactions
-    struct snap_handle *shandle; // Pointer into item's parent snapshot
+    Snapshot *shandle; // Pointer into item's parent snapshot
     wal_item_action action;
     std::atomic<uint8_t> flag;
     uint32_t doc_size;
@@ -253,7 +344,7 @@ public:
      * Search WAL item in default or single KV instance mode
      */
     fdb_status find_Wal(fdb_txn *txn, struct _fdb_key_cmp_info *cmp_info,
-                        struct snap_handle *shandle,
+                        Snapshot *shandle,
                         fdb_doc *doc, uint64_t *offset);
 
     /**
@@ -262,7 +353,7 @@ public:
     fdb_status findWithKvid_Wal(fdb_txn *txn,
                                 fdb_kvs_id_t kv_id,
                                 struct _fdb_key_cmp_info *cmp_info,
-                                struct snap_handle *shandle,
+                                Snapshot *shandle,
                                 fdb_doc *doc,
                                 uint64_t *offset);
 
@@ -350,15 +441,15 @@ public:
                                 fdb_kvs_id_t kv_id,
                                 fdb_seqnum_t seqnum,
                                 _fdb_key_cmp_info *key_cmp_info,
-                                struct snap_handle **shandle);
+                                Snapshot **shandle);
     /**
      * Clone from an existing WAL snapshot
      * @param shandle_in - incoming snapshot handle
      * @param shandle_out - cloned snapshot handle out
      * @param seqnum - The sequence number at which the snapshot is to be taken
      */
-    fdb_status snapshotClone_Wal(struct snap_handle *shandle_in,
-                                 struct snap_handle **shandle_out,
+    fdb_status snapshotClone_Wal(Snapshot *shandle_in,
+                                 Snapshot **shandle_out,
                                  fdb_seqnum_t seqnum);
     /**
      * Create a persisted (durable) WAL snapshot for a specific KV Store
@@ -371,7 +462,7 @@ public:
     fdb_status snapshotOpenPersisted_Wal(fdb_seqnum_t seqnum,
                                          _fdb_key_cmp_info *key_cmp_info,
                                          fdb_txn *txn,
-                                         struct snap_handle **shandle);
+                                         Snapshot **shandle);
 
     /**
      * Create an exclusive Snapshot of the WAL by copying all entries to
@@ -380,31 +471,21 @@ public:
      * @param shandle - Snapshot handle created by snapshotOpenPersisted_Wal()
      */
 
-    fdb_status copy2Snapshot_Wal(struct snap_handle *shandle);
+    fdb_status copy2Snapshot_Wal(Snapshot *shandle);
 
     /**
      * Closes a WAL snapshot
      * @param shandle - the snapshot handle to be closed
      * @param file - the underlying file for the database
      */
-    fdb_status snapshotClose_Wal(struct snap_handle *shandle);
+    fdb_status snapshotClose_Wal(Snapshot *shandle);
 
     /**
      * Retrieve the KV Store stats of this KV Store from the WAL Snapshot
      * @param shandle - the WAL snapshot handle
      * @param stat - (OUT) returned stat
      */
-    fdb_status getSnapStats_Wal(struct snap_handle *shandle, KvsStat *stat);
-
-    /**
-     * Persisted snapshots opened from disk needs to have its own immutable tree
-     * This routine is used by _fdb_restore_wal() to load immutable items into it
-     * @param shandle - the WAL snapshot handle
-     * @param doc - the immutable document to be inserted into the snapshot
-     * @param offset - offset of the immutable doc
-     */
-    fdb_status snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                              uint64_t offset);
+    fdb_status getSnapStats_Wal(Snapshot *shandle, KvsStat *stat);
 
     /**
      * Discard WAL entries belonging to specific transaction
@@ -460,7 +541,7 @@ private:
     fdb_status _find_Wal(fdb_txn *txn,
                          fdb_kvs_id_t kv_id,
                          struct _fdb_key_cmp_info *cmp_info,
-                         struct snap_handle *shandle,
+                         Snapshot *shandle,
                          fdb_doc *doc,
                          uint64_t *offset);
 
@@ -479,33 +560,19 @@ private:
     fdb_status _close_Wal(wal_discard_t type, void *aux,
                           ErrLogCallback *log_callback);
 
-    fdb_status _snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                             uint64_t *offset);
-
     struct wal_kvs_snaps *_wal_get_kvs_snaplist(fdb_kvs_id_t kv_id);
-    struct snap_handle * _wal_get_latest_snapshot(struct wal_kvs_snaps *slist);
+    Snapshot * _wal_get_latest_snapshot(struct wal_kvs_snaps *slist);
 
-    struct snap_handle * _wal_snapshot_create(fdb_kvs_id_t kv_id,
-                                              wal_snapid_t snap_tag,
-                                              wal_snapid_t snap_flush_tag,
-                                              _fdb_key_cmp_info *key_cmp_info,
-                                              struct wal_kvs_snaps *snap_list);
-
-    void _snapshotClose_Wal(struct snap_handle *shandle);
     void _wal_snap_mark_flushed(void);
 
     // When a snapshot reader has called snapshotOpen_Wal(), the ref count
     // on the snapshot handle will be incremented
-    bool _wal_snap_is_immutable(struct snap_handle *shandle) {
+    bool _wal_snap_is_immutable(Snapshot *shandle) {
         return shandle->ref_cnt_kvs.load();
     }
 
-    struct snap_handle * _wal_fetch_snapshot(fdb_kvs_id_t kv_id,
-                                             _fdb_key_cmp_info *key_cmp_info);
-
-    fdb_status _wal_snapshot_init(struct snap_handle *shandle,
-                                  fdb_txn *txn,
-                                  fdb_seqnum_t seqnum);
+    Snapshot * _wal_fetch_snapshot(fdb_kvs_id_t kv_id,
+                                   _fdb_key_cmp_info *key_cmp_info);
 
     typedef enum _wal_update_type_t {
         _WAL_NEW_DEL, // A new deleted item inserted into WAL
@@ -524,8 +591,8 @@ private:
                                               fdb_txn *current_txn,
                                               struct wal_item *item);
 
-    static struct wal_item *_wal_get_snap_item(struct wal_item_header *header,
-                                               struct snap_handle *shandle);
+    struct wal_item *_wal_get_snap_item(struct wal_item_header *header,
+                                        Snapshot *shandle);
 
     void _wal_free_item(struct wal_item *item, bool gotlock);
     /*
@@ -533,7 +600,7 @@ private:
      * time of the given snapshot creation
      */
     static wal_item *getSnapItemHdr_Wal(struct wal_item_header *header,
-                                        struct snap_handle *shandle);
+                                        Snapshot *shandle);
 
     bool _wal_are_items_sorted(union wal_flush_items *flush_items);
     fdb_status _wal_do_flush(struct wal_item *item,
@@ -566,8 +633,6 @@ private:
 struct wal_cursor {
     struct avl_node avl_merge; // avl node for merge sort across all shards
     struct wal_item *item; // pointer to the shared WAL snapshot item
-    struct wal_item *first_item; // first key/seqnum item in snapshot of shard
-    struct wal_item *last_item; // last key/seqnum item in snapshot of shard
 };
 
 class WalItr {
@@ -579,7 +644,7 @@ public:
      * @param by_key - is the iteration done by key or by sequence number
      */
     WalItr(FileMgr *fileWal,
-           struct snap_handle *shandle,
+           Snapshot *shandle,
            bool by_key);
 
      ~WalItr();
@@ -638,14 +703,25 @@ private:
 
     Wal *_wal; // Pointer to global WAL
     struct wal_shard *map_shards; // pointer to the shared WAL key/seq shards
-    struct snap_handle *shandle; // Pointer to KVS snapshot handle.
+    Snapshot *shandle; // Pointer to KVS snapshot handle.
     bool by_key; // if not set means iteration is by sequence number range
     bool multi_kvs; // single kv mode vs multi kv instance mode
     uint8_t direction; // forward/backward/none to avoid grabbing all locks
     size_t numCursors; // number of shared kvs snapshots from the global WAL
     struct avl_tree mergeTree; // AVL tree to perform merge-sort over mergeCursors
     struct wal_cursor *mergeCursors; // cursor to item from each snapshot's tree
-    struct avl_node *cursorPos; // points to snapshot that returns current item
+    union {
+        /**
+         * Iterator's position of an in-memory snapshot
+         * It points to the item of a given snapshot among multiple shared
+         * in-memory snapshots
+         */
+        struct avl_node *cursorPos;
+        /**
+         * Iterator's position in a single, non-shared durable snapshot
+         */
+        struct wal_item *cursorItem;
+    };
     struct wal_item *prevItem; // points to previous iterator item returned
 };
 

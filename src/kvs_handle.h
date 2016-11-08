@@ -188,7 +188,7 @@ public:
     /**
      * Snapshot Information.
      */
-    struct snap_handle *shandle;
+    Snapshot *shandle;
     /**
      * KV store's current sequence number.
      */

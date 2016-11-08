@@ -35,7 +35,7 @@ class FileMgr;
 struct btreeblk_handle;
 class DocioHandle;
 struct btree_blk_ops;
-struct snap_handle;
+struct Snapshot;
 
 class FdbKvsHandle;
 class HBTrie;

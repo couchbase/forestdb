@@ -715,14 +715,13 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
 
     // First, move all the docs belonging to a given marker to the new file.
     FdbKvsHandle handle, new_handle;
-    struct snap_handle shandle;
+    Snapshot shandle; // temporary snapshot handle
     KvsInfo kvs;
     fdb_kvs_config kvs_config = rhandle->kvs_config;
     fdb_config config = rhandle->config;
     FileMgr *file = rhandle->file;
     bid_t last_wal_hdr_bid;
 
-    memset(&shandle, 0, sizeof(struct snap_handle));
     // Setup a temporary handle to look like a snapshot of the old_file
     // at the compaction marker.
     handle.last_hdr_bid = old_hdr_bid; // Fast rewind on open

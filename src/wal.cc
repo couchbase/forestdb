@@ -258,39 +258,70 @@ struct wal_kvs_snaps *Wal::_wal_get_kvs_snaplist(fdb_kvs_id_t kv_id)
 }
 
 inline
-struct snap_handle * Wal::_wal_get_latest_snapshot(struct wal_kvs_snaps *kv_snaps)
+Snapshot * Wal::_wal_get_latest_snapshot(struct wal_kvs_snaps *kv_snaps)
 {
-    struct snap_handle *shandle = NULL;
+    Snapshot *shandle = NULL;
     struct list_elem *e = list_end(&kv_snaps->snap_list);
     if (e) {
-        shandle = _get_entry(e, struct snap_handle, snaplist_elem);
+        shandle = _get_entry(e, Snapshot, snaplist_elem);
     }
     return shandle;
 }
 
-inline
-struct snap_handle *Wal::_wal_snapshot_create(fdb_kvs_id_t kv_id,
-                                              wal_snapid_t snap_tag,
-                                              wal_snapid_t snap_flush_tag,
-                                              _fdb_key_cmp_info *key_cmp_info,
-                                              struct wal_kvs_snaps *kvs_snapshots)
-{
-   struct snap_handle *shandle = (struct snap_handle *)
-                                   calloc(1, sizeof(struct snap_handle));
-   if (shandle) {
-       shandle->id = kv_id;
-       shandle->snap_tag_idx = snap_tag;
-       shandle->snap_stop_idx = snap_flush_tag;
-       shandle->ref_cnt_kvs = 0;
-       shandle->wal_ndocs = 0;
-       shandle->cmp_info = *key_cmp_info; // (key_cmp_info may be stack memory)
-       avl_init(&shandle->key_tree, &shandle->cmp_info);
-       avl_init(&shandle->seq_tree, NULL);
-       list_init(&shandle->active_txn_list);
-       shandle->kvs_snapshots = kvs_snapshots;
-       return shandle;
-   }
-   return NULL;
+Snapshot::Snapshot() :
+    kvs_snapshots(nullptr), // KVStore's list of snapshots
+    id (0), // ID of the parent KV Store
+    snap_tag_idx(0), // Snapshot's unique start Id
+    snap_stop_idx(0), // Id of oldest Shared snapshot
+    ref_cnt_kvs(0), // Number cloned snapshots at this point
+    is_flushed(false), // Are my items reflected in main index
+    is_persisted_snapshot(false), // Is is an exclusive snapshot
+    num_prev_snaps(0), // number of previous shared snapshots
+    wal_ndocs(0), // number of documents in this snapshot
+    seqnum(0), // highest mutation sequence number seen
+    snap_txn(nullptr), // Transaction in which snapshot is taken
+    snapFile(nullptr) { // Parent file
+    memset(&snaplist_elem, 0, sizeof(struct list_elem));
+    list_init(&active_txn_list);
+    memset(&stat, 0, sizeof(KvsStat));
+    avl_init(&key_tree, &cmp_info);
+    avl_init(&seq_tree, NULL);
+}
+
+Snapshot::Snapshot(fdb_kvs_id_t kvstore_id,
+                   wal_snapid_t range_start,
+                   wal_snapid_t range_stop,
+                   _fdb_key_cmp_info *key_cmp_info,
+                   FileMgr *parentFile,
+                   struct wal_kvs_snaps *parent_kvstore) :
+    kvs_snapshots(parent_kvstore), // KVStore's list of snapshots
+    id (kvstore_id), // ID of the parent KV Store
+    snap_tag_idx(range_start), // Snapshot's unique start Id
+    snap_stop_idx(range_stop), // Id of oldest Shared snapshot
+    ref_cnt_kvs(0), // Number cloned snapshots at this point
+    is_flushed(false), // Are my items reflected in main index
+    is_persisted_snapshot(false), // Is is an exclusive snapshot
+    num_prev_snaps(0), // number of previous shared snapshots
+    wal_ndocs(0), // number of documents in this snapshot
+    seqnum(0), // highest mutation sequence number seen
+    snap_txn(nullptr), // Transaction in which snapshot is taken
+    snapFile(parentFile), // Parent file
+    cmp_info(*key_cmp_info) { // Custom key compare context
+    memset(&snaplist_elem, 0, sizeof(struct list_elem));
+    list_init(&active_txn_list);
+    memset(&stat, 0, sizeof(KvsStat));
+    avl_init(&key_tree, &cmp_info);
+    avl_init(&seq_tree, NULL);
+}
+
+Snapshot::~Snapshot() {
+    for (struct list_elem *e = list_begin(&active_txn_list); e;) {
+        struct list_elem *e_next = list_next(e);
+        struct wal_txn_wrapper *active_txn = _get_entry(e,
+                struct wal_txn_wrapper, le);
+        free(active_txn);
+        e = e_next;
+    }
 }
 
 /**
@@ -300,12 +331,12 @@ struct snap_handle *Wal::_wal_snapshot_create(fdb_kvs_id_t kv_id,
  * If the highest snapshot was made un-readable by flush_Wal (Read barrier)
  */
 inline
-struct snap_handle * Wal::_wal_fetch_snapshot(fdb_kvs_id_t kv_id,
-                                              _fdb_key_cmp_info *key_cmp_info)
+Snapshot * Wal::_wal_fetch_snapshot(fdb_kvs_id_t kv_id,
+                                    _fdb_key_cmp_info *key_cmp_info)
 
 {
     struct wal_kvs_snaps *kvs_snapshots;
-    struct snap_handle *open_snapshot;
+    Snapshot *open_snapshot;
     wal_snapid_t snap_id, snap_flush_id = 0;
     spin_lock(&lock);
     kvs_snapshots = _wal_get_kvs_snaplist(kv_id);
@@ -338,8 +369,8 @@ struct snap_handle * Wal::_wal_fetch_snapshot(fdb_kvs_id_t kv_id,
                     kv_id, snap_flush_id, snap_id);
             }
         }
-        open_snapshot = _wal_snapshot_create(kv_id, snap_id, snap_flush_id,
-                                             key_cmp_info, kvs_snapshots);
+        open_snapshot = new Snapshot(kv_id, snap_id, snap_flush_id,
+                                     key_cmp_info, file, kvs_snapshots);
         list_push_back(&kvs_snapshots->snap_list, &open_snapshot->snaplist_elem);
         kvs_snapshots->num_snaps++;
     }
@@ -350,46 +381,46 @@ struct snap_handle * Wal::_wal_fetch_snapshot(fdb_kvs_id_t kv_id,
     return open_snapshot;
 }
 
-inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
-                                          fdb_txn *txn,
-                                          fdb_seqnum_t seqnum)
+fdb_status Snapshot::initSnapshot(fdb_txn *txn,
+                                  fdb_seqnum_t snap_seqnum,
+                                  struct list *txn_list_to_snapshot)
 {
     struct list_elem *ee;
-    shandle->snap_txn = txn;
-    shandle->ref_cnt_kvs++;
-    file->getKvsStatOps()->statGet(shandle->id, &shandle->stat);
-    if (seqnum == FDB_SNAPSHOT_INMEM) {
-        shandle->seqnum = fdb_kvs_get_seqnum(file, shandle->id);
-        shandle->is_persisted_snapshot = false;
+    fdb_txn *global_txn = snapFile->getGlobalTxn();
+    snap_txn = txn;
+    ref_cnt_kvs++;
+    snapFile->getKvsStatOps()->statGet(id, &stat);
+    if (snap_seqnum == FDB_SNAPSHOT_INMEM) {
+        seqnum = fdb_kvs_get_seqnum(snapFile, id);
+        is_persisted_snapshot = false;
     } else {
-        shandle->stat.wal_ndocs = 0; // WAL copy will populate
-        shandle->stat.wal_ndeletes = 0; // these 2 stats
-        shandle->seqnum = seqnum;
-        shandle->is_persisted_snapshot = true;
+        stat.wal_ndocs = 0; // WAL copy will populate
+        stat.wal_ndeletes = 0; // these 2 stats
+        seqnum = snap_seqnum;
+        is_persisted_snapshot = true;
     }
-    shandle->global_txn = file->getGlobalTxn();
 
     // Clear out possible list items from the previous snapshot
     // open in case of a reuse.
-    for (struct list_elem *e = list_begin(&shandle->active_txn_list); e;) {
+    for (struct list_elem *e = list_begin(&active_txn_list); e;) {
         struct wal_txn_wrapper *active_txn = _get_entry(e,
                                                 struct wal_txn_wrapper, le);
-        e = list_remove(&shandle->active_txn_list, e);
+        e = list_remove(&active_txn_list, e);
         free(active_txn);
     }
 
-    ee = list_begin(&txn_list);
+    ee = list_begin(txn_list_to_snapshot);
     while (ee) {
         struct wal_txn_wrapper *txn_wrapper;
         fdb_txn *active_txn;
         txn_wrapper = _get_entry(ee, struct wal_txn_wrapper, le);
         active_txn = txn_wrapper->txn;
         // except for global_txn
-        if (active_txn != file->getGlobalTxn()) {
+        if (active_txn != global_txn) {
             txn_wrapper = (struct wal_txn_wrapper *)
                 calloc(1, sizeof(struct wal_txn_wrapper));
             txn_wrapper->txn_id = active_txn->txn_id;
-            list_push_front(&shandle->active_txn_list, &txn_wrapper->le);
+            list_push_front(&active_txn_list, &txn_wrapper->le);
         }
         ee = list_next(ee);
     }
@@ -401,10 +432,10 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
                                  fdb_kvs_id_t kv_id,
                                  fdb_seqnum_t seqnum,
                                  _fdb_key_cmp_info *key_cmp_info,
-                                 struct snap_handle **shandle)
+                                 Snapshot **shandle)
 {
     struct wal_kvs_snaps *kvs_snapshots;
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
 
     // Forestdb supports 2 transaction isolation levels. For simplicity,
     // mutations from uncommitted transactions are not inserted into any
@@ -473,13 +504,13 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
         // This can happen when a new snapshot is attempted and WAL was flushed
         // and no mutations after WAL flush - the snapshot exists solely for
         // existing open snapshot iterators
-        _shandle = _wal_snapshot_create(kv_id, 0, 0, key_cmp_info, kvs_snapshots);
+        _shandle = new Snapshot(kv_id, 0, 0, key_cmp_info, file, kvs_snapshots);
         if (!_shandle) { // LCOV_EXCL_START
             spin_unlock(&lock);
             return FDB_RESULT_ALLOC_FAIL;
         } // LCOV_EXCL_STOP
         // This snapshot is not inserted into global shared tree
-        _wal_snapshot_init(_shandle, txn, seqnum);
+        _shandle->initSnapshot(txn, seqnum, &txn_list);
         DBG("%s Persisted snapshot taken at %" _F64 " for kv id %" _F64 "\n",
             file->getFileName(), _shandle->seqnum, kv_id);
     } else { // Take a snapshot of the latest WAL state for this KV Store
@@ -487,8 +518,7 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
         int num_prev_snaps = 0;
         struct list_elem *e = list_prev(&_shandle->snaplist_elem);
         while (e) {
-            struct snap_handle *__shandle = _get_entry(e,
-                    struct snap_handle, snaplist_elem);
+            Snapshot *__shandle = _get_entry(e, Snapshot, snaplist_elem);
             if (__shandle->snap_tag_idx <= _shandle->snap_stop_idx) {
                     break;
             }
@@ -507,7 +537,7 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
                        _shandle->num_prev_snaps, num_prev_snaps);
         } else { // make this snapshot of the WAL immutable..
             _shandle->num_prev_snaps = num_prev_snaps;
-            _wal_snapshot_init(_shandle, txn, seqnum);
+            _shandle->initSnapshot(txn, seqnum, &txn_list);
             DBG("%s New Snapshot %" _F64 " - %" _F64 " taken at %"
                 _F64 " for kv id %" _F64 " prev_snaps=%d\n",
                 file->getFileName(), _shandle->snap_stop_idx,
@@ -552,7 +582,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 {
     struct wal_item *item;
     struct wal_item_header query, *header;
-    struct snap_handle *shandle;
+    Snapshot *shandle;
     struct list_elem *le;
     struct hash_elem *he;
     void *key = doc->key;
@@ -617,10 +647,9 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                         spin_unlock(&seq_shards[seq_shard_num].lock);
                     }
                     // Also need to re-index it by new seqnum in snapshot
+                    // old and new items are the same
                     if (item->txn == file->getGlobalTxn()) {
-                        avl_remove(&shandle->seq_tree, &item->avl_seqsnap);
-                        avl_insert(&shandle->seq_tree, &item->avl_seqsnap,
-                                   _snap_cmp_byseq);
+                        item->shandle->snapAddItemBySeq(item, item);
                     }
                 } else {
                     // just overwrite existing WAL item
@@ -728,23 +757,16 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             }
 
             if (item->txn == file->getGlobalTxn()) {
-                // Remove duplicate item in same snapshot, if any..
                 struct wal_item *_item = getSnapItemHdr_Wal(item->header,
                                                             shandle);
-                if (_item) {
-                    avl_remove(&shandle->key_tree, &_item->avl_keysnap);
-                    _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
-                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
-                        avl_remove(&shandle->seq_tree, &_item->avl_seqsnap);
-                    }
-                    // Even though this is an update to the same snapshot
-                    // we cannot decrement wal_ndocs because an item still
-                    // refers to the parent snapshot handle even though it
-                    // has been removed from the parent snapshot's tree
+                shandle->snapAddItemByKey(item, _item);
+                if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    shandle->snapAddItemBySeq(item, _item);
                 }
-                avl_insert(&shandle->key_tree, &item->avl_keysnap,
-                           _snap_cmp_bykey);
-                item->flag |= WAL_ITEM_IN_SNAP_TREE;
+                // Even though this is an update to the same snapshot
+                // we cannot decrement wal_ndocs because an item still
+                // refers to the parent snapshot handle even though it
+                // has been removed from the parent snapshot's tree
             }
 
             if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
@@ -755,10 +777,6 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 hash_insert(&seq_shards[seq_shard_num]._map, &item->he_seq);
                 if (caller == WAL_INS_WRITER) {
                     spin_unlock(&seq_shards[seq_shard_num].lock);
-                }
-                if (item->txn == file->getGlobalTxn()) {
-                    avl_insert(&shandle->seq_tree, &item->avl_seqsnap,
-                               _snap_cmp_byseq);
                 }
             }
             // insert into header's list
@@ -844,8 +862,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 spin_unlock(&seq_shards[seq_shard_num].lock);
             }
             if (item->txn == file->getGlobalTxn()) {
-                avl_insert(&shandle->seq_tree, &item->avl_seqsnap,
-                           _snap_cmp_byseq);
+                shandle->snapAddItemBySeq(item, nullptr);
             }
         }
 
@@ -856,8 +873,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             list_push_back(txn->items, &item->list_elem_txn);
         }
         if (item->txn == file->getGlobalTxn()) {
-            avl_insert(&shandle->key_tree, &item->avl_keysnap, _snap_cmp_bykey);
-            item->flag |= WAL_ITEM_IN_SNAP_TREE;
+            shandle->snapAddItemByKey(item, nullptr);
         }
 
         size++;
@@ -926,7 +942,7 @@ inline bool Wal::_wal_item_partially_committed(fdb_txn *global_txn,
  *       This is not efficient and we need a better way of ordering the list
  */
 inline struct wal_item *Wal::_wal_get_snap_item(struct wal_item_header *header,
-                                                struct snap_handle *shandle)
+                                                Snapshot *shandle)
 {
     struct wal_item *item;
     struct wal_item *max_shared_item = NULL;
@@ -948,7 +964,7 @@ inline struct wal_item *Wal::_wal_get_snap_item(struct wal_item_header *header,
         if (item->shandle->snap_tag_idx > tag) {
             continue; // this item was inserted after snapshot creation -> skip
         }
-        if (_wal_item_partially_committed(shandle->global_txn,
+        if (_wal_item_partially_committed(file->getGlobalTxn(),
                                           &shandle->active_txn_list,
                                           txn, item)) {
             continue;
@@ -980,7 +996,7 @@ inline struct wal_item *Wal::_wal_get_snap_item(struct wal_item_header *header,
  */
 inline
 struct wal_item *Wal::getSnapItemHdr_Wal(struct wal_item_header *header,
-                                         struct snap_handle *shandle)
+                                         Snapshot *shandle)
 {
     for (struct list_elem *le = list_end(&header->items);
          le; le = list_prev(le)) {
@@ -995,7 +1011,7 @@ struct wal_item *Wal::getSnapItemHdr_Wal(struct wal_item_header *header,
 fdb_status Wal::_find_Wal(fdb_txn *txn,
                           fdb_kvs_id_t kv_id,
                           struct _fdb_key_cmp_info *cmp_info,
-                          struct snap_handle *shandle,
+                          Snapshot *shandle,
                           fdb_doc *doc,
                           uint64_t *offset)
 {
@@ -1093,7 +1109,7 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
             return FDB_RESULT_INVALID_CONFIG;
         }
         // search by seqnum
-        struct snap_handle query_shandle;
+        Snapshot query_shandle;
         query_shandle.id = kv_id;
         item_query.shandle = &query_shandle;
         item_query.seqnum = doc->seqnum;
@@ -1135,12 +1151,12 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
 }
 
 fdb_status Wal::find_Wal(fdb_txn *txn, struct _fdb_key_cmp_info *cmp_info,
-                         struct snap_handle *shandle,
+                         Snapshot *shandle,
                          fdb_doc *doc, uint64_t *offset)
 {
     if (shandle) {
         if (shandle->is_persisted_snapshot) {
-            return _snapFind_Wal(shandle, doc, offset);
+            return shandle->snapFindDoc(doc, offset);
         }
     }
     return _find_Wal(txn, 0, cmp_info, shandle, doc, offset);
@@ -1149,13 +1165,13 @@ fdb_status Wal::find_Wal(fdb_txn *txn, struct _fdb_key_cmp_info *cmp_info,
 fdb_status Wal::findWithKvid_Wal(fdb_txn *txn,
                                  fdb_kvs_id_t kv_id,
                                  struct _fdb_key_cmp_info *cmp_info,
-                                 struct snap_handle *shandle,
+                                 Snapshot *shandle,
                                  fdb_doc *doc,
                                  uint64_t *offset)
 {
     if (shandle) {
         if (shandle->is_persisted_snapshot) {
-            return _snapFind_Wal(shandle, doc, offset);
+            return shandle->snapFindDoc(doc, offset);
         }
     }
     return _find_Wal(txn, kv_id, cmp_info, shandle, doc, offset);
@@ -1164,7 +1180,7 @@ fdb_status Wal::findWithKvid_Wal(fdb_txn *txn,
 // Pre-condition: writer lock (filemgr mutex) must be held for this call
 // Readers can interleave without lock
 inline void Wal::_wal_free_item(struct wal_item *item, bool gotlock) {
-    struct snap_handle *shandle = item->shandle;
+    Snapshot *shandle = item->shandle;
     fdb_assert(!(item->flag & WAL_ITEM_IN_SNAP_TREE) ||
                 item->flag & WAL_ITEM_FLUSHED_OUT, item, shandle);
     if (!(--shandle->wal_ndocs)) {
@@ -1181,14 +1197,7 @@ inline void Wal::_wal_free_item(struct wal_item *item, bool gotlock) {
                 shandle->seqnum, shandle->id);
         list_remove(&shandle->kvs_snapshots->snap_list, &shandle->snaplist_elem);
         --shandle->kvs_snapshots->num_snaps;
-        for (struct list_elem *e = list_begin(&shandle->active_txn_list); e;) {
-            struct list_elem *e_next = list_next(e);
-            struct wal_txn_wrapper *active_txn = _get_entry(e,
-                                                 struct wal_txn_wrapper, le);
-            free(active_txn);
-            e = e_next;
-        }
-        free(shandle);
+        delete shandle;
         if (!gotlock) {
             spin_unlock(&lock);
         }
@@ -1439,19 +1448,8 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                     } else {
                         _wal_update_stat(kv_id, _WAL_DROP_DELETE);
                     }
-                    // To keep only one unique copy in snapshot tree
-                    // remove old item only if the item is not already
-                    // flushed out (reflected in main index)
-                    if (_item->flag & WAL_ITEM_IN_SNAP_TREE &&
-                        !(_item->flag & WAL_ITEM_FLUSHED_OUT)) {
-                        avl_remove(&_item->shandle->key_tree,
-                                   &_item->avl_keysnap);
-                        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
-                            avl_remove(&_item->shandle->seq_tree,
-                                       &_item->avl_seqsnap);
-                        }
-                        _item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
-                    }
+                    // Un-index this item from its snapshot if needed..
+                    _item->shandle->snapRemoveItem(_item);
                     _mem_overhead += sizeof(struct wal_item);
                     _wal_free_item(_item, true);
                 } else {
@@ -1598,11 +1596,10 @@ inline void Wal::_wal_snap_mark_flushed(void)
     spin_lock(&lock);
     for (a = avl_first(&wal_kvs_snap_tree); a; a = avl_next(a)) {
         struct wal_kvs_snaps *kvs_snapshots = _get_entry(a, struct wal_kvs_snaps,
-                                                     avl_id);
+                                                         avl_id);
         for (struct list_elem *e = list_end(&kvs_snapshots->snap_list);
              e; e = list_prev(e)) {
-            struct snap_handle *shandle = _get_entry(e, struct snap_handle,
-                                                     snaplist_elem);
+            Snapshot *shandle = _get_entry(e, Snapshot, snaplist_elem);
             if (shandle->is_flushed) {
                 break; // all previous snapshots are already flushed before
             }
@@ -1905,19 +1902,19 @@ fdb_status Wal::flushByCompactor_Wal(void *dbhandle,
                       flush_items, true);
 }
 
-fdb_status Wal::snapshotClone_Wal(struct snap_handle *shandle_in,
-                              struct snap_handle **shandle_out,
-                              fdb_seqnum_t seqnum)
+fdb_status Wal::snapshotClone_Wal(Snapshot *shandle_in,
+                                  Snapshot **shandle_out,
+                                  fdb_seqnum_t seqnum)
 {
     if (seqnum == FDB_SNAPSHOT_INMEM ||
         shandle_in->seqnum == seqnum) {
         // Bump up ref count on all shared snapshots to prevent deletion!
-        struct snap_handle *shandle = shandle_in;
+        Snapshot *shandle = shandle_in;
         for (int i = 0;; ++i) {
             shandle->ref_cnt_kvs++;
             if (i < shandle_in->num_prev_snaps) {
                 struct list_elem *snap_elem = list_prev(&shandle->snaplist_elem);
-                shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
             } else {
                 break;
             }
@@ -1928,7 +1925,7 @@ fdb_status Wal::snapshotClone_Wal(struct snap_handle *shandle_in,
     return FDB_RESULT_INVALID_ARGS;
 }
 
-fdb_status Wal::getSnapStats_Wal(struct snap_handle *shandle, KvsStat *stat)
+fdb_status Wal::getSnapStats_Wal(Snapshot *shandle, KvsStat *stat)
 {
     *stat = shandle->stat;
     return FDB_RESULT_SUCCESS;
@@ -1937,9 +1934,9 @@ fdb_status Wal::getSnapStats_Wal(struct snap_handle *shandle, KvsStat *stat)
 fdb_status Wal::snapshotOpenPersisted_Wal(fdb_seqnum_t seqnum,
                                           _fdb_key_cmp_info *key_cmp_info,
                                           fdb_txn *txn,
-                                          struct snap_handle **shandle)
+                                          Snapshot **shandle)
 {
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
     fdb_kvs_id_t kv_id;
     fdb_assert(seqnum != FDB_SNAPSHOT_INMEM, seqnum, key_cmp_info->kvs);
     if (!key_cmp_info->kvs) {
@@ -1947,19 +1944,18 @@ fdb_status Wal::snapshotOpenPersisted_Wal(fdb_seqnum_t seqnum,
     } else {
         kv_id = key_cmp_info->kvs->getKvsId();
     }
-    _shandle = _wal_snapshot_create(kv_id, 0, 0, key_cmp_info, NULL);
+    _shandle = new Snapshot(kv_id, 0, 0, key_cmp_info, file, NULL);
     if (!_shandle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
     spin_lock(&lock);
-    _wal_snapshot_init(_shandle, txn, seqnum);
+    _shandle->initSnapshot(txn, seqnum, &txn_list);
     spin_unlock(&lock);
     *shandle = _shandle;
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                               uint64_t offset)
+fdb_status Snapshot::snapInsertDoc(fdb_doc *doc, uint64_t offset)
 {
     struct wal_item query;
     struct wal_item_header query_hdr;
@@ -1968,7 +1964,7 @@ fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
     query_hdr.key = doc->key;
     query_hdr.keylen = doc->keylen;
     query.header = &query_hdr;
-    node = avl_search(&shandle->key_tree, &query.avl_keysnap, _snap_cmp_bykey);
+    node = avl_search(&key_tree, &query.avl_keysnap, _snap_cmp_bykey);
 
     if (!node) {
         item = (struct wal_item *) calloc(1, sizeof(struct wal_item));
@@ -1987,15 +1983,15 @@ fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
             item->action = WAL_ACT_INSERT;
         }
         item->offset = offset;
-        avl_insert(&shandle->key_tree, &item->avl_keysnap, _snap_cmp_bykey);
-        avl_insert(&shandle->seq_tree, &item->avl_seqsnap, _snap_cmp_byseq);
+        avl_insert(&key_tree, &item->avl_keysnap, _snap_cmp_bykey);
+        avl_insert(&seq_tree, &item->avl_seqsnap, _snap_cmp_byseq);
 
         // Note: same logic in commit_Wal
-        shandle->stat.wal_ndocs++;
+        stat.wal_ndocs++;
         if (doc->deleted) {
-            shandle->stat.wal_ndeletes++;
+            stat.wal_ndeletes++;
         }
-        item->shandle = shandle;
+        item->shandle = this;
     } else {
         // replace existing node with new values so there are no duplicates
         item = _get_entry(node, struct wal_item, avl_keysnap);
@@ -2004,17 +2000,17 @@ fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
         item->header->keylen = doc->keylen;
         if (item->seqnum != doc->seqnum) { // Re-index duplicate into seqtree
             item->seqnum = doc->seqnum;
-            avl_remove(&shandle->seq_tree, &item->avl_seqsnap);
-            avl_insert(&shandle->seq_tree, &item->avl_seqsnap, _snap_cmp_byseq);
+            avl_remove(&seq_tree, &item->avl_seqsnap);
+            avl_insert(&seq_tree, &item->avl_seqsnap, _snap_cmp_byseq);
         }
 
         // Note: same logic in commit_Wal
         if (item->action == WAL_ACT_INSERT &&
             doc->deleted) {
-            shandle->stat.wal_ndeletes++;
+            stat.wal_ndeletes++;
         } else if (item->action == WAL_ACT_LOGICAL_REMOVE &&
                    !doc->deleted) {
-            shandle->stat.wal_ndeletes--;
+            stat.wal_ndeletes--;
         }
 
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
@@ -2023,7 +2019,38 @@ fdb_status Wal::snapInsert_Wal(struct snap_handle *shandle, fdb_doc *doc,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
+inline void Snapshot::snapAddItemBySeq(wal_item *item, wal_item *old_item) {
+    if (old_item) {
+        avl_remove(&seq_tree, &old_item->avl_seqsnap);
+    }
+    avl_insert(&seq_tree, &item->avl_seqsnap, _snap_cmp_byseq);
+}
+
+inline void Snapshot::snapAddItemByKey(wal_item *item, wal_item *old_item) {
+    if (old_item) {
+        avl_remove(&key_tree, &old_item->avl_keysnap);
+        old_item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
+    }
+
+    avl_insert(&key_tree, &item->avl_keysnap, _snap_cmp_bykey);
+    item->flag |= WAL_ITEM_IN_SNAP_TREE;
+}
+
+inline void Snapshot::snapRemoveItem(wal_item *item) {
+    // To keep only one unique copy in snapshot tree
+    // remove old item only if the item is not already
+    // flushed out (reflected in main index)
+    if (item->flag & WAL_ITEM_IN_SNAP_TREE &&
+        !(item->flag & WAL_ITEM_FLUSHED_OUT)) {
+        avl_remove(&key_tree, &item->avl_keysnap);
+        if (snapFile->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+            avl_remove(&seq_tree, &item->avl_seqsnap);
+        }
+        item->flag &= ~WAL_ITEM_IN_SNAP_TREE;
+    }
+}
+
+fdb_status Wal::copy2Snapshot_Wal(Snapshot *shandle)
 {
     struct list_elem *ee;
     struct list_elem *hdr_e;
@@ -2031,9 +2058,6 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
     struct wal_item_header *header;
     fdb_doc doc;
     size_t i = 0;
-
-    shandle->stat.wal_ndocs = 0; // WAL copy will populate
-    shandle->stat.wal_ndeletes = 0; // these 2 stats
 
     for (; i < num_shards; ++i) {
         spin_lock(&key_shards[i].lock);
@@ -2056,7 +2080,7 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
                     continue;
                 }
                 // Skip the partially committed items too.
-                if (_wal_item_partially_committed(shandle->global_txn,
+                if (_wal_item_partially_committed(file->getGlobalTxn(),
                                                   &shandle->active_txn_list,
                                                   shandle->snap_txn, item)) {
                     ee = list_next(ee);
@@ -2080,7 +2104,7 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
                     offset = item->offset;
                 }
 
-                snapInsert_Wal(shandle, &doc, offset);
+                shandle->snapInsertDoc(&doc, offset);
                 break; // We just require a single latest copy in the snapshot
             }
             hdr_e = list_next(hdr_e);
@@ -2090,13 +2114,12 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle)
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
-                              uint64_t *offset)
+fdb_status Snapshot::snapFindDoc(fdb_doc *doc, uint64_t *offset)
 {
     struct wal_item query, *item;
     struct avl_node *node;
     if (doc->seqnum == SEQNUM_NOT_USED || (doc->key && doc->keylen > 0)) {
-        if (!shandle->key_tree.root) {
+        if (!key_tree.root) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
         struct wal_item_header query_hdr;
@@ -2104,8 +2127,7 @@ fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
         // search by key
         query_hdr.key = doc->key;
         query_hdr.keylen = doc->keylen;
-        node = avl_search(&shandle->key_tree, &query.avl_keysnap,
-                          _snap_cmp_bykey);
+        node = avl_search(&key_tree, &query.avl_keysnap, _snap_cmp_bykey);
         if (!node) {
             return FDB_RESULT_KEY_NOT_FOUND;
         } else {
@@ -2122,11 +2144,10 @@ fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
             doc->seqnum = item->seqnum;
             return FDB_RESULT_SUCCESS;
         }
-    } else if (shandle->seq_tree.root) {
+    } else if (seq_tree.root) {
         // search by sequence number
         query.seqnum = doc->seqnum;
-        node = avl_search(&shandle->seq_tree, &query.avl_seqsnap,
-                          _snap_cmp_byseq);
+        node = avl_search(&seq_tree, &query.avl_seqsnap, _snap_cmp_byseq);
         if (!node) {
             return FDB_RESULT_KEY_NOT_FOUND;
         } else {
@@ -2146,32 +2167,88 @@ fdb_status Wal::_snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
-void Wal::_snapshotClose_Wal(struct snap_handle *shandle) {
+inline void Snapshot::snapFreeItems() {
     struct avl_node *a, *nexta;
-    for (a = avl_first(&shandle->key_tree); a; a = nexta) {
+    for (a = avl_first(&key_tree); a; a = nexta) {
         struct wal_item *item = _get_entry(a, struct wal_item, avl_keysnap);
         nexta = avl_next(a);
-        avl_remove(&shandle->key_tree, &item->avl_keysnap);
+        avl_remove(&key_tree, &item->avl_keysnap);
         free(item->header->key);
         free(item->header);
         free(item);
     }
-    for (struct list_elem *e = list_begin(&shandle->active_txn_list); e;) {
-        struct list_elem *e_next = list_next(e);
-        struct wal_txn_wrapper *active_txn = _get_entry(e,
-                                            struct wal_txn_wrapper, le);
-        free(active_txn);
-        e = e_next;
-    }
-    free(shandle);
 }
 
-fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
+inline struct wal_item * Snapshot::snapGetGreaterByKey(struct wal_item *query){
+    struct avl_node *a = avl_search_greater(&key_tree, &query->avl_keysnap,
+                                            _snap_cmp_bykey);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::snapGetGreaterBySeq(struct wal_item *query){
+    struct avl_node *a = avl_search_greater(&seq_tree, &query->avl_seqsnap,
+                                            _snap_cmp_byseq);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::snapGetSmallerByKey(struct wal_item *query){
+    struct avl_node *a = avl_search_smaller(&key_tree, &query->avl_keysnap,
+                                            _snap_cmp_bykey);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::snapGetSmallerBySeq(struct wal_item *query){
+    struct avl_node *a = avl_search_smaller(&seq_tree, &query->avl_seqsnap,
+                                            _snap_cmp_byseq);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::nextSnapItemByKey(struct wal_item *cur_item){
+    struct avl_node *a = avl_next(&cur_item->avl_keysnap);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::nextSnapItemBySeq(struct wal_item *cur_item){
+    struct avl_node *a = avl_next(&cur_item->avl_seqsnap);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::prevSnapItemByKey(struct wal_item *cur_item){
+    struct avl_node *a = avl_prev(&cur_item->avl_keysnap);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::prevSnapItemBySeq(struct wal_item *cur_item){
+    struct avl_node *a = avl_prev(&cur_item->avl_seqsnap);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::firstSnapItemByKey(void){
+    struct avl_node *a = avl_first(&key_tree);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::firstSnapItemBySeq(void){
+    struct avl_node *a = avl_first(&seq_tree);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::lastSnapItemByKey(void){
+    struct avl_node *a = avl_last(&key_tree);
+    return a ? _get_entry(a, struct wal_item, avl_keysnap) : nullptr;
+}
+
+inline struct wal_item * Snapshot::lastSnapItemBySeq(void){
+    struct avl_node *a = avl_last(&seq_tree);
+    return a ? _get_entry(a, struct wal_item, avl_seqsnap) : nullptr;
+}
+
+fdb_status Wal::snapshotClose_Wal(Snapshot *shandle)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (!shandle->is_persisted_snapshot &&
         shandle->snap_tag_idx) { // the KVS did have items in WAL..
-        struct snap_handle *_shandle = shandle;
+        Snapshot *_shandle = shandle;
         DBG("%s Close InMem Snapshot %" _F64 " - %" _F64 " taken at %"
                 _F64 " for kv id %" _F64 " prev_snaps=%d\n",
                 file->getFileName(), _shandle->snap_stop_idx,
@@ -2188,9 +2265,9 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
                 snap_elem = list_prev(&_shandle->snaplist_elem);
                 fdb_assert(_shandle->ref_cnt_kvs, _shandle->ref_cnt_kvs, 1);
                 _shandle->ref_cnt_kvs--;
-                _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
             } else { // Only 1 snapshot or the Last valid shared snapshot handle
-                _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
                 fdb_assert(_shandle->ref_cnt_kvs, _shandle->ref_cnt_kvs, 1);
                 _shandle->ref_cnt_kvs--;
                 break;
@@ -2199,13 +2276,14 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
         return fs;
     } // ELSE persisted or un-shared snapshot ...
     if (!(--shandle->ref_cnt_kvs)) {
-        _snapshotClose_Wal(shandle);
+        shandle->snapFreeItems();
+        delete shandle;
     }
     return fs;
 }
 
 WalItr::WalItr(FileMgr *file,
-               struct snap_handle *shandle,
+               Snapshot *shandle,
                bool by_key)
 {
     // If key_cmp_info is non-null it implies key-range iteration
@@ -2245,36 +2323,35 @@ WalItr::WalItr(FileMgr *file,
 
 struct wal_item* WalItr::_searchGreaterByKey_WalItr(struct wal_item *query)
 {
-    struct avl_node *a;
     struct wal_cursor *cursor;
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
     struct list_elem *snap_elem = &shandle->snaplist_elem;
 
     // search is a stateless operation, so re-initialize shard's merge-sort tree
     avl_init(&mergeTree, (void*)&shandle->cmp_info);
     for (size_t i = 0; i < numCursors; ++i) {
-        _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+        struct wal_item *item;
+        _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
         if (i + 1 < numCursors) { // Keep ThreadSanitizer happy..
             snap_elem = list_prev(snap_elem);
         } // else Don't even access list_prev field since it can get modified
         // simultaneously when an old snapshot is removed by wal flush
         mergeCursors[i].item = NULL;
         if (query) {
-            a = avl_search_greater(&_shandle->key_tree, &query->avl_keysnap,
-                                   _snap_cmp_bykey);
+            item = _shandle->snapGetGreaterByKey(query);
         } else {
-            a = avl_first(&_shandle->key_tree);
+            item = _shandle->firstSnapItemByKey();
         }
-        while (a) {
-            struct wal_item *item;
+        while (item) {
             struct avl_node *aa;
-            item = _get_entry(a, struct wal_item, avl_keysnap);
             mergeCursors[i].item = item;
             aa = avl_search(&mergeTree, &mergeCursors[i].avl_merge,
                             _merge_cmp_bykey);
             if (aa) { // Same key was found earlier in a more recent snapshot!
-                a = avl_next(a); // To setup cursor correctly we fetch higher
-                continue; // key from the same snapshot tree for next()
+                // To setup cursor correctly we fetch higher
+                // key from the same snapshot tree for next()
+                item = _shandle->nextSnapItemByKey(item);
+                continue;
             } else { // No conflict, we can have cursor pointing to this item
                 avl_insert(&mergeTree, &mergeCursors[i].avl_merge, _merge_cmp_bykey);
                 break;
@@ -2298,30 +2375,26 @@ struct wal_item* WalItr::_searchGreaterByKey_WalItr(struct wal_item *query)
 
 struct wal_item * WalItr::_searchGreaterBySeq_WalItr(struct wal_item *query)
 {
-    struct avl_node *a;
     struct wal_cursor *cursor;
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
     struct list_elem *snap_elem = &shandle->snaplist_elem;
 
     // search is a stateless operation, so re-initialize shard's merge-sort tree
     avl_init(&mergeTree, (void*)&shandle->cmp_info);
     for (size_t i = 0; i < numCursors; ++i) {
-        _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+        struct wal_item *item;
+        _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
         if (i + 1 < numCursors) { // Keep ThreadSanitizer happy..
             snap_elem = list_prev(snap_elem);
         } // else Don't even access list_prev field since it can get modified
         // simultaneously when an old snapshot is removed by wal flush
-        mergeCursors[i].item = NULL;
         if (query) {
-            a = avl_search_greater(&_shandle->seq_tree, &query->avl_seqsnap,
-                                   _snap_cmp_byseq);
+            item = _shandle->snapGetGreaterBySeq(query);
         } else {
-            a = avl_first(&_shandle->seq_tree);
+            item = _shandle->firstSnapItemBySeq();
         }
-        if (a) {
-            struct wal_item *item;
-            item = _get_entry(a, struct wal_item, avl_seqsnap);
-            mergeCursors[i].item = item;
+        mergeCursors[i].item = item;
+        if (item) {
             avl_insert(&mergeTree, &mergeCursors[i].avl_merge, _merge_cmp_byseq);
         }
     }
@@ -2340,20 +2413,12 @@ struct wal_item * WalItr::_searchGreaterBySeq_WalItr(struct wal_item *query)
 struct wal_item* WalItr::searchGreater_WalItr(struct wal_item *query)
 {
     if (shandle->is_persisted_snapshot) {
-        struct avl_node *a;
         if (by_key) {
-            a = avl_search_greater(&shandle->key_tree,
-                                   &query->avl_keysnap,
-                                   _snap_cmp_bykey);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->snapGetGreaterByKey(query);
         } else {
-            a = avl_search_greater(&shandle->seq_tree,
-                                   &query->avl_seqsnap,
-                                   _snap_cmp_byseq);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->snapGetGreaterBySeq(query);
         }
+        return cursorItem;
     }
     if (shandle->snap_tag_idx) {
         direction = FDB_ITR_FORWARD;
@@ -2368,36 +2433,35 @@ struct wal_item* WalItr::searchGreater_WalItr(struct wal_item *query)
 
 struct wal_item* WalItr::_searchSmallerByKey_WalItr(struct wal_item *query)
 {
-    struct avl_node *a;
     struct wal_cursor *cursor;
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
     struct list_elem *snap_elem = &shandle->snaplist_elem;
 
     // search is a stateless operation, so re-initialize shard's merge-sort tree
     avl_init(&mergeTree, (void*)&shandle->cmp_info);
     for (size_t i = 0; i < numCursors; ++i) {
-        _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+        struct wal_item *item;
+        _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
         if (i + 1 < numCursors) { // Keep ThreadSanitizer happy..
             snap_elem = list_prev(snap_elem);
         } // else Don't even access list_prev field since it can get modified
         // simultaneously when an old snapshot is removed by wal flush
         mergeCursors[i].item = NULL;
         if (query) {
-            a = avl_search_smaller(&_shandle->key_tree, &query->avl_keysnap,
-                                   _snap_cmp_bykey);
+            item = _shandle->snapGetSmallerByKey(query);
         } else {
-            a = avl_last(&_shandle->key_tree);
+            item = _shandle->lastSnapItemByKey();
         }
-        while (a) {
-            struct wal_item *item;
+        while (item) {
             struct avl_node *aa;
-            item = _get_entry(a, struct wal_item, avl_keysnap);
             mergeCursors[i].item = item;
             aa = avl_search(&mergeTree, &mergeCursors[i].avl_merge,
                             _merge_cmp_bykey);
             if (aa) { // Same key was found earlier in a more recent snapshot!
-                a = avl_prev(a); // To setup cursor correctly we fetch lower
-                continue; // key from the same snapshot tree for prev()
+                // To setup cursor correctly we fetch lower
+                // key from the same snapshot tree for prev()
+                item = _shandle->prevSnapItemByKey(item);
+                continue;
             } else { // No conflict, we can have cursor pointing to this item
                 avl_insert(&mergeTree, &mergeCursors[i].avl_merge,_merge_cmp_bykey);
                 break;
@@ -2418,29 +2482,26 @@ struct wal_item* WalItr::_searchSmallerByKey_WalItr(struct wal_item *query)
 
 struct wal_item * WalItr::_searchSmallerBySeq_WalItr(struct wal_item *query)
 {
-    struct avl_node *a;
     struct wal_cursor *cursor;
-    struct snap_handle *_shandle;
+    Snapshot *_shandle;
     struct list_elem *snap_elem = &shandle->snaplist_elem;
 
     // search is a stateless operation, so re-initialize shard's merge-sort tree
     avl_init(&mergeTree, (void*)&shandle->cmp_info);
     for (size_t i = 0; i < numCursors; ++i) {
-        _shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+        struct wal_item *item;
+        _shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
         if (i + 1 < numCursors) { // Keep ThreadSanitizer happy..
             snap_elem = list_prev(snap_elem);
         } // else Don't even access list_prev field since it can get modified
         // simultaneously when an old snapshot is removed by wal flush
         mergeCursors[i].item = NULL;
         if (query) {
-            a = avl_search_smaller(&_shandle->seq_tree, &query->avl_seqsnap,
-                                   _snap_cmp_byseq);
+            item = _shandle->snapGetSmallerBySeq(query);
         } else {
-            a = avl_last(&_shandle->seq_tree);
+            item = _shandle->lastSnapItemBySeq();
         }
-        if (a) {
-            struct wal_item *item;
-            item = _get_entry(a, struct wal_item, avl_seqsnap);
+        if (item) {
             mergeCursors[i].item = item;
             avl_insert(&mergeTree, &mergeCursors[i].avl_merge, _merge_cmp_byseq);
         }
@@ -2460,20 +2521,12 @@ struct wal_item * WalItr::_searchSmallerBySeq_WalItr(struct wal_item *query)
 struct wal_item* WalItr::searchSmaller_WalItr(struct wal_item *query)
 {
     if (shandle->is_persisted_snapshot) {
-        struct avl_node *a;
         if (by_key) {
-            a = avl_search_smaller(&shandle->key_tree,
-                                   &query->avl_keysnap,
-                                   _snap_cmp_bykey);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->snapGetSmallerByKey(query);
         } else {
-            a = avl_search_smaller(&shandle->seq_tree,
-                                   &query->avl_seqsnap,
-                                   _snap_cmp_byseq);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->snapGetSmallerBySeq(query);
         }
+        return cursorItem;
     }
 
     if (shandle->snap_tag_idx) {
@@ -2522,16 +2575,15 @@ struct wal_item * WalItr::_nextByKey_WalItr(void)
                                            struct wal_cursor, avl_merge);
     struct wal_cursor cur_item = *cursor; // save cur item for merge sort
     size_t cur_snap_idx = cursor - mergeCursors;
-    struct wal_item *item = NULL;
-    struct avl_node *a, *aa;
+    struct wal_item *item = cursor->item;
+    struct avl_node *aa;
 
-    prevItem = cursor->item; // save for direction change
-    a = avl_next(&cursor->item->avl_keysnap);
+    prevItem = item; // save for direction change
+    item = item->shandle->nextSnapItemByKey(item);
     avl_remove(&mergeTree, &mergeCursors[cur_snap_idx].avl_merge);
     mergeCursors[cur_snap_idx].item = NULL;
 
-    while (a) {
-        item = _get_entry(a, struct wal_item, avl_keysnap);
+    while (item) {
         // See if the item already exists in merge tree in another snapshot..
         mergeCursors[cur_snap_idx].item = item;
         aa = avl_search(&mergeTree,
@@ -2559,13 +2611,13 @@ struct wal_item * WalItr::_nextByKey_WalItr(void)
             // cursor 2 -> cursor 1 in example above
             cursor = &mergeCursors[cur_snap_idx];
         }
-        a = avl_next(&cursor->item->avl_keysnap);
+        item = item->shandle->nextSnapItemByKey(cursor->item);
         mergeCursors[cur_snap_idx].item = NULL;
     }
 
     cursorPos = avl_search_greater(&mergeTree,
-                                             &cur_item.avl_merge,
-                                             _merge_cmp_bykey);
+                                   &cur_item.avl_merge,
+                                   _merge_cmp_bykey);
     if (!cursorPos) {
         return NULL;
     }
@@ -2579,14 +2631,13 @@ struct wal_item * WalItr::_nextBySeq_WalItr(void)
                                            struct wal_cursor, avl_merge);
     struct wal_cursor cur_item = *cursor; // save cur item for merge sort
     size_t cur_snap_idx = cursor - mergeCursors;
-    struct wal_item *item = NULL;
+    struct wal_item *item = cursor->item;
 
-    prevItem = cursor->item; // save for direction change
+    prevItem = item; // save for direction change
 
     avl_remove(&mergeTree, &cursor->avl_merge);
-    struct avl_node *a = avl_next(&cur_item.item->avl_seqsnap);
-    if (a) {
-        item = _get_entry(a, struct wal_item, avl_seqsnap);
+    item = item->shandle->nextSnapItemBySeq(item);
+    if (item) {
         mergeCursors[cur_snap_idx].item = item;
         // re-insert this merge sorted item back into merge-sort tree..
         avl_insert(&mergeTree,
@@ -2597,8 +2648,8 @@ struct wal_item * WalItr::_nextBySeq_WalItr(void)
     }
 
     cursorPos = avl_search_greater(&mergeTree,
-                                             &cur_item.avl_merge,
-                                             _merge_cmp_byseq);
+                                   &cur_item.avl_merge,
+                                   _merge_cmp_byseq);
     if (!cursorPos) {
         return NULL;
     }
@@ -2610,14 +2661,12 @@ struct wal_item* WalItr::next_WalItr(void)
 {
     struct wal_item *result = NULL;
     if (shandle->is_persisted_snapshot) {
-        cursorPos = avl_next(cursorPos);
         if (by_key) {
-            return cursorPos ? _get_entry(cursorPos,
-                                                struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->nextSnapItemByKey(cursorItem);
         } else {
-            return cursorPos ? _get_entry(cursorPos,
-                                                struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->nextSnapItemBySeq(cursorItem);
         }
+        return cursorItem;
     }
 
     if (!shandle->snap_tag_idx) { // no items in WAL in snapshot..
@@ -2656,16 +2705,15 @@ struct wal_item *WalItr::_prevByKey_WalItr(void)
                                            struct wal_cursor, avl_merge);
     struct wal_cursor cur_item = *cursor; // save cur item for merge sort
     size_t cur_snap_idx = cursor - mergeCursors;
-    struct wal_item *item = NULL;
-    struct avl_node *a, *aa;
+    struct wal_item *item = cursor->item;
+    struct avl_node *aa;
 
-    prevItem = cursor->item; // save for direction change
-    a = avl_prev(&cursor->item->avl_keysnap);
+    prevItem = item; // save for direction change
+    item = item->shandle->prevSnapItemByKey(item);
     avl_remove(&mergeTree, &mergeCursors[cur_snap_idx].avl_merge);
     mergeCursors[cur_snap_idx].item = NULL;
 
-    while (a) {
-        item = _get_entry(a, struct wal_item, avl_keysnap);
+    while (item) {
         // See if the item already exists in merge tree in another snapshot..
         mergeCursors[cur_snap_idx].item = item;
         aa = avl_search(&mergeTree,
@@ -2693,13 +2741,13 @@ struct wal_item *WalItr::_prevByKey_WalItr(void)
             // cursor 2 -> cursor 1 in example above
             cursor = &mergeCursors[cur_snap_idx];
         }
-        a = avl_prev(&cursor->item->avl_keysnap);
+        item = item->shandle->prevSnapItemByKey(cursor->item);
         mergeCursors[cur_snap_idx].item = NULL;
     }
 
     cursorPos = avl_search_smaller(&mergeTree,
-                                             &cur_item.avl_merge,
-                                             _merge_cmp_bykey);
+                                   &cur_item.avl_merge,
+                                   _merge_cmp_bykey);
     if (!cursorPos) {
         return NULL;
     }
@@ -2713,14 +2761,13 @@ struct wal_item * WalItr::_prevBySeq_WalItr(void)
                                            struct wal_cursor, avl_merge);
     struct wal_cursor cur_item = *cursor; // save cur item for merge sort
     size_t cur_snap_idx = cursor - mergeCursors;
-    struct wal_item *item = NULL;
+    struct wal_item *item = cursor->item;
 
-    prevItem = cursor->item; // save for direction change
+    prevItem = item; // save for direction change
 
     avl_remove(&mergeTree, &cursor->avl_merge);
-    struct avl_node *a = avl_prev(&cur_item.item->avl_seqsnap);
-    if (a) {
-        item = _get_entry(a, struct wal_item, avl_seqsnap);
+    item = item->shandle->prevSnapItemBySeq(item);
+    if (item) {
         mergeCursors[cur_snap_idx].item = item;
         // re-insert this merge sorted item back into merge-sort tree..
         avl_insert(&mergeTree,
@@ -2731,8 +2778,8 @@ struct wal_item * WalItr::_prevBySeq_WalItr(void)
     }
 
     cursorPos = avl_search_smaller(&mergeTree,
-                                             &cur_item.avl_merge,
-                                             _merge_cmp_byseq);
+                                   &cur_item.avl_merge,
+                                   _merge_cmp_byseq);
     if (!cursorPos) {
         return NULL;
     }
@@ -2744,14 +2791,12 @@ struct wal_item* WalItr::prev_WalItr(void)
 {
     struct wal_item *result = NULL;
     if (shandle->is_persisted_snapshot) {
-        cursorPos = avl_prev(cursorPos);
         if (by_key) {
-            return cursorPos ? _get_entry(cursorPos,
-                    struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->prevSnapItemByKey(cursorItem);
         } else {
-            return cursorPos ? _get_entry(cursorPos,
-                    struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->prevSnapItemBySeq(cursorItem);
         }
+        return cursorItem;
     }
 
     if (!shandle->snap_tag_idx) { // no items in WAL in snapshot..
@@ -2801,16 +2846,12 @@ struct wal_item* WalItr::_firstBySeq_WalItr(void)
 
 struct wal_item* WalItr::first_WalItr(void) {
     if (shandle->is_persisted_snapshot) {
-        struct avl_node *a;
         if (by_key) {
-            a = avl_first(&shandle->key_tree);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->firstSnapItemByKey();
         } else {
-            a = avl_first(&shandle->seq_tree);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->firstSnapItemBySeq();
         }
+        return cursorItem;
     }
 
     if (shandle->snap_tag_idx) {
@@ -2845,16 +2886,12 @@ struct wal_item * WalItr::_lastBySeq_WalItr(void)
 
 struct wal_item* WalItr::last_WalItr(void) {
     if (shandle->is_persisted_snapshot) {
-        struct avl_node *a;
         if (by_key) {
-            a = avl_last(&shandle->key_tree);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_keysnap) : NULL;
+            cursorItem = shandle->lastSnapItemByKey();
         } else {
-            a = avl_last(&shandle->seq_tree);
-            cursorPos = a;
-            return a ? _get_entry(a, struct wal_item, avl_seqsnap) : NULL;
+            cursorItem = shandle->lastSnapItemBySeq();
         }
+        return cursorItem;
     }
 
     if (shandle->snap_tag_idx) { // no items in WAL in snapshot..
@@ -2939,7 +2976,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
     struct wal_item_header *header;
     struct list_elem *e, *hdr_e;
     struct avl_node *a, *next_a;
-    struct snap_handle *shandle;
+    Snapshot *shandle;
     fdb_kvs_id_t kv_id, kv_id_req = 0;
     bool committed;
     size_t i = 0, seq_shard_num;
@@ -2960,7 +2997,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
             // cleanup any snapshot handles not reclaimed by wal_flush
             for (struct list_elem *snap_elem = list_begin(&kvs_snapshots->snap_list);
                  snap_elem;) {
-                shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
                 if (_wal_snap_is_immutable(shandle)) {
                     fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                             "Unclosed Snapshot in KVS id %" _F64
@@ -2972,16 +3009,8 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                             shandle->snap_tag_idx, shandle->snap_stop_idx,
                             shandle->ref_cnt_kvs.load());
                 }
-                for (struct list_elem *ee = list_begin(&shandle->active_txn_list);
-                        ee;) {
-                    struct list_elem *e_next = list_next(ee);
-                    struct wal_txn_wrapper *active_txn = _get_entry(ee,
-                            struct wal_txn_wrapper, le);
-                    free(active_txn);
-                    ee = e_next;
-                }
                 snap_elem = list_next(snap_elem);
-                free(shandle);
+                delete shandle;
             } // done for all snapshots of specific kv store
             avl_remove(&file->getWal()->wal_kvs_snap_tree,
                        &kvs_snapshots->avl_id);
@@ -2995,7 +3024,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                                                  struct wal_kvs_snaps, avl_id);
             for (struct list_elem *snap_elem = list_begin(&kvs_snapshots->snap_list);
                  snap_elem;) {
-                shandle = _get_entry(snap_elem, struct snap_handle, snaplist_elem);
+                shandle = _get_entry(snap_elem, Snapshot, snaplist_elem);
                 if (_wal_snap_is_immutable(shandle)) {
                     fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                             "WAL closed before snapshot close in kv id %" _F64
@@ -3003,15 +3032,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                             shandle->wal_ndocs.load(), file->getFileName());
                 }
                 snap_elem = list_next(snap_elem);
-                for (struct list_elem *ee = list_begin(&shandle->active_txn_list);
-                        ee;) {
-                    struct list_elem *e_next = list_next(ee);
-                    struct wal_txn_wrapper *active_txn = _get_entry(ee,
-                            struct wal_txn_wrapper, le);
-                    free(active_txn);
-                    ee = e_next;
-                }
-                free(shandle);
+                delete shandle;
             } // done for all snapshots in kv store
             next_a = avl_next(a);
             avl_remove(&wal_kvs_snap_tree, a);

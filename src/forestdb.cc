@@ -501,15 +501,14 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                                          wal_doc.key, &kv_id);
                                 if (kv_id == handle->kvs->getKvsId()) {
                                     // snapshot: insert ID matched documents only
-                                    wal->snapInsert_Wal(handle->shandle,
-                                                        &wal_doc,
-                                                        doc_offset);
+                                    handle->shandle->snapInsertDoc(&wal_doc,
+                                                                   doc_offset);
                                 } else {
                                     free(doc.key);
                                 }
                             } else {
-                                wal->snapInsert_Wal(handle->shandle, &wal_doc,
-                                                    doc_offset);
+                                handle->shandle->snapInsertDoc(&wal_doc,
+                                                               doc_offset);
                             }
                         }
                         free(doc.meta);
@@ -3893,7 +3892,7 @@ fdb_status FdbEngine::openSnapshot(FdbKvsHandle *handle_in,
     fdb_status fs = FDB_RESULT_SUCCESS;
     FileMgr *file;
     file_status_t fMgrStatus = FILE_NORMAL;
-    struct snap_handle dummy_shandle;
+    Snapshot dummy_shandle; // temporary snapshot handle
     struct _fdb_key_cmp_info cmp_info;
     LATENCY_STAT_START();
 
@@ -3970,7 +3969,6 @@ fdb_snapshot_open_start:
             kv_id = handle_in->kvs->getKvsId();
         }
         if (seqnum == FDB_SNAPSHOT_INMEM) {
-            memset(&dummy_shandle, 0, sizeof(struct snap_handle));
             // tmp value to denote snapshot & not rollback to _fdb_open
             handle->shandle = &dummy_shandle; // dummy
         } else {
@@ -4241,7 +4239,7 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
     fdb_status fs;
     ErrLogCallback log_callback;
     KvsInfo *kvs;
-    struct snap_handle shandle; // dummy snap handle
+    Snapshot shandle; // temporary snapshot handle
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -4303,7 +4301,6 @@ fdb_status FdbEngine::rollbackAll(FdbFileHandle *fhandle,
         return fs;
     }
 
-    memset(&shandle, 0, sizeof(struct snap_handle));
     handle->log_callback = log_callback;
     handle->fhandle = fhandle;
     handle->last_hdr_bid = (bid_t)marker; // Fast rewind on open
