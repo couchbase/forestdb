@@ -653,8 +653,8 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
 
 }
 
-bool dirtyNodesCustomSort(std::pair<size_t, Bnode*>& entry1,
-                          std::pair<size_t, Bnode*>& entry2) {
+bool dirtyNodesCustomSort(std::pair<size_t, Bnode*> entry1,
+                          std::pair<size_t, Bnode*> entry2) {
     return (entry1.second->getCurOffset() < entry2.second->getCurOffset());
 }
 
