@@ -106,7 +106,8 @@ Bnode::Bnode() :
     meta(nullptr),
     refCount(0),
     curOffset(BLK_NOT_FOUND),
-    cmpFunc(nullptr)
+    cmpFunc(nullptr),
+    readBuffer(nullptr)
 {
     avl_init(&kvIdx, nullptr);
     list_elem.prev = list_elem.next = nullptr;
@@ -127,6 +128,8 @@ Bnode::~Bnode()
     if (!metaExistingMemory) {
         free(meta);
     }
+
+    free(readBuffer);
 }
 
 BnodeResult Bnode::inputSanityCheck( void *key,
@@ -583,6 +586,10 @@ BnodeResult Bnode::importRaw(void *buf, bool use_existing_memory)
     uint16_t enc16;
     uint32_t enc32;
     size_t offset = 0;
+
+    if (use_existing_memory) {
+        readBuffer = buf;
+    }
 
     // node size
     enc32 = *( reinterpret_cast<uint32_t*>(ptr + offset) );

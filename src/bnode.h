@@ -487,6 +487,12 @@ private:
     std::unordered_set<BtreeKv *> dirtySet;
     // Key comparison function. Lexicographical order by default.
     btree_new_cmp_func *cmpFunc;
+    // If this node is a clean node, bCache allocates a big memory segment
+    // and each key-value pair points to corresponding location in it,
+    // instead of allocating their own small memory blobs. This pointer
+    // points to that big memory segment, and needs to be released when
+    // this node is destroyed.
+    void* readBuffer;
 };
 
 

@@ -22,6 +22,7 @@
 #include "test.h"
 #include "common.h"
 #include "bnode.h"
+#include "bnodemgr.h"
 
 void bnode_basic_test()
 {
@@ -100,7 +101,10 @@ void bnode_basic_test()
 
     // import check
     Bnode *bnode_copy = new Bnode();
-    bnode_copy->importRaw((void*)temp_buf, true);
+    void *temp_read_buf = (void*)malloc(node_size);
+    memcpy(temp_read_buf, temp_buf, node_size);
+
+    bnode_copy->importRaw((void*)temp_read_buf, true);
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%07d\n", (int)i);
         sprintf(valuebuf, "v%07d\n", (int)i*20);
@@ -396,12 +400,106 @@ void bnode_custom_cmp_test()
     TEST_RESULT("bnode custom compare function test");
 }
 
+void bnodemgr_basic_test()
+{
+    TEST_INIT();
+
+    int r = system(SHELL_DEL" bnodemgr_testfile");
+    (void)r;
+
+    Bnode *bnode = new Bnode();
+    BnodeMgr *bMgr = new BnodeMgr();;
+    BnodeResult ret;
+    size_t i;
+    size_t n = 100;
+    char keybuf[64], valuebuf[64];
+
+    uint64_t threshold = 200000;
+    uint64_t flush_limit = 102400;
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
+                                              flush_limit);
+
+    FileMgr *file;
+    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8,
+                         DEFAULT_NUM_BCACHE_PARTITIONS,
+                         FDB_ENCRYPTION_NONE, 0x55, 0, 0);
+    std::string fname("./bnodemgr_testfile");
+    filemgr_open_result result = FileMgr::open(fname,
+                                               get_filemgr_ops(),
+                                               &config, nullptr);
+    file = result.file;
+    TEST_CHK(file != nullptr);
+
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
+    bMgr->setFile(file, bcache);
+
+    // register the node to bnodemgr
+    bMgr->addDirtyNode(bnode);
+
+    // add test
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    // meta
+    char metabuf[64];
+    sprintf(metabuf, "meta_data");
+    bnode->setMeta(metabuf, 9, false);
+
+    // find test
+    size_t valuelen_out;
+    void* value_out;
+    Bnode *bnode_out;
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+        TEST_CMP(value_out, valuebuf, valuelen_out);
+    }
+
+    // assign offset, and flush
+    uint64_t node_offset = bMgr->assignDirtyNodeOffset(bnode);
+    bnode->setCurOffset(node_offset);
+    bMgr->flushDirtyNodes();
+
+    // read test
+    Bnode *bnode_read = bMgr->readNode(node_offset);
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode_read->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+        TEST_CMP(value_out, valuebuf, valuelen_out);
+    }
+
+    bMgr->releaseCleanNodes();
+    delete bMgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("bnodemgr basic test");
+}
+
 int main()
 {
     bnode_basic_test();
     bnode_iterator_test();
     bnode_split_test();
     bnode_custom_cmp_test();
+
+    bnodemgr_basic_test();
+
     return 0;
 }
 
