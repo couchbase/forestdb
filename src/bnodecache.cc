@@ -568,6 +568,8 @@ bool BnodeCacheMgr::freeFileBnodeCache(FileBnodeCache* fcache, bool force) {
     return true;
 }
 
+static const size_t BNODE_BUFFER_HEADROOM = 256;
+
 fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
                                         Bnode** node,
                                         cs_off_t offset) {
@@ -589,7 +591,9 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
     length = Bnode::readNodeSize(&length);
 
     // 2> Alloc Buffer
-    void *buf = malloc(length);
+    // Note: we allocate a little bit more memory to avoid to call
+    //       realloc() if a few new entries are inserted.
+    void *buf = malloc(length + BNODE_BUFFER_HEADROOM);
 
     // 3> Read: If the node is written over multiple blocks, read
     //    them accoding to the block meta.
@@ -649,7 +653,7 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
     }
 
     Bnode* bnode_out = new Bnode();
-    bnode_out->importRaw(buf, true);
+    bnode_out->importRaw(buf, length + BNODE_BUFFER_HEADROOM);
     bnode_out->setCurOffset(offset);
     // 'buf' to be freed by client
     *node = bnode_out;
@@ -737,8 +741,8 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             size_t offset_of_buf = 0;
             size_t remaining_size = nodesize;
 
-            void *buf = malloc(nodesize);
-            if (dirty_bnode->exportRaw(buf) != BnodeResult::SUCCESS) {
+            void *buf = nullptr;
+            if ( !(buf = dirty_bnode->exportRaw()) ) {
                 // TODO: Handle this gracefully perhaps ..
                 assert(false);
             }
@@ -750,7 +754,6 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                 if (ret != static_cast<ssize_t>(remaining_size)) {
                     spin_unlock(&fcache->shards[shard_num]->lock);
                     status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
-                    free(buf);
                     return status;
                 }
             } else {
@@ -774,7 +777,6 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                     if (ret != static_cast<ssize_t>(cur_slice_size)) {
                         spin_unlock(&fcache->shards[shard_num]->lock);
                         status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
-                        free(buf);
                         return status;
                     }
 
@@ -793,7 +795,6 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                         if (ret != static_cast<ssize_t>(sizeof(IndexBlkMeta))) {
                             spin_unlock(&fcache->shards[shard_num]->lock);
                             status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
-                            free(buf);
                             return status;
                         }
                         // new block .. reset block offset
@@ -801,7 +802,6 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                     }
                 }
             }
-            free(buf);
         }
 
         // Move to the shard clean node list

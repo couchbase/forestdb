@@ -26,116 +26,339 @@
 #include "avltree.h"
 #include "atomic.h"
 #include "list.h"
-#include "fdb_internal.h"
 
 class Bnode;
 
 /**
- * Definition of Key-value pair structure that will be indexed
- * inside each B+tree node.
+ * Basic unit of key-value pair used in Bnode (BsArray) and Btree.
  */
-struct BtreeKv {
+struct BsaItem {
+    // Default constructor. Create an empty item.
+    BsaItem() :
+        key(nullptr), value(nullptr), isValueChildPtr(false),
+        keylen(0), valuelen(0),
+        idx(0), pos(static_cast<uint32_t>(-1))
+    { }
 
-    BtreeKv();
+    // Create a {key, binary data value} pair.
+    BsaItem( void* _key, size_t _keylen, void* _value, size_t _valuelen ) :
+        key(_key), value(_value), isValueChildPtr(false),
+        keylen(_keylen), valuelen(_valuelen),
+        idx(0), pos(static_cast<uint32_t>(-1))
+    { }
 
-    BtreeKv( void* _key,
-             size_t _keylen,
-             void* _value,
-             size_t _valuelen,
-             Bnode* _child_ptr,
-             bool _existing_memory ) {
-        keylen = static_cast<uint16_t>(_keylen);
-        valuelen = static_cast<uint16_t>(_valuelen);
-        existing_memory = _existing_memory;
-        if (_existing_memory) {
-            key = _key;
-        } else {
-            key = (void*)malloc(keylen);
-            memcpy(key, _key, keylen);
-        }
-        if (valuelen) {
-            if (_existing_memory) {
-                value = _value;
-            } else {
-                value = (void*)malloc(valuelen);
-                memcpy(value, _value, valuelen);
-            }
-        } else {
-            value = nullptr;
-        }
-        child_ptr = _child_ptr;
+    // Create a {key, pointer} pair.
+    BsaItem( void* _key, size_t _keylen, void* _child_ptr ) :
+        key(_key), value(_child_ptr), isValueChildPtr(true),
+        keylen(_keylen), valuelen(8),
+        idx(0), pos(static_cast<uint32_t>(-1))
+    { }
+
+    // Create an item that only key-field is assigned.
+    BsaItem( void* _key, size_t _keylen ) :
+        key(_key), value(nullptr), isValueChildPtr(false),
+        keylen(_keylen), valuelen(0),
+        idx(0), pos(static_cast<uint32_t>(-1))
+    { }
+
+    // Return on-disk size of the given key-value pair.
+    uint32_t getSize() {
+        return sizeof(keylen) + sizeof(valuelen) + keylen + valuelen;
     }
 
-    ~BtreeKv() {
-        if (!existing_memory) {
-            free(key);
-            free(value);
+    // Check if given item is empty.
+    bool isEmpty() {
+        if (!key && pos == static_cast<uint32_t>(-1)) {
+            return true;
         }
+        return false;
     }
 
-    /**
-     * Return the raw binary data size of the key-value pair.
-     *
-     * @return Raw data size.
-     */
-    size_t getKvSize() {
-        size_t ret = 0;
-        ret += sizeof(keylen);
-        ret += sizeof(valuelen);
-        ret += keylen;
-        if (value) {
-            ret += valuelen;
-        } else {
-            // it points to other node: 8 bytes offset
-            ret += sizeof(uint64_t);
-        }
-        return ret;
-    }
-
-    /**
-     * Update key.
-     *
-     * @param _key New key.
-     * @param _keylen Length of new key.
-     */
-    void updateKey( void *_key,
-                    size_t _keylen );
-
-    /**
-     * Update value.
-     *
-     * @param _value New value.
-     * @param _valuelen Length of new value.
-     */
-    void updateValue( void *_value,
-                      size_t _valuelen );
-
-    /**
-     * Update the pointer to the child node.
-     * If previous value already exists, free it.
-     *
-     * @param _value New pointer to the child node.
-     */
-    void updateChildPtr( Bnode *_child_ptr );
-
-    // AVL-tree element.
-    struct avl_node avl;
-    // Key string,
-    void* key;
-    // Value string.
-    void* value;
+    // Key.
+    void *key;
+    // Value. Can be a binary data, or pointer to a child node.
+    void *value;
+    // Flag that indicates if 'value' is pointer or binary data.
+    bool isValueChildPtr;
     // Length of key.
     uint16_t keylen;
     // Length of value.
     uint16_t valuelen;
-    // Flag that indicates if key and value are pointing to the existing
-    // memory, or pointing to the memory blobs allocated when the key-value
-    // pair is created.
-    bool existing_memory;
-    // Pointer to child B+tree node if this key-value pair is in
-    // an intermediate node.
-    Bnode *child_ptr;
+    // Index number of the item.
+    uint16_t idx;
+    // Memory offset of the item, in a sorted array.
+    uint32_t pos;
 };
+
+/**
+ * Meta data structure for key-value pair in BsArray.
+ */
+struct BsaKvMeta {
+    // Position of key-value pair.
+    uint32_t kvPos;
+    // Boolean flag indicates if corresponding key-value pair
+    // contains pointer to child node (true) or binary data (false).
+    bool isPtr;
+};
+
+/**
+ * Sorted array implementation.
+ *
+ * Overall structure of 'dataArray':
+ *
+ * | <--                  arrayCapacity                --> |
+ * |      |  <---        kvDataSize      --->  |           |
+ * +------+-------+-------+-----------+--------+-----------+
+ * | meta |  KV 0 |  KV 1 |    ...    | KV n-1 |   empty   |
+ * +------+-------+-------+-----------+--------+-----------+
+ *        ^
+ *     arrayBaseOffset
+ *
+ * Note: 'dataArray' contains raw key-value data including meta,
+ *       that can be directly written into DB file.
+ *       All values in 'dataArray' are encoded in an endian-safe way.
+ *
+ * kvMeta[i].kvPos: location of KV i, excluding the memory region for 'meta'.
+ *                  'kvPos' value starts from zero.
+ *   e.g.)
+ *   arrayBaseOffset = 15
+ *   kvMeta[0].kvPos = 0
+ *   kvMeta[1].kvPos = 20
+ * then, 'KV 0' is located at dataArray+15,
+ * and   'KV 1' is located at dataArray+15+20.
+ *
+ * kvMeta[i].isPtr: boolean flag that indicates if
+ *                  KV i contains pointer (true) or binary data (false).
+ *
+ */
+class BsArray {
+public:
+    BsArray();
+    ~BsArray();
+
+    void setAux(void *_aux) {
+        aux = _aux;
+    }
+    void* getAux() const {
+        return aux;
+    }
+    void* getDataArray() const {
+        return dataArray;
+    }
+    uint32_t getBaseOffset() const {
+        return arrayBaseOffset;
+    }
+    std::vector<BsaKvMeta>& getKvMeta() {
+        return kvMeta;
+    }
+
+    uint32_t getArraySize() const {
+        return kvDataSize;
+    }
+    void setArraySize(uint32_t _array_size) {
+        kvDataSize = _array_size;
+    }
+    void setNumElems(uint32_t _num_elems) {
+        // resize kvMeta
+        kvMeta.resize(_num_elems);
+    }
+    size_t getNumElems() const {
+        return kvMeta.size();
+    }
+
+    /**
+     * Change 'dataArray' to given buffer.
+     *
+     * @param new_buffer Pointer to the new buffer.
+     * @param capacity Size of the new buffer.
+     */
+    void setDataArrayBuffer(void *new_buffer, uint32_t capacity) {
+        // release existing buffer
+        free(dataArray);
+        dataArray = new_buffer;
+        arrayCapacity = capacity;
+    }
+
+    /**
+     * Adjust 'arrayBaseOffset' value, and resize 'dataArray' if necessary.
+     *
+     * @param _new_base New base offset.
+     */
+    void adjustBaseOffset(uint32_t _new_base);
+
+    /**
+     * Get the first key-value pair in the array.
+     * If 'ptr_only' flag is set, return the first key-value pair that
+     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     *
+     * @param ptr_only Flag for getting key-pointer pair.
+     * @return First key-value pair.
+     */
+    BsaItem first(bool ptr_only = false);
+
+    /**
+     * Get the last key-value pair in the array.
+     * If 'ptr_only' flag is set, return the last key-value pair that
+     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     *
+     * @param ptr_only Flag for getting key-pointer pair.
+     * @return Last key-value pair.
+     */
+    BsaItem last(bool ptr_only = false);
+
+    /**
+     * Get the previous key-value pair of the given pair.
+     * If 'ptr_only' flag is set, return the first previous key-value pair that
+     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     *
+     * @param ptr_only Flag for getting key-pointer pair.
+     * @return Previous key-value pair.
+     */
+    BsaItem prev(BsaItem& cur, bool ptr_only = false);
+
+    /**
+     * Get the next key-value pair of the given pair.
+     * If 'ptr_only' flag is set, return the first next key-value pair that
+     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     *
+     * @param ptr_only Flag for getting key-pointer pair.
+     * @return Next key-value pair.
+     */
+    BsaItem next(BsaItem& cur, bool ptr_only = false);
+
+    /**
+     * Find key-value pair for the given key.
+     * If 'smaller_key' is set and exact key does not exist, then return
+     * the greatest key-value pair that smaller than the given key.
+     *
+     * @param key Key to find.
+     * @param smaler_key Flag to return smaller key.
+     * @return Key-value pair found.
+     */
+    BsaItem find(BsaItem& key, bool smaller_key = false);
+
+    /**
+     * Find key-value pair for the given key.
+     * If exact key does not exist, then return the greatest key-value
+     * pair that smaller than the given key.
+     *
+     * @param key Key to find.
+     * @return Key-value pair found.
+     */
+    BsaItem findSmallerOrEqual(BsaItem& key);
+
+    /**
+     * Find key-value pair for the given key.
+     * If exact key does not exist, then return the smallest key-value
+     * pair that greater than the given key.
+     *
+     * @param key Key to find.
+     * @return Key-value pair found.
+     */
+    BsaItem findGreaterOrEqual(BsaItem& key);
+
+    /**
+     * Insert a key-value pair into the array.
+     *
+     * @param item Key-value pair to insert.
+     * @return Inserted key-value pair on success,
+     *         'NotFound' item on failure.
+     */
+    BsaItem insert(BsaItem& item);
+
+    /**
+     * Remove a key-value pair from the array.
+     *
+     * @param item Key-value pair to remove.
+     * @return Removed key-value pair on success,
+     *         'NotFound' item on failure.
+     */
+    BsaItem remove(BsaItem& item);
+
+    /**
+     * Copy a (partial) set of key-value pairs from the source array,
+     * and construct 'kvMeta'.
+     *
+     * @param src_array Source array.
+     * @param start_item First key-value pair to be copied.
+     * @param end_item Last key-value pair to be copied.
+     */
+    void copyFromOtherArray(BsArray& src_array,
+                            BsaItem& start_item,
+                            BsaItem& end_item);
+
+    /**
+     * Construct 'kvMeta' array for the current 'dataArray'.
+     *
+     * @param kv_data_size Key-value pair data size to construct.
+     * @param num_elems Number of key-value pairs.
+     * @param reset_isptr Flag to reset kvMeta[].isPtr value.
+     *        If false, all kvMeta[].isPtr will be set to false.
+     */
+    void constructKvMetaArray(uint32_t kv_data_size,
+                              uint32_t num_elems,
+                              bool reset_isptr);
+
+private:
+    /**
+     * Fetch a key-value pair for the given index number.
+     *
+     * @param idx Index number to fetch.
+     * @return Key-value pair.
+     */
+    BsaItem fetchItem(uint32_t idx);
+
+    /**
+     * Write given key-value pair into the given position of the array.
+     *
+     * @param item Key-value pair to write.
+     * @param position Offset where the key-value pair will be written.
+     */
+    void writeItem(BsaItem item, uint32_t position);
+
+    /**
+     * Overwrite or insert given key-value pair at given index in the array.
+     *
+     * example: overwrite == false
+     * idx = 2
+     * [2 4 6 8] -> [2 4 _ 6 8]
+     * and then insert 'item' into the blank position.
+     *
+     * example: overwrite == true
+     * idx = 2
+     * [2 4 6 8] -> [2 4 _ 8]
+     * and then overwrite 'item' into the blank position.
+     *
+     * @param item Key-value pair to write.
+     * @param idx Index number where key-value pair will be written or inserted.
+     * @param overwrite Flag that indicates if 'item' will be written over
+     *        existing item or not.
+     */
+    BsaItem addToArray(BsaItem item, uint32_t idx, bool overwrite);
+
+    /**
+     * Adjust 'dataArray' size if necessary.
+     *
+     * @param gap Delta value of the array size.
+     */
+    void adjustArrayCapacity(int gap);
+
+    // Memory segment for array.
+    void* dataArray;
+    // Auxiliary data (used for custom comparison function).
+    void* aux;
+    // Data size for key-value pairs only.
+    // Does not include the size of meta data (i.e., arrayBaseOffset).
+    uint32_t kvDataSize;
+    // Base offset of the array
+    // (start position of list of key-value pairs).
+    uint32_t arrayBaseOffset;
+    // Size of memory segment for 'dataArray'.
+    uint32_t arrayCapacity;
+    // Array for meta data of key-value pairs.
+    std::vector<BsaKvMeta> kvMeta;
+};
+
 
 enum class BnodeResult {
     // Succeeded.
@@ -166,12 +389,20 @@ typedef int btree_new_cmp_func( void *key1, size_t keylen1,
                                 void *key2, size_t keylen2,
                                 void *aux );
 
+/**
+ * Report error on given Bnode.
+ *
+ * @param bnode Pointer to Bnode.
+ * @param error_no ForestDB error number.
+ * @param msg Error message.
+ */
+void logBnodeErr(Bnode *bnode, fdb_status error_no, const char *msg);
+
 class Bnode {
     friend class BnodeIterator;
 
 public:
     Bnode();
-
     ~Bnode();
 
     /**
@@ -192,8 +423,11 @@ public:
                                          Bnode *ptr,
                                          bool value_check = false );
 
-    uint32_t getNodeSize() const {
+    size_t getNodeSize() const {
         return nodeSize;
+    }
+    void setNodeSize(uint32_t _node_size) {
+        nodeSize = _node_size;
     }
 
     size_t getLevel() const {
@@ -205,6 +439,9 @@ public:
 
     size_t getNentry() const {
         return nentry;
+    }
+    void setNentry(uint16_t _nentry) {
+        nentry = _nentry;
     }
 
     uint32_t getFlags() const {
@@ -219,7 +456,9 @@ public:
     }
 
     void* getMeta() const {
-        return meta;
+        // meta data position is always fixed
+        return static_cast<uint8_t*>(kvArr.getDataArray()) +
+               Bnode::getDiskSpaceOfEmptyNode();
     }
 
     uint64_t getRefCount() const {
@@ -232,11 +471,11 @@ public:
 
     uint64_t decRefCount() {
         if ( !refCount ) {
-            fdb_log(nullptr, FDB_RESULT_READ_FAIL,
-                    "Warning: ref counter of bnode (at offset: %s) "
-                    "is already 0.",
-                    std::to_string(curOffset).c_str());
-            return 0;
+            // This function is declared separately so that decRefCount() can still
+            // be inlined which is the most common path.
+            logBnodeErr(this, FDB_RESULT_READ_FAIL,
+                        "ref count is already zero");
+            return refCount;
         }
         return --refCount;
     }
@@ -254,17 +493,14 @@ public:
     void setCmpFunc(btree_new_cmp_func *_func) {
         cmpFunc = _func;
         if (cmpFunc) {
-            kvIdx.aux = (void*)this;
+            kvArr.setAux(this);
         } else {
-            kvIdx.aux = nullptr;
+            kvArr.setAux(nullptr);
         }
     }
 
-    std::unordered_set<BtreeKv *>& getDirtySet() {
-        return dirtySet;
-    }
-    void clearDirtySet() {
-        dirtySet.clear();
+    BsArray& getKvArr() {
+        return kvArr;
     }
 
     void addBidList(bid_t bid) {
@@ -285,12 +521,9 @@ public:
      *
      * @param new_meta New meta data.
      * @param meta_size Size of new meta data.
-     * @param use_existing_memory If true, new memory blob will not be allocated
-     *        and B+tree node will just point to 'new_meta'.
      */
     void setMeta( void* new_meta,
-                  size_t meta_size,
-                  bool use_existing_memory = false );
+                  size_t meta_size );
 
     /**
      * Clear meta data section.
@@ -306,8 +539,6 @@ public:
      * @param valuelen Length of value.
      * @param child_ptr Pointer to child B+tree node.
      * @param inc_nentry Flag to update internal stats or not.
-     * @param use_existing_memory If true, new memory blob will not be allocated
-     *        and B+tree node will just point to 'key' and 'value'.
      * @return SUCCESS on success.
      */
     BnodeResult addKv( void *key,
@@ -315,16 +546,7 @@ public:
                        void *value,
                        size_t valuelen,
                        Bnode *child_ptr,
-                       bool inc_nentry,
-                       bool use_existing_memory = false );
-
-    /**
-     * Insert an existing key-value pair instance into the node.
-     *
-     * @param kvp Pointer to key-value pair instance to be added.
-     * @return SUCCESS on success.
-     */
-    BnodeResult attachKv( BtreeKv *kvp );
+                       bool inc_nentry );
 
     /**
      * Find a value corresponding to the given key.
@@ -349,8 +571,8 @@ public:
      * @param keylen Length of key.
      * @return Key-value pair instance.
      */
-    BtreeKv* findKv( void *key,
-                     size_t keylen );
+    BsaItem findKv( void *key,
+                    size_t keylen );
 
     /**
      * Find a key-value pair instance whose key is smaller than or
@@ -364,9 +586,23 @@ public:
      *        key in the node, if not, returns NULL.
      * @return Key-value pair instance.
      */
-    BtreeKv* findKvSmallerOrEqual( void *key,
-                                   size_t keylen,
-                                   bool return_smallest = false );
+    BsaItem findKvSmallerOrEqual( void *key,
+                                  size_t keylen,
+                                  bool return_smallest = false );
+
+    /**
+     * Find a key-value pair instance whose key is greater than or
+     * equal to the given key.
+     *
+     * @param key Key string.
+     * @param keylen Length of key.
+     * @param return_greatest If true, return the greater key when given key
+     *        is greater than the greatest key, instead of NULL.
+     * @return Key-value pair instance.
+     */
+    BsaItem findKvGreaterOrEqual( void *key,
+                                  size_t keylen,
+                                  bool return_greatest = false );
 
     /**
      * Get the smallest key in the node.
@@ -379,6 +615,16 @@ public:
                             size_t& keylen );
 
     /**
+     * Get the largest key in the node.
+     *
+     * @param key Key string to be returned.
+     * @param keylen Length of key to be returned.
+     * @return SUCCESS on success.
+     */
+    BnodeResult findMaxKey( void*& key,
+                            size_t& keylen );
+
+    /**
      * Remove a key-value pair.
      *
      * @param keylen Length of key.
@@ -387,15 +633,6 @@ public:
      */
     BnodeResult removeKv( void *key,
                           size_t keylen );
-
-    /**
-     * Detach the given key-value pair instance from the node,
-     * but do not free the memory.
-     *
-     * @param kvp Pointer to key-value pair instance to be removed.
-     * @return SUCCESS on success.
-     */
-    BnodeResult detachKv( BtreeKv *kvp );
 
     /**
      * Split the node into multiple new nodes.
@@ -416,21 +653,28 @@ public:
 
     /**
      * Convert logical B+tree node structure to raw binary data.
+     * To avoid unnecessary memcpy() overhead, it directly returns
+     * the buffer address kept in the node. So caller function should not
+     * destroy the memory region after use. It will be freed when the
+     * node is destroyed.
      *
-     * @param buf Memory area that raw data will be stored.
-     * @return SUCCESS on success.
+     * @return Pointer to the memory address of raw binary data.
      */
-    BnodeResult exportRaw(void *buf);
+    void* exportRaw();
 
     /**
      * Construct logical B+tree node structure from raw binary data.
+     * To avoid unnecessary memcpy() overhead, given memory region is
+     * kept in the node and the node directly points to the key-value data
+     * in the memory region. The memory region is freed when the node is
+     * destroyed.
      *
      * @param buf Memory area containing raw data.
-     * @param use_existing_memory If true, B+tree node will not allocate
-     *        new memory blobs but just point to the data in 'buf'.
+     * @param buf_size Size of 'buf'.
      * @return SUCCESS on success.
      */
-    BnodeResult importRaw(void *buf, bool use_existing_memory = false);
+    BnodeResult importRaw( void *buf,
+                           uint32_t buf_size );
 
     /**
      * For debugging-purpose, print out a list of key-value pairs in the node.
@@ -465,6 +709,20 @@ public:
     struct list_elem list_elem;
 
 private:
+    /**
+     * During split, create a new node and migrate a set of entries from the
+     * source node to the new node.
+     *
+     * @param cur_num_elems Number of entries to be migrated.
+     * @param new_nodes List of new nodes created.
+     * @param first_kvp First key-value pair to be migrated.
+     * @param last_kvp Last key-value pair to be migrated.
+     */
+    void migrateEntries( size_t cur_num_elems,
+                         std::list<Bnode *>& new_nodes,
+                         BsaItem first_kvp,
+                         BsaItem last_kvp );
+
     // Disk space of B+tree node.
     uint32_t nodeSize;
     // Flags
@@ -476,12 +734,8 @@ private:
     uint16_t nentry;
     // Meta data size.
     uint16_t metaSize;
-    // Flag indicating if meta data points to existing memory.
-    bool metaExistingMemory;
-    // AVL-tree index for key-value pair.
-    avl_tree kvIdx;
-    // Meta data
-    void* meta;
+    // Sorted array containing key-value pairs and meta data.
+    BsArray kvArr;
     // Reference counter for the given node. If this value is not zero, the node
     // must not be ejected from the cache.
     std::atomic<uint64_t> refCount;
@@ -491,16 +745,8 @@ private:
     // List of block IDs where this node is written.
     // Note that blocks cannot be consecutive due to CBR.
     std::vector<bid_t> bidList;
-    // Set of key-value pair instances pointing to dirty child nodes.
-    std::unordered_set<BtreeKv *> dirtySet;
     // Key comparison function. Lexicographical order by default.
     btree_new_cmp_func *cmpFunc;
-    // If this node is a clean node, bCache allocates a big memory segment
-    // and each key-value pair points to corresponding location in it,
-    // instead of allocating their own small memory blobs. This pointer
-    // points to that big memory segment, and needs to be released when
-    // this node is destroyed.
-    void* readBuffer;
 };
 
 
@@ -575,9 +821,9 @@ public:
     /**
      * Get key-value pair instance of the current cursor.
      *
-     * @return Pointer to the current key-value pair instance.
+     * @return Current key-value pair instance.
      */
-    BtreeKv* getKv() const {
+    BsaItem getKv() const {
         return curKvp;
     }
 
@@ -599,15 +845,7 @@ private:
     // B+tree node to iterate.
     Bnode *bnode;
     // Current key-value pair.
-    BtreeKv *curKvp;
-
-    /**
-     * Set 'curKvp' from the current AVL-tree node.
-     *
-     * @return SUCCESS on success.
-     */
-    BnodeIteratorResult fetchKvp( avl_node *entry );
+    BsaItem curKvp;
 };
-
 
 

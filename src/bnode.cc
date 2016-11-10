@@ -25,76 +25,6 @@
 #include "internal_types.h"
 #include "bnode.h"
 
-BtreeKv::BtreeKv() : key(nullptr), value(nullptr), keylen(0), valuelen(0),
-                     existing_memory(true), child_ptr(nullptr) {
-    memset(&avl, 0, sizeof(struct avl_node)); // keep Coverity happy
-}
-
-void BtreeKv::updateKey( void *_key,
-                         size_t _keylen ) {
-
-    if (keylen != _keylen) {
-        key = (void*)realloc(key, _keylen);
-    }
-
-    keylen = static_cast<uint16_t>(_keylen);
-    memcpy(key, _key, keylen);
-}
-
-void BtreeKv::updateValue( void *_value,
-                           size_t _valuelen ) {
-
-    if ( value ) {
-        if (valuelen != _valuelen) {
-            value = (void*)realloc(value, _valuelen);
-        }
-    } else {
-        value = (void*)malloc(_valuelen);
-    }
-
-    valuelen = static_cast<uint16_t>(_valuelen);
-    memcpy(value, _value, valuelen);
-    child_ptr = nullptr;
-}
-
-void BtreeKv::updateChildPtr( Bnode *_child_ptr ) {
-    if ( value ) {
-        free(value);
-        value = nullptr;
-        valuelen = 0;
-    }
-    child_ptr = _child_ptr;
-}
-
-
-INLINE int avlCmpBnode(avl_node *a, struct avl_node *b, void *aux)
-{
-    BtreeKv *aa, *bb;
-    aa = _get_entry(a, BtreeKv, avl);
-    bb = _get_entry(b, BtreeKv, avl);
-
-    if (aux) {
-        // custom compare function is defined
-        Bnode *bnode = reinterpret_cast<Bnode*>(aux);
-        btree_new_cmp_func *func = bnode->getCmpFunc();
-        return func(aa->key, aa->keylen, bb->key, bb->keylen, aux);
-
-    } else {
-        // lexicographical order
-        if (aa->keylen == bb->keylen) {
-            return memcmp(aa->key, bb->key, aa->keylen);
-        } else {
-            size_t len = MIN(aa->keylen, bb->keylen);
-            int cmp = memcmp(aa->key, bb->key, len);
-            if (cmp != 0) {
-                return cmp;
-            } else {
-                return static_cast<int>( static_cast<int>(aa->keylen) -
-                                         static_cast<int>(bb->keylen) );
-            }
-        }
-    }
-}
 
 Bnode::Bnode() :
     nodeSize( Bnode::getDiskSpaceOfEmptyNode() ),
@@ -102,35 +32,16 @@ Bnode::Bnode() :
     level(1),
     nentry(0),
     metaSize(0),
-    metaExistingMemory(false),
-    meta(nullptr),
     refCount(0),
     curOffset(BLK_NOT_FOUND),
-    cmpFunc(nullptr),
-    readBuffer(nullptr)
+    cmpFunc(nullptr)
 {
-    avl_init(&kvIdx, nullptr);
     list_elem.prev = list_elem.next = nullptr;
+    kvArr.adjustBaseOffset( nodeSize );
 }
 
 Bnode::~Bnode()
-{
-    BtreeKv *kvp;
-    auto entry = avl_first(&kvIdx);
-    while (entry) {
-        kvp = _get_entry(entry, BtreeKv, avl);
-        entry = avl_next(entry);
-        avl_remove(&kvIdx, &kvp->avl);
-
-        delete kvp;
-    }
-
-    if (!metaExistingMemory) {
-        free(meta);
-    }
-
-    free(readBuffer);
-}
+{ }
 
 BnodeResult Bnode::inputSanityCheck( void *key,
                                      size_t keylen,
@@ -157,40 +68,28 @@ BnodeResult Bnode::inputSanityCheck( void *key,
 }
 
 void Bnode::setMeta( void* new_meta,
-                     size_t meta_size,
-                     bool use_existing_memory )
+                     size_t meta_size )
 {
-    if (meta && !metaExistingMemory) {
-        free(meta);
-    }
-
-    metaExistingMemory = use_existing_memory;
-    if (metaExistingMemory) {
-        meta = new_meta;
-    } else {
-        meta = (void*)malloc(meta_size);
-        memcpy(meta, new_meta, meta_size);
-    }
-
     if (metaSize != meta_size) {
+        int gap = meta_size - metaSize;
+
         // should adapt on-disk node size
-        nodeSize -= metaSize;
-        nodeSize += meta_size;
+        nodeSize += gap;
         // update meta data size
         metaSize = meta_size;
+        // also adapt array base offset
+        kvArr.adjustBaseOffset( kvArr.getBaseOffset() + gap );
     }
+
+    // meta data position is always fixed
+    void *meta = (uint8_t*)kvArr.getDataArray() + Bnode::getDiskSpaceOfEmptyNode();
+    memcpy(meta, new_meta, meta_size);
 }
 
 void Bnode::clearMeta()
 {
-    if (meta && !metaExistingMemory) {
-        free(meta);
-    }
-
     nodeSize -= metaSize;
-
-    metaExistingMemory = false;
-    meta = nullptr;
+    kvArr.adjustBaseOffset( kvArr.getBaseOffset() - metaSize );
     metaSize = 0;
 }
 
@@ -199,82 +98,45 @@ BnodeResult Bnode::addKv( void *key,
                           void *value,
                           size_t valuelen,
                           Bnode *child_ptr,
-                          bool inc_nentry,
-                          bool use_existing_memory )
+                          bool inc_nentry )
 {
     BnodeResult ret = inputSanityCheck(key, keylen, value, valuelen, child_ptr);
     if (ret != BnodeResult::SUCCESS) {
         return ret;
     }
 
-    BtreeKv *kvp, query;
-    query.key = key;
-    query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
-    if ( entry ) {
+    BsaItem query(key, keylen);
+    BsaItem item = kvArr.find( query );
+
+    if (!item.isEmpty()) {
         // same key already exists .. just update value only
-        kvp = _get_entry(entry, BtreeKv, avl);
-
-        if (kvp->child_ptr) {
-            // remove from dirty child set
-            dirtySet.erase( kvp );
-        }
-
-        if (kvp->value) {
-            nodeSize -= kvp->valuelen;
-        } else if (kvp->child_ptr) {
-            nodeSize -= sizeof(uint64_t);
-        }
+        nodeSize -= item.valuelen;
 
         if (value) {
+            // binary data value
             nodeSize += valuelen;
-            kvp->updateValue(value, valuelen);
+            item = BsaItem(key, keylen, value, valuelen);
         } else {
+            // pointer to child node
             nodeSize += sizeof(uint64_t);
-            kvp->updateChildPtr(child_ptr);
-            // add to dirty child set
-            dirtySet.insert( kvp );
+            item = BsaItem(key, keylen, child_ptr);
         }
-
+        kvArr.insert( item );
         return BnodeResult::SUCCESS;
     }
 
-    kvp = new BtreeKv( key, keylen,
-                       value, valuelen,
-                       child_ptr, use_existing_memory);
-
-    avl_insert(&kvIdx, &kvp->avl, avlCmpBnode);
+    if (value) {
+        // binary data value
+        item = BsaItem(key, keylen, value, valuelen);
+    } else {
+        // pointer to child node
+        item = BsaItem(key, keylen, child_ptr);
+    }
+    kvArr.insert( item );
 
     if (inc_nentry) {
         nentry++;
-        nodeSize += kvp->getKvSize();
-    }
-
-    if (child_ptr) {
-        // add to dirty child set
-        dirtySet.insert( kvp );
-    }
-
-    return BnodeResult::SUCCESS;
-}
-
-BnodeResult Bnode::attachKv( BtreeKv *kvp )
-{
-    if ( !kvp ) {
-        return BnodeResult::INVALID_ARGS;
-    }
-
-    struct avl_node *ret = avl_insert(&kvIdx, &kvp->avl, avlCmpBnode);
-    if ( ret != &kvp->avl ) {
-        // alraedy existing key
-        return BnodeResult::EXISTING_KEY;
-    }
-    nentry++;
-    nodeSize += kvp->getKvSize();
-
-    if ( kvp->child_ptr ) {
-        // add to dirty child set
-        dirtySet.insert( kvp );
+        nodeSize += item.getSize();
     }
 
     return BnodeResult::SUCCESS;
@@ -291,80 +153,111 @@ BnodeResult Bnode::findKv( void *key,
         return ret;
     }
 
-    BtreeKv *kvp, query;
-    query.key = key;
-    query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
-    if (!entry) {
+    BsaItem query(key, keylen);
+    BsaItem item = kvArr.find( query );
+
+    if (item.isEmpty()) {
         return BnodeResult::KEY_NOT_FOUND;
     }
-    kvp = _get_entry(entry, BtreeKv, avl);
-    valuelen_out = kvp->valuelen;
-    value_out = kvp->value;
-    ptr_out = kvp->child_ptr;
+
+    if (item.isValueChildPtr) {
+        // pointer
+        valuelen_out = 0;
+        value_out = nullptr;
+        ptr_out = static_cast<Bnode*>(item.value);
+    } else {
+        // binary data
+        valuelen_out = item.valuelen;
+        value_out = item.value;
+    }
 
     return BnodeResult::SUCCESS;
 }
 
-BtreeKv* Bnode::findKv( void *key,
+BsaItem Bnode::findKv( void *key,
                         size_t keylen )
 {
     BnodeResult ret = inputSanityCheck(key, keylen, NULL, 0, NULL, false);
     if (ret != BnodeResult::SUCCESS) {
-        return nullptr;
+        BsaItem not_found;
+        return not_found;
     }
 
-    BtreeKv *kvp, query;
-    query.key = key;
-    query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
-    if (!entry) {
-        return nullptr;
-    }
-    kvp = _get_entry(entry, BtreeKv, avl);
-    return kvp;
-
+    BsaItem query(key, keylen);
+    return kvArr.find( query );
 }
 
-BtreeKv* Bnode::findKvSmallerOrEqual( void *key,
-                        size_t keylen,
-                        bool return_smallest )
+BsaItem Bnode::findKvSmallerOrEqual( void *key,
+                                     size_t keylen,
+                                     bool return_smallest )
 {
     BnodeResult ret = inputSanityCheck(key, keylen, NULL, 0, NULL, false);
     if (ret != BnodeResult::SUCCESS) {
-        return nullptr;
+        BsaItem not_found;
+        return not_found;
     }
 
-    BtreeKv *kvp, query;
-    query.key = key;
-    query.keylen = keylen;
-    auto entry = avl_search_smaller(&kvIdx, &query.avl, avlCmpBnode);
-    if (!entry) {
+    BsaItem query(key, keylen);
+    BsaItem item = kvArr.findSmallerOrEqual( query );
+
+    if (item.isEmpty()) {
         if (return_smallest) {
             // given key is smaller than the smallest key.
             // return the first element.
-            entry = avl_first(&kvIdx);
-        } else {
-            return nullptr;
+            return kvArr.first();
         }
     }
-    kvp = _get_entry(entry, BtreeKv, avl);
-    return kvp;
+    return item;
+}
 
+BsaItem Bnode::findKvGreaterOrEqual( void *key,
+                                     size_t keylen,
+                                     bool return_greatest )
+{
+    BnodeResult ret = inputSanityCheck(key, keylen, NULL, 0, NULL, false);
+    if (ret != BnodeResult::SUCCESS) {
+        BsaItem not_found;
+        return not_found;
+    }
+
+    BsaItem query(key, keylen);
+    BsaItem item = kvArr.findGreaterOrEqual( query );
+
+    if (item.isEmpty()) {
+        if (return_greatest) {
+            // given key is greater than the greatest key.
+            // return the last element.
+            return kvArr.last();
+        }
+    }
+    return item;
 }
 
 BnodeResult Bnode::findMinKey( void*& key,
-                           size_t& keylen )
+                               size_t& keylen )
 {
-    BtreeKv *kvp;
-    auto entry = avl_first(&kvIdx);
-    if (!entry) {
+    BsaItem item = kvArr.first();
+
+    if (item.isEmpty()) {
         return BnodeResult::KEY_NOT_FOUND;
     }
-    kvp = _get_entry(entry, BtreeKv, avl);
-    key = kvp->key;
-    keylen = kvp->keylen;
 
+    key = item.key;
+    keylen = item.keylen;
+    return BnodeResult::SUCCESS;
+}
+
+BnodeResult Bnode::findMaxKey( void*& key,
+                               size_t& keylen )
+{
+    BsaItem item = kvArr.last();
+
+    if (item.isEmpty()) {
+        return BnodeResult::KEY_NOT_FOUND;
+    }
+
+    key = item.key;
+    keylen = item.keylen;
     return BnodeResult::SUCCESS;
 }
 
@@ -376,51 +269,69 @@ BnodeResult Bnode::removeKv( void *key,
         return ret;
     }
 
-    BtreeKv *kvp, query;
-    query.key = key;
-    query.keylen = keylen;
-    auto entry = avl_search(&kvIdx, &query.avl, avlCmpBnode);
-    if (!entry) {
-        return BnodeResult::KEY_NOT_FOUND;
-    }
-    kvp = _get_entry(entry, BtreeKv, avl);
-    avl_remove(&kvIdx, entry);
+    BsaItem query(key, keylen);
+    BsaItem item = kvArr.remove( query );
 
-    if ( kvp->child_ptr ) {
-        // remove from dirty child set
-        dirtySet.erase( kvp );
+    if ( item.isEmpty() ) {
+        return BnodeResult::KEY_NOT_FOUND;
     }
 
     nentry--;
-    nodeSize -= kvp->getKvSize();
-    delete kvp;
+    nodeSize -= item.getSize();
 
     return BnodeResult::SUCCESS;
 }
 
-BnodeResult Bnode::detachKv( BtreeKv *kvp )
+void Bnode::migrateEntries( size_t cur_num_elems,
+                            std::list<Bnode *>& new_nodes,
+                            BsaItem first_kvp,
+                            BsaItem last_kvp )
 {
-    if ( !kvp ) {
-        return BnodeResult::INVALID_ARGS;
-    }
+    // allocate next new node
+    Bnode *bnode = new Bnode();
+    bnode->setLevel(level);
+    new_nodes.push_back(bnode);
 
-    avl_remove(&kvIdx, &kvp->avl);
-    nentry--;
-    nodeSize -= kvp->getKvSize();
+    // copy first_kvp ~ last_kvp
+    bnode->getKvArr().copyFromOtherArray(this->getKvArr(), first_kvp, last_kvp);
+    bnode->setNentry(cur_num_elems);
+    nentry -= cur_num_elems;
 
-    if ( kvp->child_ptr ) {
-        // remove from dirty child set
-        dirtySet.erase( kvp );
-    }
+    int64_t new_datasize = static_cast<int64_t>(last_kvp.pos) -
+                           first_kvp.pos + last_kvp.getSize();
+    bnode->setNodeSize(bnode->getNodeSize() + new_datasize);
+    nodeSize -= new_datasize;
 
-    return BnodeResult::SUCCESS;
 }
 
 BnodeResult Bnode::splitNode( size_t nodesize_limit,
                               std::list<Bnode *>& new_nodes )
 {
+    // Split the current node into 'n' nodes.
+    // Note that if the current node is dirty, the node is still mutable
+    // so that we don't need to allocate a new node for the first few entries;
+    // but just use the current node as the 1st split node. As a result, the
+    // first few entries don't need to be moved to other node.
+    //
+    // e.g.)
+    // current node: {0, 1, 2, 3, 4, 5}
+    // we are going to split it into 3 nodes:
+    //
+    // < when current node is clean >
+    // => create 3 new nodes.
+    //      current node: {0, 1, 2, 3, 4, 5} (immutable, will be ejected later)
+    //      [1st node] new node 1:   {0, 1}
+    //      [2nd node] new node 2:   {2, 3}
+    //      [3rd node] new node 3:   {4, 5}
+    //
+    // < when current node is dirty >
+    // => create 2 new nodes.
+    //      [1st node] current node: {0, 1} (0 and 1 are not moved)
+    //      [2nd node] new node 1:   {2, 3}
+    //      [3rd node] new node 2:   {4, 5}
+
     // Split the current node into several new nodes.
-    Bnode *bnode = nullptr;
+    bool skip_first_entry_set = false;
     size_t num_nodes = 0;
 
     size_t est_num_nodes = (nodeSize / nodesize_limit) + 1;
@@ -433,46 +344,60 @@ BnodeResult Bnode::splitNode( size_t nodesize_limit,
         return BnodeResult::SUCCESS;
     }
 
-    if (curOffset != BLK_NOT_FOUND) {
-        // It means that this node is clean: not writable.
-        // In that case, we need to allocate an additional new dirty node
-        // for the current node as well.
-        bnode = new Bnode();
-        bnode->setLevel( level );
-        new_nodes.push_back(bnode);
-        num_nodes++;
-    } else {
-        bnode = this;
+    // if the current node is dirty, then
+    // first entry set can remain in the current node.
+    if ( curOffset == BLK_NOT_FOUND ) {
+        skip_first_entry_set = true;
     }
 
-    BtreeKv *kvp;
-    size_t cur_nodesize = Bnode::getDiskSpaceOfEmptyNode();
-    auto entry = avl_first(&kvIdx);
-    while (entry) {
-        kvp = _get_entry(entry, BtreeKv, avl);
-        entry = avl_next(entry);
+    BsaItem kvp, prev_kvp, first_kvp;
+    size_t cur_nodesize = Bnode::getDiskSpaceOfEmptyNode() + metaSize;
+    size_t cur_num_elems = 0;
 
-        if (num_nodes) {
-            // move the KV instance
-            detachKv( kvp );
-            bnode->attachKv( kvp );
-        }
+    uint32_t new_array_size = 0;
+    uint32_t new_num_elems = 0;
 
-        if ( !entry ) {
-            break;
+    kvp = first_kvp = kvArr.first();
+    while ( !kvp.isEmpty() ) {
+        if (cur_num_elems == 0) {
+            first_kvp = kvp;
         }
+        cur_num_elems++;
 
         // Note: each split node should contain at least 2 entries,
         // although it exceeds the node size limit.
-        cur_nodesize += kvp->getKvSize();
+        cur_nodesize += kvp.getSize();
         if ( cur_nodesize > est_split_nodesize &&
-             bnode->getNentry() > 1 ) {
-            bnode = new Bnode();
-            bnode->setLevel( level );
-            new_nodes.push_back(bnode);
+             cur_num_elems > 1 ) {
+
+            // if the current node is dirty, then
+            // first entry set (when num_nodes == 0, first_kvp ~ kvp) can
+            // remain in the current node.
+            if ( num_nodes == 0 && skip_first_entry_set ) {
+                new_array_size = kvp.pos - first_kvp.pos + kvp.getSize();
+                new_num_elems = cur_num_elems;
+            } else {
+                // Otherwise, migrate them to new nodes.
+                migrateEntries( cur_num_elems, new_nodes, first_kvp, kvp );
+            }
+
             num_nodes++;
-            cur_nodesize = Bnode::getDiskSpaceOfEmptyNode();
+            cur_nodesize = Bnode::getDiskSpaceOfEmptyNode() + metaSize;
+            cur_num_elems = 0;
         }
+        prev_kvp = kvp;
+        kvp = kvArr.next(kvp);
+    }
+
+    if (cur_num_elems) {
+        // final copy of first_kvp ~ prev_kvp
+        migrateEntries( cur_num_elems, new_nodes, first_kvp, prev_kvp );
+    }
+
+    if (skip_first_entry_set) {
+        // adjust array size and num elems for this node
+        kvArr.setArraySize( new_array_size );
+        kvArr.setNumElems( new_num_elems );
     }
 
     return BnodeResult::SUCCESS;
@@ -481,34 +406,28 @@ BnodeResult Bnode::splitNode( size_t nodesize_limit,
 Bnode* Bnode::cloneNode()
 {
     Bnode *dst = new Bnode();
+    // meta data position is always fixed
+    void *meta = (uint8_t*)kvArr.getDataArray() + Bnode::getDiskSpaceOfEmptyNode();
 
     // copy level, flags, and meta data
-    dst->setLevel( level );
-    dst->setFlags( flags );
-    dst->setMeta( meta, metaSize, false );
+    dst->setLevel(level);
+    dst->setFlags(flags);
+    dst->setMeta(meta, metaSize);
 
     // copy all key-value pair instances
-    BtreeKv *kvp;
-    auto entry = avl_first(&kvIdx);
-    while (entry) {
-        kvp = _get_entry(entry, BtreeKv, avl);
-        entry = avl_next(entry);
-
-        dst->addKv( kvp->key, kvp->keylen,
-                    kvp->value, kvp->valuelen, kvp->child_ptr,
-                    true, false );
-    }
+    BsArray& src_arr = this->getKvArr();
+    BsaItem first_kvp = src_arr.first();
+    BsaItem last_kvp = src_arr.last();
+    dst->getKvArr().copyFromOtherArray(src_arr, first_kvp, last_kvp);
+    dst->setNentry(nentry);
+    dst->setNodeSize(nodeSize);
 
     return dst;
 }
 
-BnodeResult Bnode::exportRaw(void *buf)
+void* Bnode::exportRaw()
 {
-    if ( !buf ) {
-        return BnodeResult::INVALID_BUFFER;
-    }
-
-    uint8_t *ptr = static_cast<uint8_t*>(buf);
+    uint8_t *ptr = static_cast<uint8_t*>(kvArr.getDataArray());
     uint16_t enc16;
     uint32_t enc32;
     size_t offset = 0;
@@ -536,45 +455,15 @@ BnodeResult Bnode::exportRaw(void *buf)
     // metadata size
     enc16 = _endian_encode(metaSize);
     memcpy(ptr + offset, &enc16, sizeof(enc16));
-    offset += sizeof(enc16);
 
-    // metadata
-    memcpy(ptr + offset, meta, metaSize);
-    offset += metaSize;
-
-    // KV pairs
-    BtreeKv *kvp;
-    auto entry = avl_first(&kvIdx);
-    while (entry) {
-        kvp = _get_entry(entry, BtreeKv, avl);
-        entry = avl_next(entry);
-
-        // keylen
-        enc16 = _endian_encode(kvp->keylen);
-        memcpy(ptr + offset, &enc16, sizeof(enc16));
-        offset += sizeof(enc16);
-
-        // valuelen
-        enc16 = _endian_encode(kvp->valuelen);
-        memcpy(ptr + offset, &enc16, sizeof(enc16));
-        offset += sizeof(enc16);
-
-        // key
-        memcpy(ptr + offset, kvp->key, kvp->keylen);
-        offset += kvp->keylen;
-
-        // value
-        memcpy(ptr + offset, kvp->value, kvp->valuelen);
-        offset += kvp->valuelen;
-    }
-
-    return BnodeResult::SUCCESS;
+    return ptr;
 }
 
-BnodeResult Bnode::importRaw(void *buf, bool use_existing_memory)
+BnodeResult Bnode::importRaw(void *buf,
+                             uint32_t buf_size)
 {
     // bnode should be empty
-    if (avl_first(&kvIdx)) {
+    if ( kvArr.getArraySize() ) {
         return BnodeResult::NODE_IS_NOT_EMPTY;
     }
 
@@ -587,9 +476,7 @@ BnodeResult Bnode::importRaw(void *buf, bool use_existing_memory)
     uint32_t enc32;
     size_t offset = 0;
 
-    if (use_existing_memory) {
-        readBuffer = buf;
-    }
+    kvArr.setDataArrayBuffer(buf, buf_size);
 
     // node size
     enc32 = *( reinterpret_cast<uint32_t*>(ptr + offset) );
@@ -617,36 +504,13 @@ BnodeResult Bnode::importRaw(void *buf, bool use_existing_memory)
     metaSize = _endian_decode(enc16);
 
     // metadata
-    if (use_existing_memory) {
-        meta = ptr + offset;
-    } else {
-        meta = (void *)malloc(metaSize);
-        memcpy(meta, ptr + offset, metaSize);
-    }
-    metaExistingMemory = use_existing_memory;
     offset += metaSize;
 
-    // KV pairs
-    uint16_t keylen, valuelen;
-    void *key, *value;
-    int i;
+    // adjust base offset
+    kvArr.adjustBaseOffset(offset);
 
-    for (i=0; i<nentry; ++i) {
-        keylen = *( reinterpret_cast<uint16_t*>(ptr + offset) );
-        keylen = _endian_decode(keylen);
-        offset += sizeof(uint16_t);
-
-        valuelen = *( reinterpret_cast<uint16_t*>(ptr + offset) );
-        valuelen = _endian_decode(valuelen);
-        offset += sizeof(uint16_t);
-
-        key = static_cast<void *>(ptr + offset);
-        value = static_cast<void *>(ptr + offset + keylen);
-        offset += keylen;
-        offset += valuelen;
-
-        addKv(key, keylen, value, valuelen, nullptr, false, use_existing_memory);
-    }
+    // construct array from the existing buffer
+    kvArr.constructKvMetaArray(nodeSize - offset, nentry, true);
 
     return BnodeResult::SUCCESS;
 }
@@ -661,39 +525,46 @@ size_t Bnode::readNodeSize(void *buf)
 void Bnode::DBG_printNode(size_t start_idx, size_t num_to_print)
 {
     size_t i = 0;
-    BtreeKv *kvp;
-    auto entry = avl_first(&kvIdx);
-    while (entry) {
+    BsaItem kvp;
+    kvp = kvArr.first();
+    while (!kvp.isEmpty()) {
         if (i >= start_idx + num_to_print) {
             break;
         }
 
-        kvp = _get_entry(entry, BtreeKv, avl);
-
         if (i >= start_idx) {
-            printf("[%d] %.*s, ", (int)i, (int)kvp->keylen, (char*)kvp->key);
-            if (kvp->child_ptr) {
-                printf("PTR 0x%" _X64 " ", (uint64_t)kvp->child_ptr);
+            printf("[%d] %.*s, ", (int)i, (int)kvp.keylen, (char*)kvp.key);
+            if (kvp.isValueChildPtr) {
+                printf("PTR 0x%" _X64 " ", (uint64_t)kvp.value);
             } else {
                 if (level == 1) {
-                    printf("%.*s ", (int)kvp->valuelen, (char*)kvp->value);
+                    printf("%.*s ", (int)kvp.valuelen, (char*)kvp.value);
                 } else {
-                    uint64_t offset = *(reinterpret_cast<uint64_t*>(kvp->value));
+                    uint64_t offset = *(reinterpret_cast<uint64_t*>(kvp.value));
                     offset = _endian_decode(offset);
                     printf("OFF 0x%" _X64 " ", offset);
                 }
             }
-            printf("%c\n", (kvp->existing_memory)?('T'):('F'));
         }
 
         i++;
-        entry = avl_next(entry);
+        kvp = kvArr.next(kvp);
     }
 }
 
+void logBnodeErr(Bnode *bnode, fdb_status error_no, const char *msg) {
+    if (!bnode || !msg) {
+        return;
+    }
+    fdb_log(nullptr, error_no,
+            "Warning: on bnode (at offset: %s), %s.",
+            std::to_string(bnode->getCurOffset()).c_str(), msg);
+}
+
+
 
 BnodeIterator::BnodeIterator(Bnode *_bnode) : bnode(_bnode),
-                                              curKvp(nullptr)
+                                              curKvp()
 {
     // start with the first key.
     begin();
@@ -702,21 +573,10 @@ BnodeIterator::BnodeIterator(Bnode *_bnode) : bnode(_bnode),
 BnodeIterator::BnodeIterator( Bnode *_bnode,
                               void *start_key,
                               size_t start_keylen ) : bnode(_bnode),
-                                                      curKvp(nullptr)
+                                                      curKvp()
 {
     // start with equal to or greater than 'start_key'.
     seekGreaterOrEqual(start_key, start_keylen);
-}
-
-BnodeIteratorResult BnodeIterator::fetchKvp( avl_node *entry )
-{
-    if (!entry) {
-        curKvp = nullptr;
-        return BnodeIteratorResult::NO_MORE_ENTRY;
-    }
-
-    curKvp = _get_entry(entry, BtreeKv, avl);
-    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::seekGreaterOrEqual( void *key,
@@ -726,12 +586,12 @@ BnodeIteratorResult BnodeIterator::seekGreaterOrEqual( void *key,
         return BnodeIteratorResult::INVALID_NODE;
     }
 
-    BtreeKv query;
-    query.key = key;
-    query.keylen = keylen;
-
-    auto entry = avl_search_greater(&bnode->kvIdx, &query.avl, avlCmpBnode);
-    return fetchKvp(entry);
+    BsaItem query(key, keylen);
+    curKvp = bnode->kvArr.findGreaterOrEqual( query );
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::seekSmallerOrEqual( void *key,
@@ -741,12 +601,12 @@ BnodeIteratorResult BnodeIterator::seekSmallerOrEqual( void *key,
         return BnodeIteratorResult::INVALID_NODE;
     }
 
-    BtreeKv query;
-    query.key = key;
-    query.keylen = keylen;
-
-    auto entry = avl_search_smaller(&bnode->kvIdx, &query.avl, avlCmpBnode);
-    return fetchKvp(entry);
+    BsaItem query(key, keylen);
+    curKvp = bnode->kvArr.findSmallerOrEqual( query );
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::begin()
@@ -755,8 +615,11 @@ BnodeIteratorResult BnodeIterator::begin()
         return BnodeIteratorResult::INVALID_NODE;
     }
 
-    auto entry = avl_first(&bnode->kvIdx);
-    return fetchKvp(entry);
+    curKvp = bnode->kvArr.first();
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::end()
@@ -765,19 +628,541 @@ BnodeIteratorResult BnodeIterator::end()
         return BnodeIteratorResult::INVALID_NODE;
     }
 
-    auto entry = avl_last(&bnode->kvIdx);
-    return fetchKvp(entry);
+    curKvp = bnode->kvArr.last();
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::prev()
 {
-    auto entry = avl_prev( &curKvp->avl );
-    return fetchKvp(entry);
+    curKvp = bnode->kvArr.prev( curKvp );
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
 }
 
 BnodeIteratorResult BnodeIterator::next()
 {
-    auto entry = avl_next( &curKvp->avl );
-    return fetchKvp(entry);
+    curKvp = bnode->kvArr.next( curKvp );
+    if ( curKvp.isEmpty() ) {
+        return BnodeIteratorResult::NO_MORE_ENTRY;
+    }
+    return BnodeIteratorResult::SUCCESS;
+}
+
+
+INLINE int BsaCmp(BsaItem& aa, BsaItem& bb, void *aux)
+{
+    if (aux) {
+        // custom compare function is defined
+        Bnode *bnode = reinterpret_cast<Bnode*>(aux);
+        btree_new_cmp_func *func = bnode->getCmpFunc();
+        return func(aa.key, aa.keylen, bb.key, bb.keylen, aux);
+    } else {
+        // lexicographical order
+        if (aa.keylen == bb.keylen) {
+            return memcmp(aa.key, bb.key, aa.keylen);
+        } else {
+            size_t len = MIN(aa.keylen, bb.keylen);
+            int cmp = memcmp(aa.key, bb.key, len);
+            if (cmp != 0) {
+                return cmp;
+            } else {
+                return static_cast<int>( static_cast<int>(aa.keylen) -
+                                         static_cast<int>(bb.keylen) );
+            }
+        }
+    }
+}
+
+
+BsArray::BsArray() :
+    aux(nullptr), kvDataSize(0), arrayBaseOffset(0)
+{
+    arrayCapacity = 128;
+    dataArray = malloc(arrayCapacity);
+    // to avoid realloc overhead, reserve some space.
+    kvMeta.reserve(64);
+}
+
+BsArray::~BsArray() {
+    free(dataArray);
+}
+
+void BsArray::adjustBaseOffset(uint32_t _new_base)
+{
+    int gap = _new_base - arrayBaseOffset;
+
+    if (gap) {
+        adjustArrayCapacity(gap);
+        if (kvDataSize) {
+            memmove((uint8_t*)dataArray + _new_base,
+                    (uint8_t*)dataArray + arrayBaseOffset,
+                    kvDataSize);
+        }
+        arrayBaseOffset = _new_base;
+    }
+}
+
+BsaItem BsArray::first(bool ptr_only) {
+    BsaItem not_found;
+    size_t num_elems = kvMeta.size();
+
+    if (!num_elems) {
+        // no item in array
+        return not_found;
+    }
+
+    if (ptr_only) {
+        uint32_t i;
+        for (i=0; i<num_elems; ++i) {
+            if (kvMeta[i].isPtr) {
+                return fetchItem(i);
+            }
+        }
+        return not_found;
+    }
+
+    return fetchItem(0);
+}
+
+BsaItem BsArray::last(bool ptr_only) {
+    BsaItem not_found;
+    size_t num_elems = kvMeta.size();
+
+    if (!num_elems) {
+        // no item in array
+        return not_found;
+    }
+
+    if (ptr_only) {
+        int i;
+        for (i=static_cast<int>(num_elems)-1; i>=0; --i) {
+            if (kvMeta[i].isPtr) {
+                return fetchItem(i);
+            }
+        }
+        return not_found;
+    }
+
+    return fetchItem(num_elems - 1);
+}
+
+BsaItem BsArray::prev(BsaItem& cur, bool ptr_only) {
+    BsaItem not_found;
+    if ( cur.idx == 0 ) {
+        // no previous item
+        return not_found;
+    }
+
+    if (ptr_only) {
+        int i;
+        for (i=static_cast<int>(cur.idx)-1; i>=0; --i) {
+            if (kvMeta[i].isPtr) {
+                return fetchItem(i);
+            }
+        }
+        return not_found;
+    }
+
+    return fetchItem(cur.idx - 1);
+}
+
+BsaItem BsArray::next(BsaItem& cur, bool ptr_only) {
+    BsaItem not_found;
+    size_t num_elems = kvMeta.size();
+
+    if ( cur.idx == num_elems - 1 ) {
+        // no next item
+        return not_found;
+    }
+
+    if (ptr_only) {
+        uint32_t i;
+        for (i=cur.idx+1; i<num_elems; ++i) {
+            if (kvMeta[i].isPtr) {
+                return fetchItem(i);
+            }
+        }
+        return not_found;
+    }
+
+    return fetchItem(cur.idx + 1);
+}
+
+BsaItem BsArray::find(BsaItem& key, bool smaller_key)
+{
+    int cmp;
+    uint32_t start = 0, middle = 0, end= 0;
+    BsaItem cur;
+    BsaItem not_found;
+
+    // empty check
+    end = kvMeta.size();
+    if (!end) {
+        return not_found;
+    }
+
+    // 1) compare with the smallest key
+    cur = fetchItem(0);
+    cmp = BsaCmp(key, cur, aux);
+    if (cmp < 0) {
+        // no smaller key
+        return not_found;
+    } else if (cmp == 0) {
+        // smallest key
+        return cur;
+    }
+
+    // 2) compare with the greatest key
+    cur = fetchItem(end-1);
+    cmp = BsaCmp(key, cur, aux);
+    if (!smaller_key && cmp > 0) {
+        // greater than greater key && exact key option
+        return not_found;
+    } else if (cmp == 0) {
+        // return the greatest key
+        return cur;
+    }
+
+    // 3) now do binary search
+    while (start+1 < end) {
+        middle = (start + end) >> 1;
+
+        // get key at middle
+        cur = fetchItem(middle);
+        cmp = BsaCmp(key, cur, aux);
+        if (cmp < 0) {
+            // given key < middle
+            end = middle;
+        } else if (cmp > 0) {
+            // middle < given key
+            start = middle;
+        } else {
+            // exact key found
+            return cur;
+        }
+    }
+
+    // 4) exact key not found
+    //    => return key at 'start' on 'smaller_key' option.
+    if (smaller_key) {
+        cur = fetchItem(start);
+        return cur;
+    }
+    return not_found;
+}
+
+/**
+ * return the greatest key equal to or smaller than the given key
+ * example)
+ * node: [2 4 6 8]
+ * key: 5
+ * greatest key equal to or smaller than 'key': 4
+ * return: 4
+ */
+BsaItem BsArray::findSmallerOrEqual(BsaItem& key) {
+    return find(key, true);
+}
+
+BsaItem BsArray::findGreaterOrEqual(BsaItem& key) {
+    BsaItem cur = find(key, true);
+    if ( cur.isEmpty() ) {
+        // it means that given key is smaller than the smallest key.
+        // => return the first entry.
+        return first();
+    }
+    if (!BsaCmp(key, cur, aux)) {
+        // exact match, return it.
+        return cur;
+    }
+    // smaller item, return next KV.
+    return next(cur);
+}
+
+BsaItem BsArray::insert(BsaItem& item) {
+    BsaItem not_found;
+    BsaItem existing_item;
+    BsaItem ret;
+
+    if (!kvMeta.size()) {
+        // empty array .. insert without searching
+        return addToArray(item, 0, false);
+    }
+
+    existing_item = findSmallerOrEqual(item);
+    if (existing_item.isEmpty()) {
+        // 'item' is smaller than the smallest key
+        // insert at idx 0
+        ret = addToArray(item, 0, false);
+    } else {
+        if ( !BsaCmp(item, existing_item, aux) ) {
+            // same key => overwrite
+            ret = addToArray(item, existing_item.idx, true);
+        } else {
+            // otherwise => insert right next to the existing item
+            ret = addToArray(item, existing_item.idx+1, false);
+        }
+    }
+
+    return ret;
+}
+BsaItem BsArray::remove(BsaItem& item) {
+    BsaItem not_found;
+    size_t num_elems = kvMeta.size();
+
+    if (!num_elems) {
+        // empty array
+        return not_found;
+    }
+
+    BsaItem existing_item = find(item);
+    if (existing_item.isEmpty()) {
+        return not_found;
+    } else {
+        // left shift [idx+1 ~ num_elems]
+        uint32_t pos = existing_item.pos;
+        // including base offset
+        uint32_t pos_actual = pos + arrayBaseOffset;
+        uint32_t len = existing_item.getSize();
+
+        if (static_cast<uint32_t>(existing_item.idx+1) < num_elems ) {
+            memmove( (uint8_t*)dataArray + pos_actual,
+                     (uint8_t*)dataArray + pos_actual + len,
+                     kvDataSize - (pos + len) );
+
+            // adjust kvPos properly
+            for (uint32_t i = existing_item.idx+1; i<num_elems; ++i) {
+                kvMeta[i].kvPos -= len;
+            }
+        }
+
+        // erase element at 'existing_item.idx'.
+        kvMeta.erase(kvMeta.begin() + existing_item.idx);
+
+        kvDataSize -= len;
+    }
+
+    return existing_item;
+}
+
+void BsArray::copyFromOtherArray(BsArray& src_array,
+                                 BsaItem& start_item,
+                                 BsaItem& end_item)
+{
+    std::vector<BsaKvMeta>& src_kv_meta = src_array.getKvMeta();
+
+    uint32_t num_elems = end_item.idx - start_item.idx + 1;
+    uint32_t data_size_to_copy = end_item.pos - start_item.pos + end_item.getSize();
+
+    adjustArrayCapacity(data_size_to_copy);
+
+    // copy 'dataArray' from source
+    uint8_t *dst_ptr = static_cast<uint8_t*>(dataArray) +
+                       arrayBaseOffset;
+    uint8_t *src_ptr = static_cast<uint8_t*>(src_array.getDataArray()) +
+                       src_array.getBaseOffset();
+    memcpy(dst_ptr, src_ptr + start_item.pos, data_size_to_copy);
+
+    // copy kvMeta from source
+    // Only 'isPtr' part is valid; 'kvPos' part will be updated
+    // in constructKvMetaArray() below.
+    std::copy(src_kv_meta.begin() + start_item.idx,
+              src_kv_meta.begin() + start_item.idx + num_elems,
+              kvMeta.begin());
+
+    constructKvMetaArray(data_size_to_copy, num_elems, false);
+}
+
+void BsArray::constructKvMetaArray(uint32_t kv_data_size,
+                                   uint32_t num_elems,
+                                   bool reset_isptr)
+{
+    uint32_t i;
+    uint32_t offset = arrayBaseOffset;
+    uint8_t *ptr = static_cast<uint8_t*>(dataArray);
+
+    kvDataSize = kv_data_size;
+
+    // resize both kvPos, isPtr
+    setNumElems(num_elems);
+
+    uint16_t keylen_local, valuelen_local;
+    for (i=0; i<num_elems; ++i) {
+        kvMeta[i].kvPos = offset - arrayBaseOffset;
+        if (reset_isptr) {
+            kvMeta[i].isPtr = false;
+        }
+
+        keylen_local = *(reinterpret_cast<uint16_t*>(ptr+offset));
+        keylen_local = _endian_decode(keylen_local);
+        offset += sizeof(keylen_local);
+
+        valuelen_local = *(reinterpret_cast<uint16_t*>(ptr+offset));
+        valuelen_local = _endian_decode(valuelen_local);
+        offset += sizeof(valuelen_local);
+
+        offset += keylen_local;
+        offset += valuelen_local;
+    }
+}
+
+BsaItem BsArray::fetchItem(uint32_t idx) {
+    BsaItem ret;
+    uint32_t offset = 0;
+
+    ret.pos = kvMeta[idx].kvPos;
+    uint8_t *ptr = (uint8_t*)dataArray + arrayBaseOffset + ret.pos;
+
+    uint16_t keylen_local, valuelen_local;
+    keylen_local = *(reinterpret_cast<uint16_t*>(ptr+offset));
+    ret.keylen = _endian_decode(keylen_local);
+    offset += sizeof(keylen_local);
+
+    valuelen_local = *(reinterpret_cast<uint16_t*>(ptr+offset));
+    ret.valuelen = _endian_decode(valuelen_local);
+    offset += sizeof(valuelen_local);
+
+    ret.key = ptr + offset;
+    offset += ret.keylen;
+
+    if (kvMeta[idx].isPtr) {
+        // value is pointer
+        uint64_t addr;
+        memcpy(&addr, ptr + offset, sizeof(addr));
+        ret.value = reinterpret_cast<void*>(addr);
+        ret.isValueChildPtr = true;
+    } else {
+        // value is binary data
+        ret.value = ptr + offset;
+        ret.isValueChildPtr = false;
+    }
+
+    ret.idx = idx;
+
+    return ret;
+}
+
+void BsArray::writeItem(BsaItem item, uint32_t position) {
+    uint32_t offset = 0;
+    uint16_t keylen_local, valuelen_local;
+    uint8_t *ptr = (uint8_t*)dataArray + arrayBaseOffset + position;
+
+    keylen_local = _endian_encode(item.keylen);
+    memcpy(ptr + offset, &keylen_local, sizeof(keylen_local));
+    offset += sizeof(keylen_local);
+
+    valuelen_local = _endian_encode(item.valuelen);
+    memcpy(ptr + offset, &valuelen_local, sizeof(valuelen_local));
+    offset += sizeof(valuelen_local);
+
+    // as 'item.key' is a pointer, it may point to the same key..
+    // in that case, we don't need to call memcpy().
+    if (ptr + offset != item.key) {
+        memcpy(ptr + offset, item.key, item.keylen);
+    }
+    offset += item.keylen;
+
+    if (item.isValueChildPtr) {
+        // store pointer address directly
+        // (don't need to do endian encoding as it is just in-memory data)
+        uint64_t addr = reinterpret_cast<uint64_t>(item.value);
+        memcpy(ptr + offset, &addr, sizeof(addr));
+    } else {
+        memcpy(ptr + offset, item.value, item.valuelen);
+    }
+}
+
+BsaItem BsArray::addToArray(BsaItem item, uint32_t idx, bool overwrite) {
+    uint32_t offset = 0;
+    uint32_t new_item_len = item.getSize();
+    uint32_t existing_item_len = 0;
+    BsaItem existing_item, left_item;
+    size_t num_elems = kvMeta.size();
+
+    // calculate the offset where the item will be copied.
+    if ( num_elems ) {
+        if (idx < num_elems) {
+            // adding at existing item's position
+            // (which means that existing item needs to be shifted)
+            // where 'existing item' means that previous item
+            // whose position is same to 'idx'.
+            existing_item = fetchItem(idx);
+            existing_item_len = existing_item.getSize();
+            offset = existing_item.pos;
+        } else {
+            // adding at the end of the array
+            // we don't need to consider existing_item_len.
+            left_item = fetchItem(idx-1);
+            offset = left_item.pos + left_item.getSize();
+        }
+    }
+
+    // shift memory if necessary
+    // 1) if insertion, always right shift.
+    // 2) if overwrite, only when item size is different.
+    int gap = 0;
+    if ( !overwrite ) {
+        // insertion
+        gap = new_item_len;
+    } else if ( overwrite && existing_item_len != new_item_len ) {
+        // overwrite && item size is different
+        gap = static_cast<int64_t>(new_item_len) - existing_item_len;
+    }
+
+    // data array capacity check
+    adjustArrayCapacity(gap);
+
+    // shift 'dataArray'
+    if ( gap && idx < num_elems ) {
+        uint32_t offset_total = arrayBaseOffset + offset;
+        uint32_t amount = kvDataSize - offset;
+
+        if ( overwrite ) {
+            // exclude existing item
+            offset_total += existing_item_len;
+            amount -= existing_item_len;
+        }
+
+        memmove( (uint8_t*)dataArray + offset_total + gap,
+                 (uint8_t*)dataArray + offset_total,
+                 amount );
+        // adjust kvPos offsets
+        for (uint32_t i = idx; i<num_elems; ++i) {
+            kvMeta[i].kvPos += gap;
+        }
+    }
+
+    writeItem(item, offset);
+
+    if (overwrite) {
+        // overwrite
+        kvMeta[idx].kvPos = offset;
+        kvMeta[idx].isPtr = item.isValueChildPtr;
+    } else {
+        // insert at 'idx'
+        BsaKvMeta new_meta_entry;
+        new_meta_entry.kvPos = offset;
+        new_meta_entry.isPtr = item.isValueChildPtr;
+        kvMeta.insert(kvMeta.begin() + idx, new_meta_entry);
+    }
+    kvDataSize += gap;
+
+    item.idx = idx;
+    item.pos = offset;
+    return item;
+}
+
+void BsArray::adjustArrayCapacity(int gap) {
+    if (arrayBaseOffset + kvDataSize + gap > arrayCapacity) {
+        do {
+            // double the capacity
+            arrayCapacity *= 2;
+        } while (arrayBaseOffset + kvDataSize + gap > arrayCapacity);
+        dataArray = realloc(dataArray, arrayCapacity);
+    }
 }
 

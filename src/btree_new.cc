@@ -57,6 +57,19 @@ struct NodeActionItem {
         valuelen(0)
     { }
 
+    ~NodeActionItem() {
+        free(key);
+        free(key_aux);
+        free(value);
+    }
+
+    /**
+     * Note: Key and value do not have their own memory, but point to
+     *       existing memory in sorted array, thus we need to allocate a
+     *       separate memory blobs for each action items, since
+     *       sorted array may change during performing action items.
+     */
+
     /**
      * Set current action item to REPLACE_KEY.
      *
@@ -68,10 +81,15 @@ struct NodeActionItem {
     void setReplaceKey( void *old_key, size_t old_keylen,
                         void *new_key, size_t new_keylen ) {
         type = NodeActionType::REPLACE_KEY;
-        key = old_key;
+
+        key = malloc(old_keylen);
+        memcpy(key, old_key, old_keylen);
         keylen = old_keylen;
-        key_aux = new_key;
+
+        key_aux = malloc(new_keylen);
+        memcpy(key_aux, new_key, new_keylen);
         keylen_aux = new_keylen;
+
         value = child_ptr = nullptr;
         valuelen = 0;
     }
@@ -89,12 +107,21 @@ struct NodeActionItem {
     void setAddKey( void *_key, size_t _keylen,
                     void *_value, size_t _valuelen, Bnode* _child_ptr ) {
         type = NodeActionType::ADD;
-        key = _key;
+
+        key = malloc(_keylen);
+        memcpy(key, _key, _keylen);
         keylen = _keylen;
         key_aux = nullptr;
         keylen_aux = 0;
-        value = _value;
-        valuelen = _valuelen;
+
+        if (_value) {
+            value = malloc(_valuelen);
+            memcpy(value, _value, _valuelen);
+            valuelen = _valuelen;
+        } else {
+            value = nullptr;
+            valuelen = 0;
+        }
         child_ptr = _child_ptr;
     }
 
@@ -106,7 +133,8 @@ struct NodeActionItem {
      */
     void setRemoveKey( void *_key, size_t _keylen ) {
         type = NodeActionType::REMOVE;
-        key = _key;
+        key = malloc(_keylen);
+        memcpy(key, _key, _keylen);
         keylen = _keylen;
         key_aux = nullptr;
         keylen_aux = 0;
@@ -207,7 +235,7 @@ BtreeV2Result BtreeV2::updateMeta( BtreeV2Meta meta )
     }
 
     rootAddr = BtreeNodeAddr(BLK_NOT_FOUND, node);
-    node->setMeta(meta.ctx, meta.size, false);
+    node->setMeta(meta.ctx, meta.size);
 
     return BtreeV2Result::SUCCESS;
 }
@@ -312,11 +340,9 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
     if ( node->getLevel() > 1 ) {
         // 2) if intermediate node:
         //    recursively call this function for each child node.
-        BtreeKv *kvp = nullptr;
-        BtreeKv *kvp_prev = nullptr;
+        BsaItem kvp, kvp_prev;
         size_t last_idx = start_idx;
         std::list<NodeActionItem*> local_actions;
-        uint64_t next_offset = BLK_NOT_FOUND;;
 
         // Call _insert() function for the proper range of key-value pairs
         //
@@ -333,11 +359,10 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
             kvp = node->findKvSmallerOrEqual(kv_list[i].key, kv_list[i].keylen, true);
             if (i == start_idx) {
                 // skip the first iteration to assign 'kvp_prev'.
-            } else if (kvp_prev != kvp) {
+            } else if (kvp_prev.idx != kvp.idx) {
                 // call _insert() for last_idx ~ i-1
-                next_offset = value2offset( kvp_prev );
-                BtreeNodeAddr next_addr(next_offset, kvp_prev->child_ptr);
-                BtreeKey next_key(kvp_prev->key, kvp_prev->keylen);
+                BtreeNodeAddr next_addr( kvp_prev );
+                BtreeKey next_key( kvp_prev );
 
                 _insert( kv_list, node, next_key, next_addr,
                          last_idx, i-1, local_actions );
@@ -348,9 +373,8 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
         }
 
         // finally call _insert() for last_idx ~ end_idx
-        next_offset = value2offset( kvp );
-        BtreeNodeAddr next_addr(next_offset, kvp->child_ptr);
-        BtreeKey next_key(kvp->key, kvp->keylen);
+        BtreeNodeAddr next_addr( kvp );
+        BtreeKey next_key( kvp );
 
         _insert( kv_list, node, next_key, next_addr,
                  last_idx, end_idx, local_actions );
@@ -368,7 +392,7 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
             prev_nentry = node->getNentry();
             node->addKv( kv_list[i].key, kv_list[i].keylen,
                          kv_list[i].value, kv_list[i].valuelen,
-                         nullptr, true, false );
+                         nullptr, true );
 
             if (prev_nentry < node->getNentry()) {
                 // it means that a new key is inserted.
@@ -506,11 +530,9 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
     if ( node->getLevel() > 1 ) {
         // 2) if intermediate node:
         //    recursively call this function for each child node.
-        BtreeKv *kvp = nullptr;
-        BtreeKv *kvp_prev = nullptr;
+        BsaItem kvp, kvp_prev;
         size_t last_idx = start_idx;
         std::list<NodeActionItem*> local_actions;
-        uint64_t next_offset = BLK_NOT_FOUND;;
 
         // Same mechanism as that in _insert(). Please see explanations in it.
 
@@ -518,11 +540,10 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
             kvp = node->findKvSmallerOrEqual(kv_list[i].key, kv_list[i].keylen, true);
             if (i == start_idx) {
                 // skip the first iteration to assign 'kvp_prev'.
-            } else if (kvp_prev != kvp) {
+            } else if (kvp_prev.idx != kvp.idx) {
                 // call _remove() for last_idx ~ i-1
-                next_offset = value2offset( kvp_prev );
-                BtreeNodeAddr next_addr(next_offset, kvp_prev->child_ptr);
-                BtreeKey next_key(kvp_prev->key, kvp_prev->keylen);
+                BtreeNodeAddr next_addr( kvp_prev );
+                BtreeKey next_key( kvp_prev );
 
                 _remove( kv_list, node, next_key, next_addr,
                          last_idx, i-1, local_actions );
@@ -533,9 +554,8 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
         }
 
         // finally call _remove() for last_idx ~ end_idx
-        next_offset = value2offset( kvp );
-        BtreeNodeAddr next_addr(next_offset, kvp->child_ptr);
-        BtreeKey next_key(kvp->key, kvp->keylen);
+        BtreeNodeAddr next_addr( kvp );
+        BtreeKey next_key( kvp );
 
         _remove( kv_list, node, next_key, next_addr,
                  last_idx, end_idx, local_actions );
@@ -631,33 +651,31 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
         }
     }
 
-    uint64_t next_offset;
-    BtreeKv *kvp;
+    BsaItem kvp;
     if ( node->getLevel() > 1 ) {
         // intermediate node
         kvp = node->findKvSmallerOrEqual(kv.key, kv.keylen);
-        if ( !kvp ) {
+        if ( kvp.isEmpty() ) {
             // not found
             return BtreeV2Result::KEY_NOT_FOUND;
         }
         // recursive call
-        next_offset = value2offset(kvp);
-        BtreeNodeAddr next_addr(next_offset, kvp->child_ptr);
+        BtreeNodeAddr next_addr( kvp );
         return _find( kv, next_addr, allocate_memory );
     }
 
     // leaf node
     kvp = node->findKv(kv.key, kv.keylen);
-    if ( !kvp ) {
+    if ( kvp.isEmpty() ) {
         // not found
         return BtreeV2Result::KEY_NOT_FOUND;
     }
 
     if ( allocate_memory ) {
-        kv.value = malloc(kvp->valuelen);
+        kv.value = malloc(kvp.valuelen);
     }
-    memcpy(kv.value, kvp->value, kvp->valuelen);
-    kv.valuelen = kvp->valuelen;
+    memcpy(kv.value, kvp.value, kvp.valuelen);
+    kv.valuelen = kvp.valuelen;
 
     return BtreeV2Result::SUCCESS;
 }
@@ -673,17 +691,38 @@ void BtreeV2::doActionItems( Bnode *node,
             // add (or update if exists) key/value pair.
             node->addKv( na_item->key, na_item->keylen,
                          na_item->value, na_item->valuelen, na_item->child_ptr,
-                         true, false);
+                         true );
         } else if (na_item->type == NodeActionType::REMOVE) {
             // remove key/value pair.
             node->removeKv( na_item->key, na_item->keylen );
         } else {
             // replace existing key with new one.
-            BtreeKv *kvp = node->findKv( na_item->key, na_item->keylen );
-            // detach, update key, and attach again.
-            node->detachKv( kvp );
-            kvp->updateKey( na_item->key_aux, na_item->keylen_aux );
-            node->attachKv( kvp );
+            BsaItem kvp = node->findKv( na_item->key, na_item->keylen );
+
+            // alloc & copy value as 'kvp' points to existing memory
+            // and it can be destroyed by removeKv() call below.
+            void *value_rsv = nullptr;
+            size_t valuelen_rsv = 0;
+            if (!kvp.isValueChildPtr) {
+                value_rsv = malloc(kvp.valuelen);
+                memcpy(value_rsv, kvp.value, kvp.valuelen);
+                valuelen_rsv = kvp.valuelen;
+            }
+
+            node->removeKv( kvp.key, kvp.keylen );
+
+            if (kvp.isValueChildPtr) {
+                // pointer value
+                node->addKv( na_item->key_aux, na_item->keylen_aux,
+                             nullptr, 0, static_cast<Bnode*>(kvp.value),
+                             true );
+            } else {
+                // binary data value
+                node->addKv( na_item->key_aux, na_item->keylen_aux,
+                             value_rsv, valuelen_rsv, nullptr,
+                             true );
+                free(value_rsv);
+            }
         }
 
         delete na_item;
@@ -703,7 +742,7 @@ void BtreeV2::growHeight(std::list<NodeActionItem*>& actions)
 
     // 3) move existing meta data
     //    from the old root to the new root
-    new_root->setMeta( old_root->getMeta(), old_root->getMetaSize(), false );
+    new_root->setMeta( old_root->getMeta(), old_root->getMetaSize() );
     old_root->clearMeta();
 
     // 4) modify the B+tree info
@@ -716,7 +755,7 @@ void BtreeV2::shrinkHeight()
     // 1) Replace the root node with its unique child.
     void *min_key;
     size_t min_keylen;
-    BtreeKv *kvp;
+    BsaItem kvp;
     Bnode *old_root = nullptr;
     Bnode *new_root = nullptr;
     BnodeResult br;
@@ -731,9 +770,9 @@ void BtreeV2::shrinkHeight()
     }
     kvp = old_root->findKv(min_key, min_keylen);
 
-    if (kvp->child_ptr) {
+    if ( kvp.isValueChildPtr ) {
         // dirty child node
-        new_root = kvp->child_ptr;
+        new_root = static_cast<Bnode*>(kvp.value);
     } else {
         // clean child node .. read and make a dirty clone
         Bnode *clean_node;
@@ -746,7 +785,7 @@ void BtreeV2::shrinkHeight()
 
     // 3) move existing meta data
     //    from the old root to the new root
-    new_root->setMeta( old_root->getMeta(), old_root->getMetaSize(), false );
+    new_root->setMeta( old_root->getMeta(), old_root->getMetaSize() );
     old_root->clearMeta();
 
     bMgr->removeDirtyNode(old_root);
@@ -784,22 +823,25 @@ BtreeV2Result BtreeV2::_writeDirtyNodes( Bnode *cur_node )
         // 1) traverse dirty child nodes
         // 2) replace ptr to offset
 
-        BtreeKv *kvp;
-        std::unordered_set<BtreeKv *> dirtySet = cur_node->getDirtySet();
+        BsArray& kvArr = cur_node->getKvArr();
+        BsaItem kvp = kvArr.first(true);
         uint64_t child_offset;
 
-        for (auto &entry: dirtySet) {
-            kvp = entry;
-            br = _writeDirtyNodes( kvp->child_ptr );
+        while ( !kvp.isEmpty() ) {
+            Bnode *child_node = static_cast<Bnode*>(kvp.value);
+            br = _writeDirtyNodes( child_node );
             if (br != BtreeV2Result::SUCCESS) {
                 return br;
             }
 
-            child_offset = kvp->child_ptr->getCurOffset();
+            child_offset = child_node->getCurOffset();
             child_offset = _endian_encode( child_offset );
-            kvp->updateValue((void*)&child_offset, sizeof(child_offset));
+
+            BsaItem item = BsaItem(kvp.key, kvp.keylen, (void*)&child_offset, sizeof(child_offset));
+            kvArr.insert(item);
+
+            kvp = kvArr.next(kvp, true);
         }
-        cur_node->clearDirtySet();
     }
 
     // assign offset for itself

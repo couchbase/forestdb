@@ -23,6 +23,7 @@
 #include "common.h"
 #include "bnode.h"
 #include "bnodemgr.h"
+#include "bnodecache.h"
 #include "btree_new.h"
 
 void bnode_basic_test()
@@ -47,7 +48,7 @@ void bnode_basic_test()
     // meta
     char metabuf[64];
     sprintf(metabuf, "meta_data");
-    bnode->setMeta(metabuf, 9, false);
+    bnode->setMeta(metabuf, 9);
 
     // find test
     size_t valuelen_out;
@@ -88,15 +89,11 @@ void bnode_basic_test()
     }
 
     // export/import test
-    char temp_buf[3000];
-    memset(temp_buf, 'x', 3000);
-    bnode->exportRaw((void*)temp_buf);
-
-    // out-of-bound check
-    size_t node_size = bnode->getNodeSize();
-    TEST_CHK(temp_buf[node_size] == 'x');
+    void *temp_buf = nullptr;
+    temp_buf = bnode->exportRaw();
 
     // read node size
+    size_t node_size = bnode->getNodeSize();
     size_t node_size_from_buffer = Bnode::readNodeSize(temp_buf);
     TEST_CHK(node_size_from_buffer == node_size);
 
@@ -105,7 +102,8 @@ void bnode_basic_test()
     void *temp_read_buf = (void*)malloc(node_size);
     memcpy(temp_read_buf, temp_buf, node_size);
 
-    bnode_copy->importRaw((void*)temp_read_buf, true);
+    bnode_copy->importRaw((void*)temp_read_buf, node_size);
+
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%07d\n", (int)i);
         sprintf(valuebuf, "v%07d\n", (int)i*20);
@@ -120,8 +118,8 @@ void bnode_basic_test()
 
     // meta data update
     sprintf(metabuf, "new_meta_data");
-    bnode->setMeta(metabuf, 13, false);
-    bnode_copy->setMeta(metabuf, 13, false);
+    bnode->setMeta(metabuf, 13);
+    bnode_copy->setMeta(metabuf, 13);
 
     // remove test
     for (i=0; i<n; ++i) {
@@ -166,22 +164,22 @@ void bnode_iterator_test()
     }
     TEST_CHK(bnode->getNentry() == n);
 
-    BtreeKv *kvp_out;
+    BsaItem kvp_out;
 
     // forward iteration
     bit = new BnodeIterator(bnode);
     i = 0;
     do {
         kvp_out = bit->getKv();
-        if (!kvp_out) {
+        if ( kvp_out.isEmpty() ) {
             break;
         }
 
         sprintf(keybuf, "k%07d\n", (int)i*10);
         sprintf(valuebuf, "v%07d\n", (int)i*100);
 
-        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
-        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+        TEST_CMP(keybuf, kvp_out.key, kvp_out.keylen);
+        TEST_CMP(valuebuf, kvp_out.value, kvp_out.valuelen);
         i++;
 
         bit_ret = bit->next();
@@ -197,7 +195,7 @@ void bnode_iterator_test()
     i = n;
     do {
         kvp_out = bit->getKv();
-        if (!kvp_out) {
+        if ( kvp_out.isEmpty() ) {
             break;
         }
 
@@ -205,8 +203,8 @@ void bnode_iterator_test()
         sprintf(keybuf, "k%07d\n", (int)i*10);
         sprintf(valuebuf, "v%07d\n", (int)i*100);
 
-        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
-        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+        TEST_CMP(keybuf, kvp_out.key, kvp_out.keylen);
+        TEST_CMP(valuebuf, kvp_out.value, kvp_out.valuelen);
 
         bit_ret = bit->prev();
     } while (bit_ret == BnodeIteratorResult::SUCCESS);
@@ -221,7 +219,7 @@ void bnode_iterator_test()
 
     do {
         kvp_out = bit->getKv();
-        if (!kvp_out) {
+        if ( kvp_out.isEmpty() ) {
             break;
         }
 
@@ -229,8 +227,8 @@ void bnode_iterator_test()
         sprintf(valuebuf, "v%07d\n", (int)i*100);
         i++;
 
-        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
-        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+        TEST_CMP(keybuf, kvp_out.key, kvp_out.keylen);
+        TEST_CMP(valuebuf, kvp_out.value, kvp_out.valuelen);
 
         bit_ret = bit->next();
     } while (bit_ret == BnodeIteratorResult::SUCCESS);
@@ -247,7 +245,7 @@ void bnode_iterator_test()
 
     do {
         kvp_out = bit->getKv();
-        if (!kvp_out) {
+        if ( kvp_out.isEmpty() ) {
             break;
         }
 
@@ -255,8 +253,8 @@ void bnode_iterator_test()
         sprintf(valuebuf, "v%07d\n", (int)i*100);
         i++;
 
-        TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
-        TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+        TEST_CMP(keybuf, kvp_out.key, kvp_out.keylen);
+        TEST_CMP(valuebuf, kvp_out.value, kvp_out.valuelen);
 
         bit_ret = bit->next();
     } while (bit_ret == BnodeIteratorResult::SUCCESS);
@@ -294,7 +292,7 @@ void bnode_split_test()
     Bnode *bnode_out;
     BnodeIterator *bit;
     BnodeIteratorResult bit_ret = BnodeIteratorResult::SUCCESS;
-    BtreeKv *kvp_out;
+    BsaItem kvp_out;
     size_t nentry_total = 0;
 
     bnode->splitNode(1024, new_nodes);
@@ -308,7 +306,7 @@ void bnode_split_test()
         bit = new BnodeIterator(bnode_out);
         do {
             kvp_out = bit->getKv();
-            if (!kvp_out) {
+            if ( kvp_out.isEmpty() ) {
                 break;
             }
 
@@ -316,8 +314,8 @@ void bnode_split_test()
             sprintf(valuebuf, "v%07d\n", (int)i*10);
             i++;
 
-            TEST_CMP(keybuf, kvp_out->key, kvp_out->keylen);
-            TEST_CMP(valuebuf, kvp_out->value, kvp_out->valuelen);
+            TEST_CMP(keybuf, kvp_out.key, kvp_out.keylen);
+            TEST_CMP(valuebuf, kvp_out.value, kvp_out.valuelen);
 
             bit_ret = bit->next();
         } while (bit_ret == BnodeIteratorResult::SUCCESS);
@@ -374,19 +372,19 @@ void bnode_custom_cmp_test()
     }
     TEST_CHK(bnode->getNentry() == n);
 
-    BtreeKv *kvp_out;
+    BsaItem kvp_out;
 
     // forward iteration
     bit = new BnodeIterator(bnode);
     i = 0;
     do {
         kvp_out = bit->getKv();
-        if (!kvp_out) {
+        if ( kvp_out.isEmpty() ) {
             break;
         }
 
         // get 8th character
-        char last_chr = *((char*)kvp_out->key + 7);
+        char last_chr = *((char*)kvp_out.key + 7);
         // it should be in an ascending order
         TEST_CHK( last_chr == '0'+(char)i );
         i++;
@@ -401,45 +399,17 @@ void bnode_custom_cmp_test()
     TEST_RESULT("bnode custom compare function test");
 }
 
-void bnodemgr_basic_test()
+void bnode_clone_test()
 {
     TEST_INIT();
 
-    int r = system(SHELL_DEL" bnodemgr_testfile");
-    (void)r;
-
     Bnode *bnode = new Bnode();
-    BnodeMgr *bMgr = new BnodeMgr();;
     BnodeResult ret;
     size_t i;
-    size_t n = 100;
+    size_t n = 10;
     char keybuf[64], valuebuf[64];
 
-    uint64_t threshold = 200000;
-    uint64_t flush_limit = 102400;
-
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
-                                              flush_limit);
-
-    FileMgr *file;
-    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8,
-                         DEFAULT_NUM_BCACHE_PARTITIONS,
-                         FDB_ENCRYPTION_NONE, 0x55, 0, 0);
-    std::string fname("./bnodemgr_testfile");
-    filemgr_open_result result = FileMgr::open(fname,
-                                               get_filemgr_ops(),
-                                               &config, nullptr);
-    file = result.file;
-    TEST_CHK(file != nullptr);
-
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
-    bMgr->setFile(file, bcache);
-
-    // register the node to bnodemgr
-    bMgr->addDirtyNode(bnode);
-
-    // add test
+    // add kv pairs
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%07d\n", (int)i);
         sprintf(valuebuf, "v%07d\n", (int)i*10);
@@ -451,45 +421,31 @@ void bnodemgr_basic_test()
     // meta
     char metabuf[64];
     sprintf(metabuf, "meta_data");
-    bnode->setMeta(metabuf, 9, false);
+    bnode->setMeta(metabuf, 9);
 
-    // find test
+    // clone node
+    Bnode *bnode_clone = bnode->cloneNode();
+
+    // check
     size_t valuelen_out;
     void* value_out;
     Bnode *bnode_out;
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%07d\n", (int)i);
         sprintf(valuebuf, "v%07d\n", (int)i*10);
-        ret = bnode->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        ret = bnode_clone->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
         TEST_CHK(ret == BnodeResult::SUCCESS);
         TEST_CMP(value_out, valuebuf, valuelen_out);
     }
 
-    // assign offset, and flush
-    uint64_t node_offset = bMgr->assignDirtyNodeOffset(bnode);
-    bnode->setCurOffset(node_offset);
-    bMgr->flushDirtyNodes();
+    TEST_CMP(bnode_clone->getMeta(),
+             bnode->getMeta(),
+             bnode_clone->getMetaSize());
 
-    // read test
-    Bnode *bnode_read = bMgr->readNode(node_offset);
-    for (i=0; i<n; ++i) {
-        sprintf(keybuf, "k%07d\n", (int)i);
-        sprintf(valuebuf, "v%07d\n", (int)i*10);
-        ret = bnode_read->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
-        TEST_CHK(ret == BnodeResult::SUCCESS);
-        TEST_CMP(value_out, valuebuf, valuelen_out);
-    }
+    delete bnode;
+    delete bnode_clone;
 
-    bMgr->releaseCleanNodes();
-    delete bMgr;
-
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
-
-    FileMgr::close(file, true, NULL, NULL);
-    FileMgr::shutdown();
-
-    TEST_RESULT("bnodemgr basic test");
+    TEST_RESULT("bnode clone test");
 }
 
 void btree_basic_test()
@@ -947,12 +903,408 @@ void btree_metadata_test()
     TEST_RESULT("btree meta data test");
 }
 
+void bsa_seq_insert_test()
+{
+    TEST_INIT();
+
+    BsArray bsa;
+    BsaItem query, item;
+    size_t i, idx;
+    size_t n = 20;
+    char keybuf[64], valuebuf[64];
+
+    for (i=0; i<n; ++i) {
+        // 1, 3, 5, ...
+        idx = 1 + i*2;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 8);
+        bsa.insert( query );
+    }
+
+    // smaller than smallest key test
+    sprintf(keybuf, "k%07d", (int)0);
+    query = BsaItem(keybuf, 8);
+    item = bsa.find( query );
+    TEST_CHK( item.isEmpty() );
+
+    // greater than greatest key test
+    sprintf(keybuf, "k%07d", (int)n*20);
+    query = BsaItem(keybuf, 8);
+    item = bsa.find( query );
+    TEST_CHK( item.isEmpty() );
+
+    for (i=0; i<n; ++i) {
+        // 1, 3, 5, ...
+        idx = 1 + i*2;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    TEST_RESULT("Bs Array sequential insert test");
+}
+
+void bsa_rand_insert_test()
+{
+    TEST_INIT();
+
+    BsArray bsa;
+    BsaItem query, item;
+    size_t i, idx;
+    size_t n = 20;
+    char keybuf[64], valuebuf[64];
+
+    idx = 0;
+    for (i=0; i<n; ++i) {
+        // simple random number generator using a prime number
+        // 7, 14, 1, 8, 15 ...
+        idx = (idx + 7) % n;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 8);
+        bsa.insert( query );
+    }
+
+    for (i=0; i<n; ++i) {
+        idx = (idx + 7) % n;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // update to use longer value..
+    idx = 0;
+    for (i=0; i<n; ++i) {
+        // simple random number generator using a prime number
+        // 7, 14, 1, 8, 15 ...
+        idx = (idx + 7) % n;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 9);
+        bsa.insert( query );
+    }
+
+    // remove
+    for (i=2; i<n; i+=2) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.remove( query );
+        TEST_CHK(!item.isEmpty());
+    }
+
+    TEST_RESULT("Bs Array random insert test");
+}
+
+void bsa_insert_ptr_test()
+{
+    TEST_INIT();
+
+    BsArray bsa;
+    BsaItem query, item;
+    size_t i, idx;
+    size_t n = 20;
+    char keybuf[64], valuebuf[64];
+
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 9);
+        bsa.insert( query );
+    }
+
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // update odd using pointer
+    int temp_array[100];
+    for (i=1; i<n; i+=2) {
+        idx = i;
+        temp_array[idx] = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        query = BsaItem(keybuf, 8, &temp_array[idx]);
+        bsa.insert( query );
+    }
+
+    // check
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        if (i % 2 == 1) {
+            // should be pointer
+            TEST_CHK( item.isValueChildPtr );
+            int *item_value = (int*)item.value;
+            TEST_CHK(*item_value == temp_array[i]);
+        } else {
+            // should be string
+            TEST_CHK( !item.isValueChildPtr );
+            TEST_CMP(item.value, valuebuf, item.valuelen);
+        }
+    }
+
+    TEST_RESULT("Bs Array insert pointer test");
+}
+
+void bsa_iteration_test()
+{
+    TEST_INIT();
+
+    BsArray bsa;
+    BsaItem query;
+    size_t i, idx;
+    size_t n = 20;
+    char keybuf[64], valuebuf[64];
+
+    idx = 0;
+    for (i=0; i<n; ++i) {
+        // simple random number generator using a prime number
+        // 7, 14, 1, 8, 15 ...
+        idx = (idx + 7) % n;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 8);
+        bsa.insert( query );
+    }
+
+    size_t count = 0;
+    query = bsa.first();
+    while (!query.isEmpty()) {
+        sprintf(keybuf, "k%07d", (int)count);
+        sprintf(valuebuf, "v%07d", (int)count);
+        TEST_CMP(query.key, keybuf, query.keylen);
+        query = bsa.next(query);
+        count++;
+    }
+    TEST_CHK(count == n);
+
+    query = bsa.last();
+    count = n;
+    while (!query.isEmpty()) {
+        count--;
+        sprintf(keybuf, "k%07d", (int)count);
+        sprintf(valuebuf, "v%07d", (int)count);
+        TEST_CMP(query.key, keybuf, query.keylen);
+        query = bsa.prev(query);
+    }
+    TEST_CHK(count == 0);
+
+    TEST_RESULT("Bs Array iteration test");
+}
+
+void bsa_base_offset_test()
+{
+    TEST_INIT();
+
+    BsArray bsa;
+    BsaItem query, item;
+    size_t i, idx;
+    size_t n = 20;
+    char keybuf[64], valuebuf[64];
+
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 8);
+        bsa.insert( query );
+    }
+
+    // check
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // adjust
+    bsa.adjustBaseOffset(40);
+    memset(bsa.getDataArray(), 'x', 40);
+
+    // check
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "v%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // update
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8, valuebuf, 9);
+        bsa.insert( query );
+    }
+
+    // check
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // adjust
+    bsa.adjustBaseOffset(20);
+
+    // check
+    for (i=0; i<n; ++i) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        sprintf(valuebuf, "VV%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.find( query );
+        TEST_CHK( !item.isEmpty() );
+        TEST_CMP(item.value, valuebuf, item.valuelen);
+    }
+
+    // remove
+    for (i=2; i<n; i+=2) {
+        idx = i;
+        sprintf(keybuf, "k%07d", (int)idx);
+        query = BsaItem(keybuf, 8);
+        item = bsa.remove( query );
+        TEST_CHK(!item.isEmpty());
+    }
+
+    TEST_RESULT("Bs Array base offset test");
+}
+
+void bnodemgr_basic_test()
+{
+    TEST_INIT();
+
+    int r = system(SHELL_DEL" bnodemgr_testfile");
+    (void)r;
+
+    Bnode *bnode = new Bnode();
+    BnodeMgr *bMgr = new BnodeMgr();;
+    BnodeResult ret;
+    size_t i;
+    size_t n = 100;
+    char keybuf[64], valuebuf[64];
+
+    uint64_t threshold = 200000;
+    uint64_t flush_limit = 102400;
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
+                                              flush_limit);
+
+    FileMgr *file;
+    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8,
+                         DEFAULT_NUM_BCACHE_PARTITIONS,
+                         FDB_ENCRYPTION_NONE, 0x55, 0, 0);
+    std::string fname("./bnodemgr_testfile");
+    filemgr_open_result result = FileMgr::open(fname,
+                                               get_filemgr_ops(),
+                                               &config, nullptr);
+    file = result.file;
+    TEST_CHK(file != nullptr);
+
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
+    bMgr->setFile(file, bcache);
+
+    // register the node to bnodemgr
+    bMgr->addDirtyNode(bnode);
+
+    // add test
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode->addKv(keybuf, 8, valuebuf, 8, nullptr, true);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+    }
+    TEST_CHK(bnode->getNentry() == n);
+
+    // meta
+    char metabuf[64];
+    sprintf(metabuf, "meta_data");
+    bnode->setMeta(metabuf, 9);
+
+    // find test
+    size_t valuelen_out;
+    void* value_out;
+    Bnode *bnode_out;
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+        TEST_CMP(value_out, valuebuf, valuelen_out);
+    }
+
+    // assign offset, and flush
+    uint64_t node_offset = bMgr->assignDirtyNodeOffset(bnode);
+    bnode->setCurOffset(node_offset);
+    bMgr->flushDirtyNodes();
+
+    // read test
+    Bnode *bnode_read = bMgr->readNode(node_offset);
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d\n", (int)i);
+        sprintf(valuebuf, "v%07d\n", (int)i*10);
+        ret = bnode_read->findKv(keybuf, 8, value_out, valuelen_out, bnode_out);
+        TEST_CHK(ret == BnodeResult::SUCCESS);
+        TEST_CMP(value_out, valuebuf, valuelen_out);
+    }
+
+    bMgr->releaseCleanNodes();
+    delete bMgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("bnodemgr basic test");
+}
+
 int main()
 {
     bnode_basic_test();
     bnode_iterator_test();
     bnode_split_test();
     bnode_custom_cmp_test();
+    bnode_clone_test();
+
+    bsa_seq_insert_test();
+    bsa_rand_insert_test();
+    bsa_insert_ptr_test();
+    bsa_iteration_test();
+    bsa_base_offset_test();
 
     bnodemgr_basic_test();
 

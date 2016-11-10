@@ -62,6 +62,27 @@ struct BtreeNodeAddr {
             isEmpty = false;
         }
     }
+    BtreeNodeAddr( BsaItem _item ) {
+        if ( _item.value ) {
+            if ( _item.isValueChildPtr ) {
+                // pointer value
+                ptr = static_cast<Bnode*>(_item.value);
+                isDirty = true;
+                isEmpty = false;
+            } else {
+                // binary data value
+                offset = *(reinterpret_cast<uint64_t*>(_item.value));
+                offset = _endian_decode(offset);
+                isDirty = false;
+                isEmpty = false;
+            }
+        } else {
+            // empty pointer
+            offset = BLK_NOT_FOUND;
+            isDirty = false;
+            isEmpty = true;
+        }
+    }
 
     union {
         // Offset of node (if clean).
@@ -102,6 +123,9 @@ struct BtreeKey {
     BtreeKey() { }
     BtreeKey( void *_data, uint64_t _len ) :
         data(_data), length(_len)
+    { }
+    BtreeKey( BsaItem _item ) :
+        data(_item.key), length(_item.keylen)
     { }
 
     // Data.
@@ -244,10 +268,12 @@ public:
      * @param kvp Key-value pair instance.
      * @return Offset.
      */
-    static uint64_t value2offset( BtreeKv* kvp ) {
-        if (kvp) {
-          return value2offset(kvp->value);
+    static uint64_t value2offset( BsaItem kvp ) {
+        if (!kvp.isValueChildPtr) {
+            // binary data
+            return value2offset(kvp.value);
         }
+        // otherwise: pointer
         return BLK_NOT_FOUND;
     }
 
