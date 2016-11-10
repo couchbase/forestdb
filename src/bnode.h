@@ -26,6 +26,7 @@
 #include "avltree.h"
 #include "atomic.h"
 #include "list.h"
+#include "fdb_internal.h"
 
 class Bnode;
 
@@ -230,6 +231,13 @@ public:
     }
 
     uint64_t decRefCount() {
+        if ( !refCount ) {
+            fdb_log(nullptr, FDB_RESULT_READ_FAIL,
+                    "Warning: ref counter of bnode (at offset: %s) "
+                    "is already 0.",
+                    std::to_string(curOffset).c_str());
+            return 0;
+        }
         return --refCount;
     }
 
