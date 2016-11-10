@@ -377,11 +377,9 @@ fdb_status BnodeCacheMgr::invalidateBnode(FileMgr* file, Bnode* node) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     } else {
-        fdb_log(nullptr, FDB_RESULT_FILE_IS_BUSY,
-                "Warning: Failed to remove bnode (at offset: %s) "
-                "in file '%s', because its ref counter is not <= 1!",
-                std::to_string(node->getCurOffset()).c_str(),
-                fcache->getFileName().c_str());
+        // failure of invalidation is used as one of conditions
+        // in BnodeMgr layer during node cloning, so we don't
+        // need to report warning here.
         return FDB_RESULT_FILE_IS_BUSY;
     }
 

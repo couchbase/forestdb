@@ -65,6 +65,18 @@ public:
     void removeDirtyNode(Bnode* bnode);
 
     /**
+     * Make given clean node writable.
+     * If other thread is currently accessing the same clean node,
+     * create a dirty clone of the node. If the clean node is being
+     * accessed by the caller thread only, then directly switch the
+     * clean node as dirty.
+     *
+     * @param clean_bnode Pointer to clean node.
+     * @return Writable dirty node.
+     */
+    Bnode* getMutableNodeFromClean(Bnode* clean_bnode);
+
+    /**
      * Read a B+tree node corresponding to the given offset.
      * This API first searches the in-memory cache, and then read the DB
      * file on cache miss.

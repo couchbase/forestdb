@@ -198,10 +198,9 @@ BtreeV2Result BtreeV2::updateMeta( BtreeV2Meta meta )
             // Clean node .. read from file,
             Bnode *clean_node = bMgr->readNode( rootAddr.offset );
 
-            // And make a new writable dirty root node,
-            // which is a clone of the clean node.
-            node = clean_node->cloneNode();
-            bMgr->addDirtyNode( node );
+            // And make a new writable dirty root node.
+            node = bMgr->getMutableNodeFromClean(clean_node);
+
         }
     }
 
@@ -292,10 +291,8 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
             // Clean node .. read from file,
             Bnode *clean_node = bMgr->readNode( node_addr.offset );
 
-            // And make a new writable dirty node,
-            // which is a clone of the clean node.
-            node = clean_node->cloneNode();
-            bMgr->addDirtyNode( node );
+            // And make a new writable dirty node.
+            node = bMgr->getMutableNodeFromClean(clean_node);
 
             if (parent_node) {
                 // Replace value in the parent node with
@@ -488,10 +485,8 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
             // Clean node .. read from file,
             Bnode *clean_node = bMgr->readNode( node_addr.offset );
 
-            // And make a new writable dirty node,
-            // which is a clone of the clean node.
-            node = clean_node->cloneNode();
-            bMgr->addDirtyNode( node );
+            // And make a new writable dirty node.
+            node = bMgr->getMutableNodeFromClean(clean_node);
 
             if (parent_node) {
                 // Replace value in the parent node with
@@ -743,8 +738,7 @@ void BtreeV2::shrinkHeight()
         uint64_t offset = BtreeV2::value2offset( kvp );
         clean_node = bMgr->readNode( offset );
 
-        new_root = clean_node->cloneNode();
-        bMgr->addDirtyNode( new_root );
+        new_root = bMgr->getMutableNodeFromClean(clean_node);
     }
     rootAddr = BtreeNodeAddr(BLK_NOT_FOUND, new_root);
 

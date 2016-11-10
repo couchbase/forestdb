@@ -63,6 +63,28 @@ void BnodeMgr::removeDirtyNode(Bnode* bnode)
     dirtyNodes.erase( bnode );
 }
 
+Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
+{
+    Bnode* bnode_out;
+    fdb_status ret = bCache->invalidateBnode(file, clean_bnode);
+
+    if (ret == FDB_RESULT_SUCCESS) {
+        // clean node is ejected from cache.
+        // now we can modify it as a dirty node without cloning.
+        releaseCleanNode(clean_bnode);
+        clean_bnode->setCurOffset(BLK_NOT_FOUND);
+        clean_bnode->clearBidList();
+        bnode_out = clean_bnode;
+    } else {
+        // clean node cannot be ejected.
+        // make a dirty clone of the node.
+        bnode_out = clean_bnode->cloneNode();
+    }
+    addDirtyNode(bnode_out);
+
+    return bnode_out;
+}
+
 Bnode* BnodeMgr::readNode(uint64_t offset)
 {
     Bnode* bnode_out;
