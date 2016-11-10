@@ -272,30 +272,6 @@ public:
     void eraseFileHistory(FileMgr* file);
 
     /**
-     * Discard all the dirty bnodes for a given file from the bnode cache.
-     * Note that those dirty bnodes are not written to disk.
-     *
-     * @param file Pointer to the file manager instance
-     */
-    void removeDirtyBnodes(FileMgr* file);
-
-    /**
-     * Discard all the clean bnodes for a given file from the bnode cache.
-     *
-     * @param file Pointer to the file manager instance
-     */
-    void removeCleanBnodes(FileMgr* file);
-
-    /**
-     * Remove a given file from the bnode cache's global file list.
-     *
-     * @param file Pointer to the file manager instance
-     *
-     * @return True upon success
-     */
-    bool removeFile(FileMgr* file);
-
-    /**
      * Create a file block cache for a given file
      *
      * @param file Pointer to a file manager instance
@@ -332,6 +308,30 @@ public:
     }
 
 private:
+    /**
+     * Discard all the dirty bnodes for a given file from the bnode cache.
+     * Note that those dirty bnodes are not written to disk.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    void removeDirtyBnodes(FileMgr* file);
+
+    /**
+     * Discard all the clean bnodes for a given file from the bnode cache.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    void removeCleanBnodes(FileMgr* file);
+
+    /**
+     * Remove a given file from the bnode cache's global file list.
+     *
+     * @param file Pointer to the file manager instance
+     *
+     * @return True upon success
+     */
+    bool removeFile(FileMgr* file);
+
      /**
       * Create a file block cache for a given file
       *

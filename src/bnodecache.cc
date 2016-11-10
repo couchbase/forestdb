@@ -363,6 +363,9 @@ fdb_status BnodeCacheMgr::invalidateBnode(FileMgr* file, Bnode* node) {
             // Remove from clean nodes (if present)
             list_remove(&fcache->shards[shard_num]->cleanNodes,
                         &node->list_elem);
+            fcache->numItems--;
+            // Decrement memory usage
+            bnodeCacheCurrentUsage.fetch_sub(node->getNodeSize());
             spin_unlock(&fcache->shards[shard_num]->lock);
         } else {
             spin_unlock(&fcache->shards[shard_num]->lock);
@@ -1067,6 +1070,9 @@ void BnodeCacheMgr::removeSelectBnodes(FileMgr* file,
             // Remove from clean nodes (if present)
             list_remove(&fcache->shards[shard_num]->cleanNodes,
                         &node->list_elem);
+            fcache->numItems--;
+            // Decrement memory usage
+            bnodeCacheCurrentUsage.fetch_sub(node->getNodeSize());
         }
 
         spin_unlock(&fcache->shards[shard_num]->lock);
