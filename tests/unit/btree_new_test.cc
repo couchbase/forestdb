@@ -23,6 +23,7 @@
 #include "common.h"
 #include "bnode.h"
 #include "bnodemgr.h"
+#include "btree_new.h"
 
 void bnode_basic_test()
 {
@@ -491,6 +492,461 @@ void bnodemgr_basic_test()
     TEST_RESULT("bnodemgr basic test");
 }
 
+void btree_basic_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 70, n_add = 10;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];
+
+    std::vector<BtreeKvPair> kv_list(n);
+
+    for (i=0; i<n; ++i) {
+        kv_list[i].keylen = kv_list[i].valuelen = 8;
+        kv_list[i].key = (void*)malloc( kv_list[i].keylen+1 );
+        kv_list[i].value = (void*)malloc( kv_list[i].valuelen+1 );
+        sprintf((char*)kv_list[i].key, "k%07d", (int)i*2 + 10);
+        sprintf((char*)kv_list[i].value, "v%07d", (int)i*2 + 10);
+    }
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
+                                              16000000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    btree->insertMulti(kv_list);
+    TEST_CHK(btree->getNentry() == n);
+
+
+    BtreeKvPair kv;
+    kv.value = (void*)valuebuf;
+
+    // retrieval check
+    for (i=0; i<n; ++i) {
+        kv.key = kv_list[i].key;
+        kv.keylen = kv_list[i].keylen;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, kv_list[i].value, kv.valuelen);
+    }
+
+    std::vector<BtreeKvPair> kv_list_add(n_add*2);
+
+    for (i=0; i<n_add; ++i) {
+        kv_list_add[i].keylen = kv_list_add[i].valuelen = 8;
+        kv_list_add[i].key = (void*)malloc( kv_list_add[i].keylen+1 );
+        kv_list_add[i].value = (void*)malloc( kv_list_add[i].valuelen+1 );
+        sprintf((char*)kv_list_add[i].key, "k%07d", (int)i*2 + 1);
+        sprintf((char*)kv_list_add[i].value, "v%07d", (int)i*2 + 1);
+    }
+    for (i=n_add; i<n_add*2; ++i) {
+        kv_list_add[i].keylen = kv_list_add[i].valuelen = 8;
+        kv_list_add[i].key = (void*)malloc( kv_list_add[i].keylen+1 );
+        kv_list_add[i].value = (void*)malloc( kv_list_add[i].valuelen+1 );
+        sprintf((char*)kv_list_add[i].key, "k%07d", (int)i*2 + 91);
+        sprintf((char*)kv_list_add[i].value, "v%07d", (int)i*2 + 91);
+    }
+
+    btree->insertMulti( kv_list_add );
+    TEST_CHK(btree->getNentry() == n + n_add*2);
+
+    // retrieval check
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 10);
+        sprintf(valuebuf_chk, "v%07d", (int)i*2 + 10);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+    }
+    for (i=0; i<n_add; ++i) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 1);
+        sprintf(valuebuf_chk, "v%07d", (int)i*2 + 1);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+    }
+    for (i=n_add; i<n_add*2; ++i) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 91);
+        sprintf(valuebuf_chk, "v%07d", (int)i*2 + 91);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    for (i=0; i<n; ++i) {
+        free(kv_list[i].key);
+        free(kv_list[i].value);
+    }
+    for (i=0; i<n_add*2; ++i) {
+        free(kv_list_add[i].key);
+        free(kv_list_add[i].value);
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree basic test");
+}
+
+void btree_remove_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i, j;
+    size_t n = 70;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];;
+
+    std::vector<BtreeKvPair> kv_list(n);
+
+    for (i=0; i<n; ++i) {
+        kv_list[i].keylen = kv_list[i].valuelen = 8;
+        kv_list[i].key = (void*)malloc( kv_list[i].keylen+1 );
+        kv_list[i].value = (void*)malloc( kv_list[i].valuelen+1 );
+        sprintf((char*)kv_list[i].key, "k%07d", (int)i);
+        sprintf((char*)kv_list[i].value, "v%07d", (int)i);
+    }
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
+                                              16000000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    btree->insertMulti( kv_list );
+    TEST_CHK(btree->getNentry() == n);
+
+    BtreeKvPair kv;
+    kv.value = valuebuf;
+
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d", (int)i);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->remove(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+
+        // retrieval check
+        for (j=0; j<n; ++j) {
+            sprintf(keybuf, "k%07d", (int)j);
+            sprintf(valuebuf_chk, "v%07d", (int)j);
+            kv.key = keybuf;
+            kv.keylen = 8;
+            br = btree->find(kv);
+            if (j <= i) {
+                TEST_CHK(br != BtreeV2Result::SUCCESS);
+            } else {
+                TEST_CHK(br == BtreeV2Result::SUCCESS);
+                TEST_CMP(kv.value, kv_list[j].value, kv.valuelen);
+            }
+        }
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    for (i=0; i<n; ++i) {
+        free(kv_list[i].key);
+        free(kv_list[i].value);
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree remove test");
+}
+
+void btree_multiple_block_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 1000;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];
+
+    std::vector<BtreeKvPair> kv_list(n);
+
+    for (i=0; i<n; ++i) {
+        kv_list[i].keylen = kv_list[i].valuelen = 8;
+        kv_list[i].key = (void*)malloc( kv_list[i].keylen+1 );
+        kv_list[i].value = (void*)malloc( kv_list[i].valuelen+1 );
+        sprintf((char*)kv_list[i].key, "k%07d", (int)i*2 + 10);
+        sprintf((char*)kv_list[i].value, "v%07d", (int)i*2 + 10);
+    }
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
+                                              16000000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    btree->insertMulti( kv_list );
+    TEST_CHK(btree->getNentry() == n);
+
+    BtreeKvPair kv;
+    kv.value = (void*)valuebuf_chk;
+
+    // retrieval check (dirty node traversal)
+    for (i=0; i<n; ++i) {
+        kv.key = kv_list[i].key;
+        kv.keylen = kv_list[i].keylen;
+        br = btree->find(kv);
+        b_mgr->releaseCleanNodes();
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, kv_list[i].value, kv.valuelen);
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    // retrieval check (clean node traversal)
+    for (i=0; i<n; ++i) {
+        kv.key = kv_list[i].key;
+        kv.keylen = kv_list[i].keylen;
+        br = btree->find(kv);
+        b_mgr->releaseCleanNodes();
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, kv_list[i].value, kv.valuelen);
+    }
+
+    // update some key-value pairs
+    for (i=0; i<n; i+=100) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 10);
+        sprintf(valuebuf, "X%07d", (int)i*2 + 10);
+        kv.key = keybuf;
+        kv.value = valuebuf;
+        kv.keylen = kv.valuelen = 8;
+        btree->insert( kv );
+    }
+
+    // retrieval check (dirty node traversal)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 10);
+        if (i % 100 == 0) {
+            sprintf(valuebuf, "X%07d", (int)i*2 + 10);
+        } else {
+            sprintf(valuebuf, "v%07d", (int)i*2 + 10);
+        }
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->find(kv);
+        b_mgr->releaseCleanNodes();
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf, kv.valuelen);
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    // retrieval check (clean node traversal)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d", (int)i*2 + 10);
+        if (i % 100 == 0) {
+            sprintf(valuebuf, "X%07d", (int)i*2 + 10);
+        } else {
+            sprintf(valuebuf, "v%07d", (int)i*2 + 10);
+        }
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->find(kv);
+        b_mgr->releaseCleanNodes();
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf, kv.valuelen);
+    }
+
+    for (i=0; i<n; ++i) {
+        free(kv_list[i].key);
+        free(kv_list[i].value);
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree multiple block test");
+}
+
+void btree_metadata_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 70, n_remove = 40;
+    char keybuf[64], valuebuf[64];
+    char metabuf[64], metabuf_chk[64];
+    BtreeV2Meta meta, meta_chk;
+    meta.ctx = metabuf;
+    meta_chk.ctx = metabuf_chk;
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
+                                              16000000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    BtreeKvPair kv;
+
+    for (i=0; i<n; i++) {
+        sprintf(keybuf, "k%07d", (int)i);
+        sprintf(valuebuf, "v%07d", (int)i);
+        kv.key = keybuf;
+        kv.value = valuebuf;
+        kv.keylen = kv.valuelen = 8;
+        btree->insert( kv );
+
+        if (i == 10) {
+            // when tree height is 1, put some meta data
+            sprintf(metabuf, "this_is_meta_data");
+
+            meta.size = strlen(metabuf);
+            btree->updateMeta( meta );
+
+            // check
+            br = btree->readMeta(meta_chk);
+            TEST_CHK(br == BtreeV2Result::SUCCESS);
+            TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
+        }
+    }
+
+    // now tree height is grown up to 2
+    // check meta data again
+    br = btree->readMeta(meta_chk);
+    TEST_CHK(br == BtreeV2Result::SUCCESS);
+    TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    // read meta data from clean root node
+    br = btree->readMeta(meta_chk);
+    TEST_CHK(br == BtreeV2Result::SUCCESS);
+    TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
+
+    // remove entries to make the tree height shrink
+    for (i=0; i<n_remove; ++i) {
+        sprintf(keybuf, "k%07d", (int)i);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        br = btree->remove(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+    }
+
+    // read meta data after shrinking
+    br = btree->readMeta(meta_chk);
+    TEST_CHK(br == BtreeV2Result::SUCCESS);
+    TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    // read meta data from clean root node
+    br = btree->readMeta(meta_chk);
+    TEST_CHK(br == BtreeV2Result::SUCCESS);
+    TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree meta data test");
+}
+
 int main()
 {
     bnode_basic_test();
@@ -500,6 +956,10 @@ int main()
 
     bnodemgr_basic_test();
 
+    btree_basic_test();
+    btree_remove_test();
+    btree_multiple_block_test();
+    btree_metadata_test();
     return 0;
 }
 
