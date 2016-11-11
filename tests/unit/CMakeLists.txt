@@ -135,7 +135,8 @@ add_executable(bnodecache_test
                $<TARGET_OBJECTS:FDB_TOOLS_CORE>
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${GETTIMEOFDAY_VS})
+               ${GETTIMEOFDAY_VS}
+               $<TARGET_OBJECTS:TEST_STAT_AGG>)
 target_link_libraries(bnodecache_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}

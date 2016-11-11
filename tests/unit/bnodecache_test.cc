@@ -22,7 +22,19 @@
 #include "bnodecache.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
+
+#include "stat_aggregator.h"
 #include "test.h"
+
+// _num_stats to always be the last entry in the following
+// enum class to keep a count of the number of stats tracked
+// in the bnodecache tests.
+enum _op_type_t {
+    READ,
+    WRITE,
+    FLUSH,
+    _num_stats_
+};
 
 static uint64_t curBid(BLK_NOT_FOUND);
 static uint64_t curOffset(0);
@@ -72,6 +84,17 @@ uint64_t assignDirtyNodeOffset(FileMgr* file, Bnode *bnode) {
     return offset;
 }
 
+static int samples(0);
+static std::mutex guard;
+
+void collect_stat(StatAggregator* sa, _op_type_t type, uint64_t diff) {
+    if (type < _num_stats_) {
+        LockHolder lh(guard);
+        sa->t_stats[type][0].latencies.push_back(diff);
+        ++samples;
+    }
+}
+
 void basic_read_write_test() {
     TEST_INIT();
 
@@ -80,6 +103,13 @@ void basic_read_write_test() {
 
     curBid = BLK_NOT_FOUND;
     curOffset = 0;
+
+    // Create StatAggregator
+    StatAggregator* sa = new StatAggregator(2, 1);
+    sa->t_stats[READ][0].name = "read_lat";
+    sa->t_stats[WRITE][0].name = "write_lat";
+
+    samples = 0;
 
     uint64_t threshold = 200000;
     uint64_t flush_limit = 102400;
@@ -122,12 +152,17 @@ void basic_read_write_test() {
         bnodes.push_back(bnode);
     }
 
+    ts_nsec start, end;
+
     std::vector<cs_off_t> offsets;
     for (size_t i = 0; i < bnodes.size(); ++i) {
         cs_off_t offset = assignDirtyNodeOffset(file, bnodes.at(i));
         bnodes[i]->setCurOffset(offset);
+        start = get_monotonic_ts();
         int wrote = bcache->write(file, bnodes.at(i), offset);
+        end = get_monotonic_ts();
         TEST_CHK(wrote == static_cast<int>(bnodes.at(i)->getNodeSize()));
+        collect_stat(sa, WRITE, (end - start));
         offsets.push_back(offset);
     }
 
@@ -137,8 +172,11 @@ void basic_read_write_test() {
     for (size_t i = 0; i < offsets.size(); ++i) {
         Bnode* node = nullptr;
         cs_off_t off = offsets.at(i);
+        start = get_monotonic_ts();
         int read = bcache->read(file, &node, off);
+        end = get_monotonic_ts();
         TEST_CHK(read == static_cast<int>(node->getNodeSize()));
+        collect_stat(sa, READ, (end - start));
         node->decRefCount();
     }
 
@@ -146,6 +184,10 @@ void basic_read_write_test() {
     delete bcache;
 
     FileMgr::close(file, true, NULL, NULL);
+
+    sa->aggregateAndPrintStats("SINGLE_THREADED_READ_WRITE_TEST", samples, "µs");
+    // Delete StatAggregator
+    delete sa;
 
     TEST_RESULT("BnodeCache: Basic read write test");
 }
@@ -157,20 +199,25 @@ struct ops_args {
         std::vector<cs_off_t>* offsets;
         std::vector<Bnode*>* nodes;
     };
+    StatAggregator* sa;
 };
 
 void* reader_ops(void* args) {
     struct ops_args* ra = static_cast<struct ops_args*>(args);
     size_t bnode_read_count = 0;
     int index = 0;
+    ts_nsec start, end;
     while (bnode_read_count < ra->offsets->size()) {
         cs_off_t off= ra->offsets->at(index);
         Bnode* readBnode;
+        start = get_monotonic_ts();
         int read = ra->bcache->read(ra->file,
                                     &readBnode,
                                     off);
+        end = get_monotonic_ts();
         assert(read == static_cast<int>(readBnode->getNodeSize()));
         assert(off == static_cast<cs_off_t>(readBnode->getCurOffset()));
+        collect_stat(ra->sa, READ, (end - start));
         bnode_read_count++;
         readBnode->decRefCount();
         index = (index + 1) % ra->offsets->size();
@@ -180,17 +227,27 @@ void* reader_ops(void* args) {
 
 void* writer_ops(void* args) {
     struct ops_args* wa = static_cast<struct ops_args*>(args);
+    ts_nsec start, end;
     for (size_t i = 0; i < wa->nodes->size(); ++i) {
         cs_off_t offset = assignDirtyNodeOffset(wa->file, wa->nodes->at(i));
         wa->nodes->at(i)->setCurOffset(offset);
+        start = get_monotonic_ts();
         int wrote = wa->bcache->write(wa->file, wa->nodes->at(i), offset);
+        end = get_monotonic_ts();
         assert(wrote == static_cast<int>(wa->nodes->at(i)->getNodeSize()));
+        collect_stat(wa->sa, WRITE, (end - start));
 
         if (i % 100 == 0) {
+            start = get_monotonic_ts();
             assert(wa->bcache->flush(wa->file) == FDB_RESULT_SUCCESS);
+            end = get_monotonic_ts();
+            collect_stat(wa->sa, FLUSH, (end - start));
         }
     }
+    start = get_monotonic_ts();
     assert(wa->bcache->flush(wa->file) == FDB_RESULT_SUCCESS);
+    end = get_monotonic_ts();
+    collect_stat(wa->sa, FLUSH, (end - start));
     return nullptr;
 }
 
@@ -203,6 +260,14 @@ void multi_threaded_read_write_test(int readers,
 
     curBid = BLK_NOT_FOUND;
     curOffset = 0;
+
+    // Create StatAggregator
+    StatAggregator* sa = new StatAggregator(3, 1);
+    sa->t_stats[READ][0].name = "read_lat";
+    sa->t_stats[WRITE][0].name = "write_lat";
+    sa->t_stats[FLUSH][0].name = "flush_lat";
+
+    samples = 0;
 
     uint64_t threshold = 10485760;
     uint64_t flush_limit = 10240;
@@ -288,6 +353,7 @@ void multi_threaded_read_write_test(int readers,
     rargs.file = file;
     rargs.bcache = bcache;
     rargs.offsets = &offsets;
+    rargs.sa = sa;
     int threadid = 0;
     for (threadid = 0; threadid < readers; ++threadid) {
         thread_create(&threads[threadid], reader_ops, &rargs);
@@ -297,6 +363,7 @@ void multi_threaded_read_write_test(int readers,
     wargs.file = file;
     wargs.bcache = bcache;
     wargs.nodes = &moreBnodes;
+    wargs.sa = sa;
     if (writer_in_parallel) {
         thread_create(&threads[threadid], writer_ops, &wargs);
     }
@@ -313,6 +380,10 @@ void multi_threaded_read_write_test(int readers,
     delete bcache;
 
     FileMgr::close(file, true, NULL, NULL);
+
+    sa->aggregateAndPrintStats("MULTI_THREADED_READ_WRITE_TEST", samples, "µs");
+    // Delete StatAggregator
+    delete sa;
 
     std::string title("BnodeCache: Multi threaded reader (" +
                       std::to_string(readers) + ") writer test");
