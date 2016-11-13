@@ -162,12 +162,12 @@ public:
     BtreeV2Result init();
 
     /**
-     * Load existing B+tree for the given root node offset.
+     * Load existing B+tree for the given root node offset or pointer.
      *
-     * @param root_offset Offset of the root node.
+     * @param root_addr Offset (clean) or pointer (dirty) of the root node.
      * @return SUCCESS on success.
      */
-    BtreeV2Result initFromOffset( uint64_t root_offset );
+    BtreeV2Result initFromAddr( BtreeNodeAddr root_addr );
 
     /**
      * Update the meta data of B+tree. Given meta data is stored in the

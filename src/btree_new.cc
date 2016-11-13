@@ -181,17 +181,25 @@ BtreeV2Result BtreeV2::init()
     return BtreeV2Result::SUCCESS;
 }
 
-BtreeV2Result BtreeV2::initFromOffset(uint64_t root_offset)
+BtreeV2Result BtreeV2::initFromAddr(BtreeNodeAddr root_addr)
 {
-    rootAddr = BtreeNodeAddr(root_offset, nullptr);
+    if (root_addr.isEmpty) {
+        return init();
+    }
 
-    Bnode *root = bMgr->readNode( rootAddr.offset );
-    height = root->getLevel();
-    // TODO: reading / storing 'nentry' from / to the root node .
-
-    bMgr->releaseCleanNode(root);
-
-    return BtreeV2Result::SUCCESS;
+    rootAddr = root_addr;
+    if (!rootAddr.isDirty) {
+        // clean root node
+        Bnode *root = bMgr->readNode(rootAddr.offset);
+        height = root->getLevel();
+        // TODO: reading / storing 'nentry' from / to the root node .
+        bMgr->releaseCleanNode(root);
+        return BtreeV2Result::SUCCESS;
+    } else {
+        // dirty root node
+        height = rootAddr.ptr->getLevel();
+        return BtreeV2Result::SUCCESS;
+    }
 }
 
 size_t BtreeV2::getNodeSizeLimit( size_t level )
