@@ -817,6 +817,7 @@ void btree_metadata_test()
 
     size_t i;
     size_t n = 70, n_remove = 40;
+    uint32_t metasize_ret;
     char keybuf[64], valuebuf[64];
     char metabuf[64], metabuf_chk[64];
     BtreeV2Meta meta, meta_chk;
@@ -849,6 +850,9 @@ void btree_metadata_test()
             btree->updateMeta( meta );
 
             // check
+            metasize_ret = btree->getMetaSize();
+            TEST_CHK(metasize_ret == strlen(metabuf));
+
             br = btree->readMeta(meta_chk);
             TEST_CHK(br == BtreeV2Result::SUCCESS);
             TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
@@ -857,6 +861,9 @@ void btree_metadata_test()
 
     // now tree height is grown up to 2
     // check meta data again
+    metasize_ret = btree->getMetaSize();
+    TEST_CHK(metasize_ret == strlen(metabuf));
+
     br = btree->readMeta(meta_chk);
     TEST_CHK(br == BtreeV2Result::SUCCESS);
     TEST_CMP(meta_chk.ctx, meta.ctx, meta_chk.size);
@@ -901,6 +908,95 @@ void btree_metadata_test()
     FileMgr::shutdown();
 
     TEST_RESULT("btree meta data test");
+}
+
+void btree_smaller_greater_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 10;
+    char keybuf[64], valuebuf[64], keybuf_chk[64];
+
+    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
+                                              16000000);
+    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file, bcache);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    BtreeKvPair kv;
+
+    for (i=0; i<n; i++) {
+        // aaa.., bbb.., ccc.., ...
+        memset(keybuf, 'a'+i, 8);
+        // AAA.., BBB.., CCC.., ...
+        memset(valuebuf, 'A'+i, 8);
+        kv.key = keybuf;
+        kv.value = valuebuf;
+        kv.keylen = kv.valuelen = 8;
+        btree->insert( kv );
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+
+    for (i=0; i<n; i++) {
+        // a, b, c, ...
+        memset(keybuf, 'a'+i, 1);
+
+        // query key: a
+        // smaller: NOT_FOUND, greater: aaa...
+
+        // query key: b
+        // smaller: aaa...   , greater: bbb...
+
+        // query key: c
+        // smaller: bbb...   , greater: ccc...
+
+        kv = BtreeKvPair(keybuf, 1, valuebuf, 0);
+        br = btree->findSmallerOrEqual( kv );
+        if ( i == 0 ) {
+            TEST_CHK(br != BtreeV2Result::SUCCESS);
+        } else {
+            memset(keybuf_chk, 'a'+(i-1), 8);
+            TEST_CMP(kv.key, keybuf_chk, kv.keylen);
+        }
+
+        memset(keybuf, 'a'+i, 1);
+        kv = BtreeKvPair(keybuf, 1, valuebuf, 0);
+        br = btree->findGreaterOrEqual( kv );
+        memset(keybuf_chk, 'a'+i, 8);
+        TEST_CMP(kv.key, keybuf_chk, kv.keylen);
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    bcache->freeFileBnodeCache(fcache, true);
+    delete bcache;
+
+    fr.file->commit_FileMgr(false, nullptr);
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree smaller greater test");
 }
 
 void bsa_seq_insert_test()
@@ -1312,6 +1408,7 @@ int main()
     btree_remove_test();
     btree_multiple_block_test();
     btree_metadata_test();
+    btree_smaller_greater_test();
     return 0;
 }
 

@@ -248,29 +248,50 @@ BtreeV2Result BtreeV2::updateMeta( BtreeV2Meta meta )
     return BtreeV2Result::SUCCESS;
 }
 
+Bnode* BtreeV2::getRootNode()
+{
+    if ( rootAddr.isDirty ) {
+        // dirty node .. use the pointer.
+        return rootAddr.ptr;
+    } else {
+        // clean node .. read from file.
+        return bMgr->readNode( rootAddr.offset );
+    }
+}
+
+uint32_t BtreeV2::getMetaSize()
+{
+
+    Bnode *node;
+    uint32_t ret = 0;
+
+    if ( rootAddr.isEmpty ) {
+        // B+tree has not been populated yet.
+        return ret;
+    }
+
+    node = getRootNode();
+    ret = node->getMetaSize();
+    if ( !rootAddr.isDirty ) {
+        bMgr->releaseCleanNode(node);
+    }
+
+    return ret;
+}
+
 BtreeV2Result BtreeV2::readMeta( BtreeV2Meta& meta )
 {
     Bnode *node;
-    bool is_clean = false;
 
     if ( rootAddr.isEmpty ) {
         // B+tree has not been populated yet.
         return BtreeV2Result::EMPTY_BTREE;
-    } else {
-        if ( rootAddr.isDirty ) {
-            // dirty node .. use the pointer.
-            node = rootAddr.ptr;
-        } else {
-            // clean node .. read from file.
-            node = bMgr->readNode( rootAddr.offset );
-            is_clean = true;
-        }
     }
 
+    node = getRootNode();
     meta.size = node->getMetaSize();
     memcpy(meta.ctx, node->getMeta(), meta.size);
-
-    if (is_clean) {
+    if ( !rootAddr.isDirty ) {
         bMgr->releaseCleanNode(node);
     }
 
@@ -635,14 +656,27 @@ BtreeV2Result BtreeV2::find( BtreeKvPair& kv,
     BtreeV2Result br = BtreeV2Result::SUCCESS;
     BtreeNodeAddr node_addr = rootAddr;
 
-    br = _find( kv, node_addr, allocate_memory );
+    br = _find(kv, node_addr, allocate_memory, FindOption::EQUAL);
 
     return br;
 }
 
+BtreeV2Result BtreeV2::findSmallerOrEqual(BtreeKvPair& kv,
+                                          bool allocate_memory)
+{
+    return _find(kv, rootAddr, allocate_memory, FindOption::SMALLER_OR_EQUAL);
+}
+
+BtreeV2Result BtreeV2::findGreaterOrEqual(BtreeKvPair& kv,
+                                          bool allocate_memory)
+{
+    return _find(kv, rootAddr, allocate_memory, FindOption::GREATER_OR_EQUAL);
+}
+
 BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
                               BtreeNodeAddr node_addr,
-                              bool allocate_memory )
+                              bool allocate_memory,
+                              FindOption opt )
 {
     Bnode *node;
 
@@ -669,14 +703,24 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
         }
         // recursive call
         BtreeNodeAddr next_addr( kvp );
-        return _find( kv, next_addr, allocate_memory );
+        return _find( kv, next_addr, allocate_memory, opt );
     }
 
     // leaf node
+    bool exact_match = true;
     kvp = node->findKv(kv.key, kv.keylen);
     if ( kvp.isEmpty() ) {
         // not found
-        return BtreeV2Result::KEY_NOT_FOUND;
+        exact_match = false;
+        if ( opt == FindOption::SMALLER_OR_EQUAL ) {
+            kvp = node->findKvSmallerOrEqual(kv.key, kv.keylen);
+        } else if ( opt == FindOption::GREATER_OR_EQUAL ) {
+            kvp = node->findKvGreaterOrEqual(kv.key, kv.keylen);
+        }
+
+        if ( kvp.isEmpty() ) {
+            return BtreeV2Result::KEY_NOT_FOUND;
+        }
     }
 
     if ( allocate_memory ) {
@@ -684,6 +728,16 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
     }
     memcpy(kv.value, kvp.value, kvp.valuelen);
     kv.valuelen = kvp.valuelen;
+
+    if (opt != FindOption::EQUAL && !exact_match) {
+        // if not exact match option and not exact match key,
+        // copy key as well.
+        if (allocate_memory) {
+            kv.key = malloc(kvp.keylen);
+        }
+        memcpy(kv.key, kvp.key, kvp.keylen);
+        kv.keylen = kvp.keylen;
+    }
 
     return BtreeV2Result::SUCCESS;
 }

@@ -43,6 +43,12 @@ struct BtreeV2Meta {
 };
 
 struct BtreeNodeAddr {
+    BtreeNodeAddr() :
+        offset(BLK_NOT_FOUND),
+        isDirty(false),
+        isEmpty(true)
+    { }
+
     BtreeNodeAddr( uint64_t _offset, Bnode* _ptr ) {
         if (_offset == BLK_NOT_FOUND) {
             if (_ptr) {
@@ -179,6 +185,13 @@ public:
     BtreeV2Result updateMeta( BtreeV2Meta meta );
 
     /**
+     * Get the meta data size of B+tree from the root node.
+     *
+     * @return Meta data size.
+     */
+    uint32_t getMetaSize();
+
+    /**
      * Read the meta data of B+tree from the root node.
      *
      * @param meta Reference to meta data to be retrned.
@@ -236,6 +249,30 @@ public:
                         bool allocate_memory = false );
 
     /**
+     * Get key-value pair whose key is smaller than or equal to the given key.
+     *
+     * @param kv Key-value pair to find. Both key and value field will be
+     *        assigned as a result of this API call.
+     * @param allocate_memory If true, new memory for key and value will be
+     *        allocated.
+     * @return SUCCESS on success.
+     */
+    BtreeV2Result findSmallerOrEqual(BtreeKvPair& kv,
+                                     bool allocate_memory = false);
+
+    /**
+     * Get key-value pair whose key is greater than or equal to the given key.
+     *
+     * @param kv Key-value pair to find. Both key and value field will be
+     *        assigned as a result of this API call.
+     * @param allocate_memory If true, new memory for key and value will be
+     *        allocated.
+     * @return SUCCESS on success.
+     */
+    BtreeV2Result findGreaterOrEqual(BtreeKvPair& kv,
+                                     bool allocate_memory = false);
+
+    /**
      * Assign offsets for all currently present dirty nodes.
      * Note that dirty nodes are referenced by pointer (i.e., memory address)
      * by parent nodes. Once their offsets are finalized, corresponding entries
@@ -278,14 +315,24 @@ public:
     }
 
 private:
-    // Bnode manager instance.
-    BnodeMgr *bMgr;
-    // Height of tree.
-    uint16_t height;
-    // File offset (clean) or pointer (dirty) to the root node.
-    BtreeNodeAddr rootAddr;
-    // Number of entries in the tree.
-    uint64_t nentry;
+    enum class FindOption {
+        // exact match (default).
+        EQUAL,
+        // return greatest key smaller than or equal to the query.
+        SMALLER_OR_EQUAL,
+        // return smallest key greater than or equal to the query.
+        GREATER_OR_EQUAL
+    };
+
+
+    /**
+     * Get Bnode instance for the root node.
+     * If the root node is dirty, directly return the existing pointer.
+     * If clean, read the node using the offset.
+     *
+     * @return Bnode instance.
+     */
+    Bnode* getRootNode();
 
     /**
      * Get limit of node size for the given level (n: root node, 1: leaf node).
@@ -331,7 +378,8 @@ private:
      */
     BtreeV2Result _find( BtreeKvPair& kv,
                          BtreeNodeAddr node_addr,
-                         bool allocate_memory );
+                         bool allocate_memory,
+                         FindOption opt );
 
     /**
      * Internal recursive function for insert operation.
@@ -387,5 +435,13 @@ private:
      */
     BtreeV2Result _writeDirtyNodes( Bnode *cur_node );
 
+    // Bnode manager instance.
+    BnodeMgr *bMgr;
+    // Height of tree.
+    uint16_t height;
+    // File offset (clean) or pointer (dirty) to the root node.
+    BtreeNodeAddr rootAddr;
+    // Number of entries in the tree.
+    uint64_t nentry;
 };
 
