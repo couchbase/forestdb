@@ -1112,7 +1112,7 @@ fdb_status FdbIterator::get(fdb_doc **doc, bool metaOnly) {
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
-    if (iterHandle->kvs) {
+    if (iterHandle->kvs && _doc.key) {
         // eliminate KV ID from key
         _doc.length.keylen -= size_chunk;
         memmove(_doc.key, (uint8_t*)_doc.key + size_chunk, _doc.length.keylen);

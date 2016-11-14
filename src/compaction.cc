@@ -915,7 +915,9 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
                 if (_offset == 0 ||
                     (!doc.key && !(doc.length.flag & DOCIO_TXN_COMMITTED))) {
                     // No more documents in this block, break and move to the next block
-                    free(doc.key);
+                    if (doc.key) {
+                        free(doc.key);
+                    }
                     free(doc.meta);
                     free(doc.body);
                     break;

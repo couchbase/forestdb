@@ -51,6 +51,7 @@ struct NodeActionItem {
         key(nullptr),
         key_aux(nullptr),
         value(nullptr),
+        child_ptr(nullptr),
         keylen(0),
         keylen_aux(0),
         valuelen(0)
@@ -144,6 +145,7 @@ BtreeV2::~BtreeV2() {
 
 BtreeV2Result BtreeV2::init()
 {
+    bMgr = nullptr;
     rootAddr = BtreeNodeAddr(BLK_NOT_FOUND, nullptr);
     nentry = 0;
     height = 1;
