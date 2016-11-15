@@ -31,6 +31,7 @@
 #include "filemgr_ops.h"
 #include "hash_functions.h"
 #include "blockcache.h"
+#include "bnodecache.h"
 #include "wal.h"
 #include "list.h"
 #include "fdb_internal.h"
@@ -3044,15 +3045,43 @@ fdb_status FileMgr::destroyFile(std::string filename,
 }
 
 uint64_t FileMgr::getBCacheItems() {
-    return bCache.load() ? bCache.load()->getNumItems() : 0;
+    // If bnodeCache is available fetch stats from it,
+    // or else if blockCache is available fetch stats from it.
+    // Note that both bnodeCache and blockCache cannot exist at the same time.
+    if (bnodeCache.load()) {
+        return bnodeCache.load()->getNumItems();
+    } else if (bCache.load()) {
+        return bCache.load()->getNumItems();
+    } else {
+        return 0;
+    }
+
 }
 
 uint64_t FileMgr::getBCacheVictims() {
-    return bCache.load() ? bCache.load()->getNumVictims() : 0;
+    // If bnodeCache is available fetch stats from it,
+    // or else if blockCache is available fetch stats from it.
+    // Note that both bnodeCache and blockCache cannot exist at the same time.
+    if (bnodeCache.load()) {
+        return bnodeCache.load()->getNumVictims();
+    } else if (bCache.load()) {
+        return bCache.load()->getNumVictims();
+    } else {
+        return 0;
+    }
 }
 
 uint64_t FileMgr::getBCacheImmutables() {
-    return bCache.load() ? bCache.load()->getNumImmutables() : 0;
+    // If bnodeCache is available fetch stats from it,
+    // or else if blockCache is available fetch stats from it.
+    // Note that both bnodeCache and blockCache cannot exist at the same time.
+    if (bnodeCache.load()) {
+        return bnodeCache.load()->getNumImmutables();
+    } else if (bCache.load()) {
+        return bCache.load()->getNumImmutables();
+    } else {
+        return 0;
+    }
 }
 
 bool FileMgr::isRollbackOn() {

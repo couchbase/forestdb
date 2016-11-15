@@ -92,6 +92,10 @@ private:
     friend class BnodeCacheMgr;
     friend class FileBnodeCache;
 
+    size_t getId() const {
+        return id;
+    }
+
     bool empty() {
         // Caller should grab the shard lock before calling this function
         return list_empty(&cleanNodes) && dirtyIndexNodes.empty();

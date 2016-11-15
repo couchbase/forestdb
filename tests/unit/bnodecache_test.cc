@@ -136,7 +136,7 @@ void basic_read_write_test() {
     int n = 100;
 
     char keybuf[128], bodybuf[128], meta[64];
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < n; ++i) {
         Bnode* bnode = new Bnode();
         for (int j = 0; j < n; ++j) {
             sprintf(keybuf, "key_%d_%d", i, j);
@@ -167,6 +167,7 @@ void basic_read_write_test() {
     }
 
     TEST_CHK(bcache->flush(file) == FDB_RESULT_SUCCESS);
+    // Check that the bnodecache memory usage is below set threshold
     TEST_CHK(bcache->getMemoryUsage() < threshold);
 
     for (size_t i = 0; i < offsets.size(); ++i) {
@@ -179,6 +180,11 @@ void basic_read_write_test() {
         collect_stat(sa, READ, (end - start));
         node->decRefCount();
     }
+
+    // Check that the number of bnodecache items is less than the inserted
+    // count, because of evictions
+    TEST_CHK(file->getBCacheItems() < n);
+    TEST_CHK(file->getBCacheVictims() > 0);
 
     bcache->freeFileBnodeCache(fcache, true);
     delete bcache;
@@ -374,7 +380,12 @@ void multi_threaded_read_write_test(int readers,
     }
     delete[] threads;
 
+    // Check that the bnodecache memory usage is below set threshold
     TEST_CHK(bcache->getMemoryUsage() < threshold);
+    // Check that the number of bnodecache items is less than the inserted
+    // count, because of evictions
+    TEST_CHK(file->getBCacheItems() < initial_count + additional_count);
+    TEST_CHK(file->getBCacheVictims() > 0);
 
     bcache->freeFileBnodeCache(fcache, true);
     delete bcache;

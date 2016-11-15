@@ -59,6 +59,10 @@ uint64_t FileBnodeCache::getNumVictims(void) const {
     return numVictims.load();
 }
 
+uint64_t FileBnodeCache::getNumItems(void) const {
+    return numItems.load();
+}
+
 uint64_t FileBnodeCache::getNumImmutables(void) const {
     return numImmutables.load();
 }
