@@ -2017,9 +2017,9 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc[c].doc_offset;
                             // read the previously skipped doc
-                            _offset = handle->dhandle->readDoc_Docio(doc_offset,
+                            int64_t off = handle->dhandle->readDoc_Docio(doc_offset,
                                                      &doc[c], true);
-                            if (_offset <= 0) { // doc read error
+                            if (off <= 0) { // doc read error
                                 // Should terminate the compaction
                                 for (size_t i = 0; i <= c; ++i) {
                                     free(doc[i].key);
@@ -2028,8 +2028,8 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
                                 }
                                 free(doc);
                                 free(old_offset_array);
-                                return _offset < 0 ?
-                                    (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
+                                return off < 0 ?
+                                    (fdb_status)off : FDB_RESULT_KEY_NOT_FOUND;
                             }
                         }
 
