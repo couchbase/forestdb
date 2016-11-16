@@ -183,7 +183,7 @@ void basic_read_write_test() {
 
     // Check that the number of bnodecache items is less than the inserted
     // count, because of evictions
-    TEST_CHK(file->getBCacheItems() < n);
+    TEST_CHK(file->getBCacheItems() < static_cast<uint64_t>(n));
     TEST_CHK(file->getBCacheVictims() > 0);
 
     bcache->freeFileBnodeCache(fcache, true);
@@ -384,7 +384,8 @@ void multi_threaded_read_write_test(int readers,
     TEST_CHK(bcache->getMemoryUsage() < threshold);
     // Check that the number of bnodecache items is less than the inserted
     // count, because of evictions
-    TEST_CHK(file->getBCacheItems() < initial_count + additional_count);
+    TEST_CHK(file->getBCacheItems() < static_cast<uint64_t>(initial_count +
+                                                            additional_count));
     TEST_CHK(file->getBCacheVictims() > 0);
 
     bcache->freeFileBnodeCache(fcache, true);
