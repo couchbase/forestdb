@@ -2278,22 +2278,39 @@ static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
                 }
             }
             args->done = 1;
-        }
-        if (args->nmoves > n && args->done == 1) {
+        } else if (args->nmoves > n && args->done == 1) {
             // the first phase is done. insert new docs.
-            for (i=0;i<2;++i){
-                sprintf(keybuf, "xxx%d", i);
-                sprintf(bodybuf, "xxxvalue%d", i);
-                s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
-                                             bodybuf, strlen(bodybuf)+1);
-                TEST_CHK(s == FDB_RESULT_SUCCESS);
-                s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
-                TEST_CHK(s == FDB_RESULT_SUCCESS);
-            }
+            i = 0;
+            sprintf(keybuf, "xxx%d", i);
+            sprintf(bodybuf, "xxxvalue%d", i);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            i = 1;
+            sprintf(keybuf, "xxx%d", i);
+            sprintf(bodybuf, "xxxvalue%d", i);
+            s = fdb_begin_transaction(args->file, FDB_ISOLATION_READ_COMMITTED);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_end_transaction(args->file, FDB_COMMIT_NORMAL);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
             args->done = 2;
-        }
-        if (args->nmoves == (n*3/2 + 2) && args->done == 2) {
+        } else if (args->nmoves == (n*3/2 + 2) && args->done == 2) {
             // during the second-second phase,
+            i = 1;
+            sprintf(keybuf, "xxx%d", i);
+            sprintf(bodybuf, "xxxvalue%d", i);
+            s = fdb_begin_transaction(args->file, FDB_ISOLATION_READ_COMMITTED);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_end_transaction(args->file, FDB_COMMIT_NORMAL);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
             // insert new docs, and do not commit.
             for (i=0;i<2;++i){
                 sprintf(keybuf, "zzz%d", i);
@@ -2303,11 +2320,16 @@ static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
                 TEST_CHK(s == FDB_RESULT_SUCCESS);
             }
             args->done = 3;
+        } else if (args->done == 3) {
+            if (args->nmoves == n*3/2 + 2 // docs inserted after phase 1
+                                + 3) { // 3 docs inserted in last phase above
+                args->done = 4; // Don't do this for second fdb_compact() call
+            }
         }
         TEST_CMP(kv_name, "db", 2);
     }
 
-    return 0;
+    return FDB_CS_KEEP_DOC;
 }
 
 void compaction_with_concurrent_update_test()

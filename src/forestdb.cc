@@ -6427,9 +6427,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc[c].doc_offset;
                             // read the previously skipped doc
-                            _offset = docio_read_doc(handle->dhandle, doc_offset,
-                                                     &doc[c], true);
-                            if (_offset <= 0) { // doc read error
+                            int64_t off = docio_read_doc(handle->dhandle,
+                                                         doc_offset,
+                                                         &doc[c], true);
+                            if (off <= 0) { // doc read error
                                 // Should terminate the compaction
                                 for (size_t i = 0; i <= c; ++i) {
                                     free(doc[i].key);
@@ -6438,8 +6439,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                 }
                                 free(doc);
                                 free(old_offset_array);
-                                return _offset < 0 ?
-                                    (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
+                                return off < 0 ?
+                                    (fdb_status)off : FDB_RESULT_KEY_NOT_FOUND;
                             }
                         }
 
