@@ -32,13 +32,15 @@ void basic_test()
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(4096, 5, 0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
-                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    FileMgrConfig config(4096, 5, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     int i;
     uint8_t buf[4096];
     std::string fname("./bcache_testfile");
 
-    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(),
+                                               &config, NULL);
     file = result.file;
 
     for (i=0;i<5;++i) {
@@ -74,8 +76,9 @@ void basic_test2()
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(4096, 5, 0x0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
-                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+    FileMgrConfig config(4096, 5, 1048576, 0x0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     int i;
     uint8_t buf[4096];
     std::string fname("./bcache_testfile");
@@ -83,7 +86,8 @@ void basic_test2()
     r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
-    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(),
+                                               &config, NULL);
     file = result.file;
 
     for (i=0;i<5;++i) {
@@ -181,9 +185,9 @@ void multi_thread_test(int nblocks, int cachesize,
     TEST_INIT();
 
     FileMgr *file;
-    FileMgrConfig config(blocksize, cachesize, 0x0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE, 0x00,
-                         0, 0);
+    FileMgrConfig config(blocksize, cachesize, 1048576, 0x0, 0,
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
+                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
 
     int n = nwriters + nreaders;
     uint64_t i, j;
@@ -203,7 +207,8 @@ void multi_thread_test(int nblocks, int cachesize,
     buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
 
-    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(),
+                                               &config, NULL);
     file = result.file;
 
     for (i=0;i<(uint64_t)nblocks;++i) {

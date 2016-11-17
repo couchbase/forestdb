@@ -193,15 +193,33 @@ typedef std::pair<Bnode*, cs_off_t> bnode_offset_t;
 class BnodeCacheMgr {
 public:
     /**
-     * Constructor
+     * Instantiate the bnode cache manager
      *
      * @param cache_size Allowed buffer cache size in bytes.
      * @param flush_limit Maximum amount of dirty bnode memory
      *                    to be flushed.
      */
-    BnodeCacheMgr(uint64_t cache_size, uint64_t flush_limit);
+     static BnodeCacheMgr* init(uint64_t cache_size, uint64_t flush_limit);
 
-    ~BnodeCacheMgr();
+     /**
+      * Get the singleton instance of the bnode cache manager.
+      */
+     static BnodeCacheMgr* get();
+
+     /**
+      * Release all the resources including memory allocated
+      * and destroy the bnode cache manager.
+      */
+     static void destroyInstance();
+
+     /**
+      * Removes dirty bnodes (not written to disk) and clean bnodes
+      * for a file and the file entry itself from the global file list,
+      * if and only if a BnodeCacheMgr instance is available.
+      *
+      * @param file Pointer to the file manager instance
+      */
+     static void eraseFileHistory(FileMgr* file);
 
     /**
      * Fetches bnode at the specified offset.
@@ -267,15 +285,6 @@ public:
     fdb_status invalidateBnode(FileMgr* file, Bnode* node);
 
     /**
-     * Removes dirty bnodes (not written to disk) and clean blocks for a file
-     * and the file entry itself from the global file list, if and only if a
-     * BnodeCacheMgr instance is available.
-     *
-     * @param file Pointer to the file manager instance
-     */
-    void eraseFileHistory(FileMgr* file);
-
-    /**
      * Create a file block cache for a given file
      *
      * @param file Pointer to a file manager instance
@@ -312,6 +321,29 @@ public:
     }
 
 private:
+    /**
+     * Constructor
+     *
+     * @param cache_size Allowed buffer cache size in bytes.
+     * @param flush_limit Maximum amount of dirty bnode memory
+     *                    to be flushed.
+     */
+    BnodeCacheMgr(uint64_t cache_size, uint64_t flush_limit);
+
+    /**
+     * Destructor
+     */
+    ~BnodeCacheMgr();
+
+    /**
+     * Function to update the config parameters
+     *
+     * @param cache_size Allowed buffer cache size in bytes.
+     * @param flush_limit Maximum amount of dirty bnode memory
+     *                    to be flushed.
+     */
+    void updateParams(uint64_t cache_size, uint64_t flush_limit);
+
     /**
      * Discard all the dirty bnodes for a given file from the bnode cache.
      * Note that those dirty bnodes are not written to disk.
@@ -429,4 +461,8 @@ private:
     std::vector<FileBnodeCache*> fileList;
     // File zombies
     std::list<FileBnodeCache*> fileZombies;
+
+    //Singleton bnode cache manager and a mutex guard
+    static std::atomic<BnodeCacheMgr*> instance;
+    static std::mutex instanceMutex;
 };

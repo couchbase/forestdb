@@ -40,7 +40,7 @@ public:
     FileMgr* getFile() const {
         return file;
     }
-    void setFile(FileMgr *_file, BnodeCacheMgr *_bcache);
+    void setFile(FileMgr *_file);
 
     void setLogCallback(ErrLogCallback *_log_callback) {
         logCallback = _log_callback;
@@ -115,8 +115,6 @@ public:
     void releaseCleanNodes();
 
 private:
-    // Pointer to B+tree node cache instance.
-    BnodeCacheMgr *bCache;
     // FileMgr instance.
     FileMgr *file;
     // Set of clean nodes that are currently accessed by the B+tree.

@@ -19,6 +19,11 @@
 #include "fdb_internal.h"
 #include "filemgr.h"
 
+std::atomic<BnodeCacheMgr*> BnodeCacheMgr::instance(nullptr);
+std::mutex BnodeCacheMgr::instanceMutex;
+static uint64_t defaultCacheSize = 134217728;   // 128MB
+static uint64_t defaultFlushLimit = 1048576;    // 1MB
+
 /**
  * Hash function to determine the shard within a file
  * using the offset.
@@ -109,6 +114,57 @@ bool FileBnodeCache::setEvictionInProgress(bool to) {
     return evictionInProgress.compare_exchange_strong(inverse, to);
 }
 
+BnodeCacheMgr* BnodeCacheMgr::init(uint64_t cache_size, uint64_t flush_limit) {
+    BnodeCacheMgr* tmp = instance.load();
+    if (tmp == nullptr) {
+        // Ensure two threads don't both create an instance
+        LockHolder lh(instanceMutex);
+        tmp = instance.load();
+        if (tmp == nullptr) {
+            tmp = new BnodeCacheMgr(cache_size, flush_limit);
+            instance.store(tmp);
+        } else {
+            tmp->updateParams(cache_size, flush_limit);
+        }
+    } else {
+        LockHolder lh(instanceMutex);
+        tmp->updateParams(cache_size, flush_limit);
+    }
+    return tmp;
+}
+
+BnodeCacheMgr* BnodeCacheMgr::get() {
+    BnodeCacheMgr* cacheMgr = instance.load();
+    if (cacheMgr == nullptr) {
+        // Create the buffer cache manager with default config
+        return init(defaultCacheSize, defaultFlushLimit);
+    }
+    return cacheMgr;
+}
+
+void BnodeCacheMgr::destroyInstance() {
+    LockHolder lh(instanceMutex);
+    BnodeCacheMgr* tmp = instance.load();
+    if (tmp != nullptr) {
+        delete tmp;
+        instance = nullptr;
+    }
+}
+
+void BnodeCacheMgr::eraseFileHistory(FileMgr* file) {
+    if (!file) {
+        return;
+    }
+
+    LockHolder lh(instanceMutex);
+    BnodeCacheMgr* tmp = instance.load();
+    if (tmp) {
+        tmp->removeDirtyBnodes(file);
+        tmp->removeCleanBnodes(file);
+        tmp->removeFile(file);
+    }
+}
+
 BnodeCacheMgr::BnodeCacheMgr(uint64_t cache_size,
                              uint64_t flush_limit)
     : bnodeCacheLimit(cache_size),
@@ -140,6 +196,11 @@ BnodeCacheMgr::~BnodeCacheMgr() {
                 "error code: %d", rv);
         assert(false);
     }
+}
+
+void BnodeCacheMgr::updateParams(uint64_t cache_size, uint64_t flush_limit) {
+    bnodeCacheLimit.store(cache_size);
+    flushLimit.store(flush_limit);
 }
 
 int BnodeCacheMgr::read(FileMgr* file,
@@ -388,16 +449,6 @@ fdb_status BnodeCacheMgr::invalidateBnode(FileMgr* file, Bnode* node) {
     }
 
     return FDB_RESULT_SUCCESS;
-}
-
-void BnodeCacheMgr::eraseFileHistory(FileMgr* file) {
-    if (!file) {
-        return;
-    }
-
-    removeDirtyBnodes(file);
-    removeCleanBnodes(file);
-    removeFile(file);
 }
 
 // Remove all dirty index nodes for the File
@@ -838,12 +889,8 @@ bool BnodeCacheMgr::prepareDeallocationForFileBnodeCache(FileBnodeCache* fcache)
         }
 
         if (!found) {
+            // File has already been removed form fileList
             writer_unlock(&fileListLock);
-            fdb_log(nullptr, FDB_RESULT_NO_SUCH_FILE,
-                    "BnodeCacheMgr::prepareDeallocationForFileBnodeCache(): "
-                    "Error: File bnode cache instance for file '%s' not found "
-                    "in the global file list!",
-                    fcache->getFileName().c_str());
             return false;
         }
 

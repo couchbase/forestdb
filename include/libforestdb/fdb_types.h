@@ -589,6 +589,10 @@ typedef struct {
      * Default value is 50% the number of cores
      */
     size_t num_background_threads;
+    /**
+     * Flush limit in bytes for non-block aligned buffer cache
+     */
+    size_t bcache_flush_limit;
 
 } fdb_config;
 

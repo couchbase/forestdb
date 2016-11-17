@@ -113,6 +113,9 @@ fdb_config get_default_config(void) {
 
     fconfig.custom_file_ops = NULL;
 
+    // Flush limit in bytes for non-block aligned buffer cache
+    fconfig.bcache_flush_limit = 1048576;
+
     return fconfig;
 }
 

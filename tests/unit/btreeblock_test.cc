@@ -59,7 +59,7 @@ void basic_test()
     FileMgr *file;
     BTreeBlkHandle *btree_handle;
     BTree *btree;
-    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(blocksize, 0, 1048576, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
 
@@ -140,7 +140,7 @@ void iterator_test()
     BTreeBlkHandle *btree_handle;
     BTree *btree;
     BTreeIterator *bi;
-    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(blocksize, 0, 1048576, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     btree_result br;
@@ -220,7 +220,7 @@ void two_btree_test()
     FileMgr *file;
     BTreeBlkHandle *btreeblk_handle;
     BTree *btree_a, *btree_b;
-    FileMgrConfig config(blocksize, 1024, 0x0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(blocksize, 1024, 1048576, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     uint64_t k,v;
@@ -268,7 +268,7 @@ void range_test()
     FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree;
-    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig fconfig(blocksize, 0, 1048576, 0, 0, FILEMGR_CREATE,
                           FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                           0x00, 0, 0);
     uint64_t key, value, key_end;
@@ -342,7 +342,7 @@ void subblock_test()
     FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree, *btree_arr[64];
-    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig fconfig(blocksize, 0, 1048576, 0, 0, FILEMGR_CREATE,
                           FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                           0x00, 0, 0);
     struct btree_meta meta;
@@ -616,7 +616,7 @@ void btree_reverse_iterator_test()
     BTreeBlkHandle *bhandle;
     BTree *btree;
     BTreeIterator *bi;
-    FileMgrConfig config(nodesize, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(nodesize, 0, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     btree_result br;

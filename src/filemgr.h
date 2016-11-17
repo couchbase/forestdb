@@ -67,9 +67,9 @@ class SuperblockBase;
 class FileMgrConfig {
 public:
     FileMgrConfig()
-        : blocksize(FDB_BLOCKSIZE), ncacheblock(0), flag(0),
-          chunksize(sizeof(uint64_t)), options(0x00),
-          seqtree_opt(FDB_SEQTREE_NOT_USE), prefetch_duration(0),
+        : blocksize(FDB_BLOCKSIZE), ncacheblock(0),
+          flushlimit(1048576), flag(0), chunksize(sizeof(uint64_t)),
+          options(0x00), seqtree_opt(FDB_SEQTREE_NOT_USE), prefetch_duration(0),
           num_wal_shards(DEFAULT_NUM_WAL_PARTITIONS),
           num_bcache_shards(DEFAULT_NUM_BCACHE_PARTITIONS),
           block_reusing_threshold(65/*default*/),
@@ -79,16 +79,17 @@ public:
         memset(encryption_key.bytes, 0, sizeof(encryption_key.bytes));
     }
 
-    FileMgrConfig(int _blocksize, int _ncacheblock, int _flag,
-                  int _chunksize, uint8_t _options, uint8_t _seqtree_opt,
-                  uint64_t _prefetch_duration, uint64_t _num_wal_shards,
-                  uint64_t _num_bcache_shards,
+    FileMgrConfig(int _blocksize, int _ncacheblock,
+                  size_t _flushlimit, int _flag, int _chunksize, uint8_t _options,
+                  uint8_t _seqtree_opt, uint64_t _prefetch_duration,
+                  uint64_t _num_wal_shards, uint64_t _num_bcache_shards,
                   fdb_encryption_algorithm_t _algorithm,
                   uint8_t _encryption_bytes,
                   uint64_t _block_reusing_threshold,
                   uint64_t _num_keeping_headers)
         : blocksize(_blocksize),
           ncacheblock(_ncacheblock),
+          flushlimit(_flushlimit),
           flag(_flag),
           chunksize(_chunksize),
           options(_options),
@@ -108,6 +109,7 @@ public:
     void operator=(const FileMgrConfig& config) {
         blocksize = config.blocksize;
         ncacheblock = config.ncacheblock;
+        flushlimit = config.flushlimit;
         flag = config.flag;
         seqtree_opt = config.seqtree_opt;
         chunksize = config.chunksize;
@@ -128,6 +130,10 @@ public:
 
     void setNcacheBlock(int to) {
         ncacheblock = to;
+    }
+
+    void setFlushLimit(size_t to) {
+        flushlimit = to;
     }
 
     void setFlag(int to) {
@@ -192,6 +198,10 @@ public:
         return ncacheblock;
     }
 
+    size_t getFlushLimit() const {
+        return flushlimit;
+    }
+
     int getFlag() const {
         return flag;
     }
@@ -235,6 +245,7 @@ public:
 private:
     int blocksize;
     int ncacheblock;
+    size_t flushlimit;
     int flag;
     int chunksize;
     uint8_t options;

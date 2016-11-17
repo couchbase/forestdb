@@ -31,7 +31,6 @@
 static const size_t block_meta_size = sizeof(IndexBlkMeta);
 
 BnodeMgr::BnodeMgr() :
-    bCache(nullptr),
     file(nullptr),
     curBid(BLK_NOT_FOUND),
     curOffset(0),
@@ -47,10 +46,9 @@ BnodeMgr::~BnodeMgr()
     }
 }
 
-void BnodeMgr::setFile(FileMgr *_file, BnodeCacheMgr *_bcache)
+void BnodeMgr::setFile(FileMgr *_file)
 {
     file = _file;
-    bCache = _bcache;
 }
 
 void BnodeMgr::addDirtyNode(Bnode* bnode)
@@ -66,7 +64,7 @@ void BnodeMgr::removeDirtyNode(Bnode* bnode)
 Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
 {
     Bnode* bnode_out;
-    fdb_status ret = bCache->invalidateBnode(file, clean_bnode);
+    fdb_status ret = BnodeCacheMgr::get()->invalidateBnode(file, clean_bnode);
 
     if (ret == FDB_RESULT_SUCCESS) {
         // clean node is ejected from cache.
@@ -89,7 +87,7 @@ Bnode* BnodeMgr::readNode(uint64_t offset)
 {
     Bnode* bnode_out;
 
-    int ret = bCache->read(file, &bnode_out, offset);
+    int ret = BnodeCacheMgr::get()->read(file, &bnode_out, offset);
     if (ret <= 0) {
         fdb_log(logCallback, static_cast<fdb_status>(ret),
                 "Failed to read the B+tree index node at "
@@ -160,7 +158,7 @@ void BnodeMgr::flushDirtyNodes()
 {
     int ret;
     for (auto &entry: dirtyNodes) {
-        ret = bCache->write(file, entry, entry->getCurOffset());
+        ret = BnodeCacheMgr::get()->write(file, entry, entry->getCurOffset());
         if (ret <= 0) {
             fdb_log(logCallback, static_cast<fdb_status>(ret),
                     "Failed to write the B+tree index node at "
@@ -171,7 +169,7 @@ void BnodeMgr::flushDirtyNodes()
         //       as they will be relesed by cache during ejection.
     }
     dirtyNodes.clear();
-    bCache->flush(file);
+    BnodeCacheMgr::get()->flush(file);
 }
 
 void BnodeMgr::releaseCleanNode( Bnode *bnode )

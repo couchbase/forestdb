@@ -276,7 +276,7 @@ void btree_iterator_test()
     BtreeIteratorV2 *bti;
     BtreeKvPair kvp_out;
     BnodeIteratorResult bti_ret = BnodeIteratorResult::SUCCESS;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 39, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -291,11 +291,10 @@ void btree_iterator_test()
     size_t n = 1000;
     char valuebuf[16];
     BtreeKvPair *kv_arr = (BtreeKvPair *)malloc(n * sizeof(BtreeKvPair));
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(160000,
-                                              160000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(160000, 160000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -472,8 +471,8 @@ void btree_iterator_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     for (i=0; i<n; ++i) {
         free(kv_arr[i].key);
@@ -676,7 +675,7 @@ void btree_basic_test()
     BtreeV2 *btree;
     BtreeV2Result br;
     BnodeMgr *b_mgr;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -701,11 +700,10 @@ void btree_basic_test()
         sprintf((char*)kv_list[i].value, "v%07d", (int)i*2 + 10);
     }
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
-                                              16000000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -789,8 +787,8 @@ void btree_basic_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(fr.file, true, NULL, NULL);
     FileMgr::shutdown();
@@ -805,7 +803,7 @@ void btree_remove_test()
     BtreeV2 *btree;
     BtreeV2Result br;
     BnodeMgr *b_mgr;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -830,11 +828,10 @@ void btree_remove_test()
         sprintf((char*)kv_list[i].value, "v%07d", (int)i);
     }
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
-                                              16000000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -878,8 +875,8 @@ void btree_remove_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(fr.file, true, NULL, NULL);
     FileMgr::shutdown();
@@ -894,7 +891,7 @@ void btree_multiple_block_test()
     BtreeV2 *btree;
     BtreeV2Result br;
     BnodeMgr *b_mgr;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -919,11 +916,10 @@ void btree_multiple_block_test()
         sprintf((char*)kv_list[i].value, "v%07d", (int)i*2 + 10);
     }
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
-                                              16000000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -1009,8 +1005,8 @@ void btree_multiple_block_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(fr.file, true, NULL, NULL);
     FileMgr::shutdown();
@@ -1025,7 +1021,7 @@ void btree_metadata_test()
     BtreeV2 *btree;
     BtreeV2Result br;
     BnodeMgr *b_mgr;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -1045,11 +1041,10 @@ void btree_metadata_test()
     meta.ctx = metabuf;
     meta_chk.ctx = metabuf_chk;
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
-                                              16000000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -1122,8 +1117,8 @@ void btree_metadata_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(fr.file, true, NULL, NULL);
     FileMgr::shutdown();
@@ -1138,7 +1133,8 @@ void btree_smaller_greater_test()
     BtreeV2 *btree;
     BtreeV2Result br;
     BnodeMgr *b_mgr;
-    FileMgrConfig config(4096, 0, 0, 0, FILEMGR_CREATE,
+
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     filemgr_open_result fr;
@@ -1153,11 +1149,10 @@ void btree_smaller_greater_test()
     size_t n = 10;
     char keybuf[64], valuebuf[64], keybuf_chk[64];
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(16000000,
-                                              16000000);
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(fr.file);
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
     b_mgr = new BnodeMgr();
-    b_mgr->setFile(fr.file, bcache);
+    b_mgr->setFile(fr.file);
     btree = new BtreeV2();
     btree->setBMgr(b_mgr);
 
@@ -1210,8 +1205,8 @@ void btree_smaller_greater_test()
     delete btree;
     delete b_mgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     fr.file->commit_FileMgr(false, nullptr);
 
@@ -1536,12 +1531,11 @@ void bnodemgr_basic_test()
     uint64_t threshold = 200000;
     uint64_t flush_limit = 102400;
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
-                                              flush_limit);
+    BnodeCacheMgr::init(threshold, flush_limit);
 
     FileMgr *file;
-    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
-                         FDB_SEQTREE_NOT_USE, 0, 8,
+    FileMgrConfig config(4096, 48, 1048576, 0, 0,
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8,
                          DEFAULT_NUM_BCACHE_PARTITIONS,
                          FDB_ENCRYPTION_NONE, 0x55, 0, 0);
     std::string fname("./bnodemgr_testfile");
@@ -1551,8 +1545,8 @@ void bnodemgr_basic_test()
     file = result.file;
     TEST_CHK(file != nullptr);
 
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
-    bMgr->setFile(file, bcache);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(file);
+    bMgr->setFile(file);
 
     // register the node to bnodemgr
     bMgr->addDirtyNode(bnode);
@@ -1601,8 +1595,8 @@ void bnodemgr_basic_test()
     bMgr->releaseCleanNodes();
     delete bMgr;
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(file, true, NULL, NULL);
     FileMgr::shutdown();

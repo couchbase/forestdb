@@ -49,7 +49,7 @@ void basic_test()
     char metabuf[1024];
     char bodybuf[4096];
     struct docio_object doc;
-    FileMgrConfig config(blocksize, 1024, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(blocksize, 1024, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     std::string fname("./docio_testfile");

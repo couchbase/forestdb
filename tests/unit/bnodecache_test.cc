@@ -111,14 +111,13 @@ void basic_read_write_test() {
 
     samples = 0;
 
-    uint64_t threshold = 200000;
+    uint64_t threshold = 200000;    // ~ 4096 * 48
     uint64_t flush_limit = 102400;
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
-                                              flush_limit);
+    BnodeCacheMgr::init(threshold, flush_limit);
 
     FileMgr *file;
-    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 48, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8,
                          DEFAULT_NUM_BCACHE_PARTITIONS,
                          FDB_ENCRYPTION_NONE, 0x55, 0, 0);
@@ -129,7 +128,7 @@ void basic_read_write_test() {
     file = result.file;
     TEST_CHK(file != nullptr);
 
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(file);
 
     std::vector<Bnode*> bnodes;
     BnodeResult ret;
@@ -159,22 +158,22 @@ void basic_read_write_test() {
         cs_off_t offset = assignDirtyNodeOffset(file, bnodes.at(i));
         bnodes[i]->setCurOffset(offset);
         start = get_monotonic_ts();
-        int wrote = bcache->write(file, bnodes.at(i), offset);
+        int wrote = BnodeCacheMgr::get()->write(file, bnodes.at(i), offset);
         end = get_monotonic_ts();
         TEST_CHK(wrote == static_cast<int>(bnodes.at(i)->getNodeSize()));
         collect_stat(sa, WRITE, (end - start));
         offsets.push_back(offset);
     }
 
-    TEST_CHK(bcache->flush(file) == FDB_RESULT_SUCCESS);
+    TEST_CHK(BnodeCacheMgr::get()->flush(file) == FDB_RESULT_SUCCESS);
     // Check that the bnodecache memory usage is below set threshold
-    TEST_CHK(bcache->getMemoryUsage() < threshold);
+    TEST_CHK(BnodeCacheMgr::get()->getMemoryUsage() < threshold);
 
     for (size_t i = 0; i < offsets.size(); ++i) {
         Bnode* node = nullptr;
         cs_off_t off = offsets.at(i);
         start = get_monotonic_ts();
-        int read = bcache->read(file, &node, off);
+        int read = BnodeCacheMgr::get()->read(file, &node, off);
         end = get_monotonic_ts();
         TEST_CHK(read == static_cast<int>(node->getNodeSize()));
         collect_stat(sa, READ, (end - start));
@@ -186,8 +185,8 @@ void basic_read_write_test() {
     TEST_CHK(file->getBCacheItems() < static_cast<uint64_t>(n));
     TEST_CHK(file->getBCacheVictims() > 0);
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(file, true, NULL, NULL);
 
@@ -200,7 +199,6 @@ void basic_read_write_test() {
 
 struct ops_args {
     FileMgr* file;
-    BnodeCacheMgr* bcache;
     union {
         std::vector<cs_off_t>* offsets;
         std::vector<Bnode*>* nodes;
@@ -217,9 +215,9 @@ void* reader_ops(void* args) {
         cs_off_t off= ra->offsets->at(index);
         Bnode* readBnode;
         start = get_monotonic_ts();
-        int read = ra->bcache->read(ra->file,
-                                    &readBnode,
-                                    off);
+        int read = BnodeCacheMgr::get()->read(ra->file,
+                                              &readBnode,
+                                              off);
         end = get_monotonic_ts();
         assert(read == static_cast<int>(readBnode->getNodeSize()));
         assert(off == static_cast<cs_off_t>(readBnode->getCurOffset()));
@@ -238,20 +236,20 @@ void* writer_ops(void* args) {
         cs_off_t offset = assignDirtyNodeOffset(wa->file, wa->nodes->at(i));
         wa->nodes->at(i)->setCurOffset(offset);
         start = get_monotonic_ts();
-        int wrote = wa->bcache->write(wa->file, wa->nodes->at(i), offset);
+        int wrote = BnodeCacheMgr::get()->write(wa->file, wa->nodes->at(i), offset);
         end = get_monotonic_ts();
         assert(wrote == static_cast<int>(wa->nodes->at(i)->getNodeSize()));
         collect_stat(wa->sa, WRITE, (end - start));
 
         if (i % 100 == 0) {
             start = get_monotonic_ts();
-            assert(wa->bcache->flush(wa->file) == FDB_RESULT_SUCCESS);
+            assert(BnodeCacheMgr::get()->flush(wa->file) == FDB_RESULT_SUCCESS);
             end = get_monotonic_ts();
             collect_stat(wa->sa, FLUSH, (end - start));
         }
     }
     start = get_monotonic_ts();
-    assert(wa->bcache->flush(wa->file) == FDB_RESULT_SUCCESS);
+    assert(BnodeCacheMgr::get()->flush(wa->file) == FDB_RESULT_SUCCESS);
     end = get_monotonic_ts();
     collect_stat(wa->sa, FLUSH, (end - start));
     return nullptr;
@@ -275,14 +273,13 @@ void multi_threaded_read_write_test(int readers,
 
     samples = 0;
 
-    uint64_t threshold = 10485760;
+    uint64_t threshold = 10485760;  // ~ 4096 * 2560
     uint64_t flush_limit = 10240;
 
-    BnodeCacheMgr* bcache = new BnodeCacheMgr(threshold,
-                                              flush_limit);
+    BnodeCacheMgr::init(threshold, flush_limit);
 
     FileMgr *file;
-    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
+    FileMgrConfig config(4096, 2560, 1048576, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8,
                          DEFAULT_NUM_BCACHE_PARTITIONS,
                          FDB_ENCRYPTION_NONE, 0x55, 0, 0);
@@ -293,7 +290,7 @@ void multi_threaded_read_write_test(int readers,
     file = result.file;
     TEST_CHK(file != nullptr);
 
-    FileBnodeCache* fcache = bcache->createFileBnodeCache(file);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(file);
 
     int initial_count = 10000;
     std::vector<Bnode*> bnodes;
@@ -343,21 +340,20 @@ void multi_threaded_read_write_test(int readers,
     for (size_t i = 0; i < bnodes.size(); ++i) {
         cs_off_t offset = assignDirtyNodeOffset(file, bnodes.at(i));
         bnodes[i]->setCurOffset(offset);
-        int wrote = bcache->write(file, bnodes.at(i), offset);
+        int wrote = BnodeCacheMgr::get()->write(file, bnodes.at(i), offset);
         TEST_CHK(wrote == static_cast<int>(bnodes.at(i)->getNodeSize()));
         offsets.push_back(offset);
 
         if (i % 100 == 0) {
-            TEST_CHK(bcache->flush(file) == FDB_RESULT_SUCCESS);
+            TEST_CHK(BnodeCacheMgr::get()->flush(file) == FDB_RESULT_SUCCESS);
         }
     }
-    TEST_CHK(bcache->flush(file) == FDB_RESULT_SUCCESS);
+    TEST_CHK(BnodeCacheMgr::get()->flush(file) == FDB_RESULT_SUCCESS);
 
     int num_threads = readers + (writer_in_parallel ? 1 : 0);
     thread_t* threads = new thread_t[num_threads];
     struct ops_args rargs;
     rargs.file = file;
-    rargs.bcache = bcache;
     rargs.offsets = &offsets;
     rargs.sa = sa;
     int threadid = 0;
@@ -367,7 +363,6 @@ void multi_threaded_read_write_test(int readers,
 
     struct ops_args wargs;
     wargs.file = file;
-    wargs.bcache = bcache;
     wargs.nodes = &moreBnodes;
     wargs.sa = sa;
     if (writer_in_parallel) {
@@ -381,15 +376,15 @@ void multi_threaded_read_write_test(int readers,
     delete[] threads;
 
     // Check that the bnodecache memory usage is below set threshold
-    TEST_CHK(bcache->getMemoryUsage() < threshold);
+    TEST_CHK(BnodeCacheMgr::get()->getMemoryUsage() < threshold);
     // Check that the number of bnodecache items is less than the inserted
     // count, because of evictions
     TEST_CHK(file->getBCacheItems() < static_cast<uint64_t>(initial_count +
                                                             additional_count));
     TEST_CHK(file->getBCacheVictims() > 0);
 
-    bcache->freeFileBnodeCache(fcache, true);
-    delete bcache;
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
 
     FileMgr::close(file, true, NULL, NULL);
 
