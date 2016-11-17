@@ -981,6 +981,7 @@ void btree_smaller_greater_test()
         memset(keybuf, 'a'+i, 1);
         kv = BtreeKvPair(keybuf, 1, valuebuf, 0);
         br = btree->findGreaterOrEqual( kv );
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
         memset(keybuf_chk, 'a'+i, 8);
         TEST_CMP(kv.key, keybuf_chk, kv.keylen);
     }
