@@ -74,7 +74,7 @@ bool ver_superblock_support(filemgr_magic_t magic)
 bool ver_btreev2_format(filemgr_magic_t magic)
 {
     // All magic numbers since FILEMGR_MAGIC_003
-    if (magic >= FILEMGR_MAGIC_003 && magic <= FILEMGR_LATEST_MAGIC) {
+    if (magic >= FILEMGR_MAGIC_003) {
         return true;
     }
     return false;

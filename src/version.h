@@ -25,7 +25,7 @@
 #include "filemgr.h"
 
 INLINE filemgr_magic_t ver_get_latest_magic() {
-    return FILEMGR_MAGIC_003;
+    return FILEMGR_LATEST_MAGIC;
 }
 bool ver_is_valid_magic(filemgr_magic_t magic);
 bool ver_is_magic_000(filemgr_magic_t magic);

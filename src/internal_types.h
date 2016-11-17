@@ -57,7 +57,9 @@ class WalItr;
 //               unexpected behavior or crash, this magic number is no longer
 //               supported.)
 #define FILEMGR_MAGIC_000 (UINT64_C(0xdeadcafebeefbeef))
-#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_003
+
+// TODO: Set to 003 once BtreeV2 is ready
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_002
 
 
 /**
