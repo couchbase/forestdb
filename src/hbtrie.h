@@ -542,6 +542,21 @@ private:
     hbtrie_result _find(void *key, int keylen, void *valuebuf,
                         struct list *btreelist, uint8_t flag);
 
+    /**
+     * Internal retrieval function based on BtreeV2.
+     *
+     * @param rawkey Key to find.
+     * @param rawkeylen Length of key.
+     * @param given_valuebuf Buffer that value will be returned as a result
+     *        of this API call.
+     * @param args Addtional parameters.
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result _findV2(void *rawkey,
+                          size_t rawkeylen,
+                          void *given_valuebuf,
+                          HBTrieV2Args args);
+
     hbtrie_result _remove(void *rawkey, int rawkeylen, uint8_t flag);
 
     /**

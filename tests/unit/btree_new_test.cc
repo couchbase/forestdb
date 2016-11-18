@@ -1659,6 +1659,28 @@ void hbtriev2_basic_test()
         TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     }
 
+    // retrieval check
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*1111);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    // retrieval check using non-existing key
+    for (i=0; i<n; ++i) {
+        // ________k0000111x
+        // ________k0000222x
+        // ^       ^       ^
+        // chunk0  chunk1  chunk2
+        sprintf(keybuf+8, "k%07dx", (int)i*111);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+    }
+
     delete hbtrie;
     delete b_mgr;
 
@@ -1736,6 +1758,37 @@ void hbtriev2_substring_test()
     offset = _endian_encode(offset);
     hr = hbtrie->insert(keybuf, 16, &offset, nullptr);
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    // retrieval check
+    sprintf(keybuf+8, "c");
+    hr = hbtrie->find(keybuf, 9, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_encode(offset);
+    TEST_CHK(offset == 1);
+
+    sprintf(keybuf+8, "aaaaaaaa");
+    hr = hbtrie->find(keybuf, 16, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_encode(offset);
+    TEST_CHK(offset == 2);
+
+    sprintf(keybuf+8, "aaaaaaaabbb");
+    hr = hbtrie->find(keybuf, 19, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_encode(offset);
+    TEST_CHK(offset == 3);
+
+    sprintf(keybuf+8, "bbbbbbbbccc");
+    hr = hbtrie->find(keybuf, 19, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_encode(offset);
+    TEST_CHK(offset == 4);
+
+    sprintf(keybuf+8, "bbbbbbbb");
+    hr = hbtrie->find(keybuf, 16, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_encode(offset);
+    TEST_CHK(offset == 5);
 
     delete hbtrie;
     delete b_mgr;

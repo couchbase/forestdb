@@ -672,8 +672,146 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
     return HBTRIE_RESULT_FAIL;
 }
 
+// Recursive function.
+hbtrie_result HBTrie::_findV2(void *rawkey,
+                              size_t rawkeylen,
+                              void *given_valuebuf,
+                              HBTrieV2Args args)
+{
+    size_t cur_chunk_no = 0;
+    bool is_custom_cmp = false;
+    uint8_t hv_buf[HV_SIZE];
+
+    BtreeV2 cur_btree;
+    BtreeV2Meta bmeta;
+    BtreeV2Result br;
+    hbtrie_result hr;
+
+    //struct btree btree, btree_new;
+    struct hbtrie_meta hbmeta;
+
+    is_custom_cmp = setLastMapChunk(rawkey);
+
+    // read from root
+    br = cur_btree.initFromAddr(args.rootAddr);
+    if (br != BtreeV2Result::SUCCESS) {
+        return HBTRIE_RESULT_FAIL;
+    }
+    cur_btree.setBMgr(bnodeMgr);
+
+    // TODO: set aux
+    //btreeitem->btree.setAux(aux);
+    MPWrapper meta_buffer;
+    meta_buffer.allocate();
+    bmeta = BtreeV2Meta(cur_btree.getMetaSize(), meta_buffer.getAddr());
+    cur_btree.readMeta(bmeta);
+    fetchMeta(bmeta.size, &hbmeta, bmeta.ctx);
+
+    if (hbmeta.isCustomCmpBtree()) {
+        // (leaf) b+tree using custom compare function
+        is_custom_cmp = true;
+        hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
+    }
+    (void)is_custom_cmp; // will be addressed later (custom compare function)
+
+    cur_chunk_no = hbmeta.chunkno;
+
+    // check if there is a skipped prefix.
+    if (cur_chunk_no > args.prevChunkNo + 1) {
+        // compare with prefix in the meta section
+        void *prefix_from_rawkey = static_cast<uint8_t*>(rawkey) +
+                                   (args.prevChunkNo * chunksize);
+        if (memcmp(prefix_from_rawkey, hbmeta.prefix, hbmeta.prefix_len)) {
+            // prefix mismatch, return fail
+            return HBTRIE_RESULT_FAIL;
+        }
+    }
+
+    if (rawkeylen == cur_chunk_no * chunksize) {
+        // given key is exactly same as the current b+tree's prefix
+        // return the value in meta section
+        HBTrieValue hv_meta(hbmeta.value);
+        hv_meta.toBinaryOffsetOnly(given_valuebuf);
+        return HBTRIE_RESULT_SUCCESS;
+    }
+
+    // search the current b+tree
+    void *chunk = static_cast<uint8_t*>(rawkey) + (cur_chunk_no * chunksize);
+
+    // e.g.) chunksize = 8, rawkeylen = 11
+    // 1) if cur_chunk_no = 1,
+    //    => cur_chunklen = 3 (rest of string)
+    // 2) if cur_chunk_no = 0,
+    //    => cur_chunklen = 8 (regular chunk size)
+    size_t suffix_len = rawkeylen - (cur_chunk_no * chunksize);
+    size_t cur_chunklen = std::min(suffix_len, static_cast<size_t>(chunksize));
+    MPWrapper key_buffer;
+
+    // if suffix length is smaller than a chunk size
+    //  => no sub-tree related processes, just find an exact match key.
+    BtreeKvPair kv_from_btree;
+    if (cur_chunklen < chunksize) {
+        kv_from_btree = BtreeKvPair(chunk, cur_chunklen, hv_buf, 0);
+        br = cur_btree.find(kv_from_btree, false);
+    } else {
+        // if suffix length is equal to or longer than a chunk size
+        //  => find any key whose prefix is same to the chunk.
+        //     e.g.) chunk = 'aa'
+        //           find aa, aaa, aab, aac ...
+        key_buffer.allocate();
+        memcpy(key_buffer.getAddr(), chunk, chunksize);
+        kv_from_btree = BtreeKvPair(key_buffer.getAddr(), chunksize, hv_buf, 0);
+        br = cur_btree.findGreaterOrEqual(kv_from_btree, false);
+    }
+
+    if (br != BtreeV2Result::SUCCESS) {
+        // key not found.
+        return HBTRIE_RESULT_FAIL;
+    }
+
+    HBTrieValue hv_from_btree(kv_from_btree.value);
+    // if the length of key from btree is chunksize,
+    // check if it points to sub-tree.
+    if (hv_from_btree.isSubtree()) {
+        BtreeNodeAddr next_root;
+        if (hv_from_btree.isDirtyRoot()) {
+            // dirty root node => offset is memory address
+            next_root = BtreeNodeAddr(BLK_NOT_FOUND, hv_from_btree.getChildPtr());
+        } else {
+            // clean root node
+            next_root = BtreeNodeAddr(hv_from_btree.getOffset(), nullptr );
+        }
+
+        HBTrieV2Args next_args(cur_chunk_no, next_root);
+        hr = _findV2(rawkey, rawkeylen, given_valuebuf, next_args);
+        return hr;
+    }
+
+    // otherwise, compare key
+    if (kv_from_btree.keylen == suffix_len &&
+        !memcmp(chunk, kv_from_btree.key, suffix_len)) {
+        // same key
+        HBTrieValue hv_from_btree(kv_from_btree.value);
+        hv_from_btree.toBinaryOffsetOnly(given_valuebuf);
+        return HBTRIE_RESULT_SUCCESS;
+    }
+
+    // otherwise, key not found
+    return HBTRIE_RESULT_FAIL;
+}
+
 hbtrie_result HBTrie::find(void *rawkey, int rawkeylen, void *valuebuf)
 {
+    if (ver_btreev2_format(fileHB->getVersion())) {
+        // V2 format
+        if (rootAddr.isEmpty) {
+            // empty HB+trie, fail
+            return HBTRIE_RESULT_FAIL;
+        }
+        HBTrieV2Args args(0, rootAddr);
+        return _findV2(rawkey, rawkeylen, valuebuf, args);
+    }
+
     int nchunk = getNchunkRaw(rawkey, rawkeylen);
     uint8_t *key = alca(uint8_t, nchunk * chunksize);
     int keylen;
