@@ -390,9 +390,19 @@ void FileMgr::init(FileMgrConfig *config)
         if (!fileMgrInitialized) {
             global_config = *config;
 
-            if (global_config.getNcacheBlock() > 0)
-                BlockCacheManager::init(global_config.getNcacheBlock(),
-                                        global_config.getBlockSize());
+            // Initialize buffer cache.
+            // Block-aligned or non-block-aligned based on the latest file
+            // version supported.
+            if (global_config.getNcacheBlock() > 0) {
+                if (ver_btreev2_format(ver_get_latest_magic())) {
+                    BnodeCacheMgr::init(global_config.getNcacheBlock() *
+                                        global_config.getBlockSize(),
+                                        global_config.getFlushLimit());
+                } else {
+                    BlockCacheManager::init(global_config.getNcacheBlock(),
+                                            global_config.getBlockSize());
+                }
+            }
 
             // initialize temp buffer
             list_init(&tempBuf);
@@ -873,13 +883,19 @@ size_t FileMgr::getRefCount()
 
 uint64_t FileMgr::getBcacheUsedSpace(void)
 {
-    uint64_t bcache_free_space = 0;
-    if (global_config.getNcacheBlock()) { // If buffer cache is indeed configured
-        bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-        bcache_free_space = (global_config.getNcacheBlock() - bcache_free_space)
-                            * global_config.getBlockSize();
+    uint64_t bcache_space = 0;
+    if (global_config.getNcacheBlock() > 0) {
+        if (ver_btreev2_format(ver_get_latest_magic())) {
+            // Use New Bnode Cache Manager to get memory used
+            bcache_space = BnodeCacheMgr::get()->getMemoryUsage();
+        } else {
+            // Block-aligned cache is configured
+            bcache_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
+            bcache_space = (global_config.getNcacheBlock() - bcache_space)
+                           * global_config.getBlockSize();
+        }
     }
-    return bcache_free_space;
+    return bcache_space;
 }
 
 FdbTaskable::FdbTaskable(FileMgr *file) : fileExPoolCtx(file),
@@ -905,6 +921,12 @@ struct filemgr_prefetch_args {
 static void *_filemgr_prefetch_thread(void *voidargs)
 {
     struct filemgr_prefetch_args *args = (struct filemgr_prefetch_args*)voidargs;
+
+    // Applies to block-aligned buffer cache only for now
+    if (ver_btreev2_format(args->file->getVersion())) {
+        return nullptr;
+    }
+
     uint8_t *buf = alca(uint8_t, args->file->getBlockSize());
     uint64_t cur_pos = 0, i;
     uint64_t bcache_free_space;
@@ -972,8 +994,12 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 // prefetch the given DB file
 void FileMgr::prefetch(ErrLogCallback *log_callback)
 {
-    uint64_t bcache_free_space;
+    // Applies to block-aligned buffer cache only for now
+    if (ver_btreev2_format(getVersion())) {
+        return;
+    }
 
+    uint64_t bcache_free_space;
     bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
     bcache_free_space *= getBlockSize();
 
@@ -1713,7 +1739,11 @@ fdb_status FileMgr::close(FileMgr *file,
             file->getFileStatus() != FILE_REMOVED_PENDING) {
             file->releaseSpinLock();
             // discard all dirty blocks belonged to this file
-            BlockCacheManager::getInstance()->removeDirtyBlocks(file);
+            if (ver_btreev2_format(file->getVersion())) {
+                BnodeCacheMgr::get()->removeDirtyBnodes(file);
+            } else {
+                BlockCacheManager::getInstance()->removeDirtyBlocks(file);
+            }
         } else {
             // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
             // then its dirty block entries will be cleaned up in either
@@ -1830,11 +1860,18 @@ fdb_status FileMgr::close(FileMgr *file,
 
 void FileMgr::removeAllBufferBlocks() {
     // remove all cached blocks
-    if (global_config.getNcacheBlock() > 0 &&
-        bCache.load(std::memory_order_relaxed)) {
-
-        BlockCacheManager::eraseFileHistory(this);
-        bCache.store(NULL, std::memory_order_relaxed);
+    if (global_config.getNcacheBlock() > 0) {
+        if (ver_btreev2_format(getVersion())) {
+            if (bnodeCache.load(std::memory_order_relaxed)) {
+                BnodeCacheMgr::eraseFileHistory(this);
+                bnodeCache.store(nullptr, std::memory_order_relaxed);
+            }
+        } else {
+            if (bCache.load(std::memory_order_relaxed)) {
+                BlockCacheManager::eraseFileHistory(this);
+                bCache.store(nullptr, std::memory_order_relaxed);
+            }
+        }
     }
 }
 
@@ -1854,12 +1891,7 @@ void FileMgr::freeFunc(FileMgr *file)
     }
 
     // remove all cached blocks
-    if (global_config.getNcacheBlock() > 0 &&
-        file->bCache.load(std::memory_order_relaxed)) {
-
-        BlockCacheManager::eraseFileHistory(file);
-        file->bCache.store(NULL, std::memory_order_relaxed);
-    }
+    file->removeAllBufferBlocks();
 
     if (file->getKVHeader_UNLOCKED()) {
         // multi KV intance mode & KV header exists
@@ -1953,7 +1985,8 @@ fdb_status FileMgr::shutdown()
             FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
             FileMgrMap::shutdown();
             if (global_config.getNcacheBlock() > 0) {
-                BlockCacheManager::getInstance()->destroyInstance();
+                BlockCacheManager::destroyInstance();
+                BnodeCacheMgr::destroyInstance();
             }
             fileMgrInitialized.store(false);
             shutdownTempBuf();
@@ -2057,13 +2090,15 @@ fdb_status FileMgr::checkCRC32(void *buf)
 }
 
 bool FileMgr::invalidateBlock(bid_t bid) {
+    // Applies to block-aligned buffer cache only
     bool ret;
     if (lastCommit.load() < bid * blockSize) {
         ret = true; // block invalidated was allocated recently (uncommitted)
     } else {
         ret = false; // a block from the past is invalidated (committed)
     }
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.getNcacheBlock() > 0 &&
+        !ver_btreev2_format(getVersion())) {
         BlockCacheManager::getInstance()->invalidateBlock(this, bid);
     }
     return ret;
@@ -2072,22 +2107,36 @@ bool FileMgr::invalidateBlock(bid_t bid) {
 bool FileMgr::isFullyResident() {
     bool ret = false;
     if (global_config.getNcacheBlock() > 0) {
-        //TODO: A better thing to do is to track number of document blocks
-        // and only compare those with the cached document block count
-        double num_cached_blocks =
-            static_cast<double>(BlockCacheManager::getInstance()->getNumBlocks(this));
-        uint64_t num_blocks = lastPos.load() / blockSize;
-        double num_fblocks = (double)num_blocks;
-        if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
-            ret = true;
+        if (bCache.load(std::memory_order_relaxed)) {
+            //TODO: A better thing to do is to track number of document blocks
+            // and only compare those with the cached document block count
+            double num_cached_blocks = static_cast<double>(
+                        BlockCacheManager::getInstance()->getNumBlocks(this));
+            uint64_t num_blocks = lastPos.load() / blockSize;
+            double num_fblocks = static_cast<double>(num_blocks);
+            if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
+                ret = true;
+            }
+        } else if (bnodeCache.load(std::memory_order_relaxed)) {
+            // Note that with bnodeCache these stats do not fully represent a
+            // file's resident status, as document blocks are not cached
+            // anymore; This function is only used by WAL flush
+            // optimization which is not necessary for BTreeV2.
+            if (bnodeCache.load()->getNumItems() ==
+                                    bnodeCache.load()->getNumItemsWritten()) {
+                ret = true;
+            }
         }
     }
     return ret;
 }
 
 uint64_t FileMgr::flushImmutable(ErrLogCallback *log_callback) {
+    // Does not apply to non-block-aligned buffer cache
     uint64_t ret = 0;
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.getNcacheBlock() > 0 &&
+        !ver_btreev2_format(getVersion())) {
+
         if (ioInprog.load()) {
             return 0;
         }
@@ -2109,6 +2158,12 @@ uint64_t FileMgr::flushImmutable(ErrLogCallback *log_callback) {
 fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                                  ErrLogCallback *log_callback,
                                  bool read_on_cache_miss) {
+
+    // Applies to block aligned buffer cache only
+    if (ver_btreev2_format(getVersion())) {
+        return FDB_RESULT_EOPNOTSUPP;
+    }
+
     size_t lock_no;
     ssize_t r;
     uint64_t pos = bid * blockSize;
@@ -2302,6 +2357,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
 fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
                                 void *buf, bool final_write,
                                 ErrLogCallback *log_callback) {
+
     size_t lock_no;
     ssize_t r = 0;
     uint64_t pos = bid * blockSize + offset;
@@ -2505,7 +2561,12 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
 
     setIoInprog();
     if (global_config.getNcacheBlock() > 0) {
-        result = BlockCacheManager::getInstance()->flush(this);
+        if (ver_btreev2_format(getVersion())) {
+            result = BnodeCacheMgr::get()->flush(this);
+        } else {
+            result = BlockCacheManager::getInstance()->flush(this);
+        }
+
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
                            "FLUSH", fileName);
@@ -2612,7 +2673,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
             // we MUST invalidate the header block 'bid', since previous
             // contents of 'bid' may remain in block cache and cause data
             // inconsistency if reading header block hits the cache.
-            BlockCacheManager::getInstance()->invalidateBlock(this, bid);
+            invalidateBlock(bid);
         }
 
         ssize_t rv = writeBlocks(buf, 1, bid);
@@ -2671,7 +2732,12 @@ fdb_status FileMgr::sync_FileMgr(bool sync_option,
                                  ErrLogCallback *log_callback) {
     fdb_status result = FDB_RESULT_SUCCESS;
     if (global_config.getNcacheBlock() > 0) {
-        result = BlockCacheManager::getInstance()->flush(this);
+        if (ver_btreev2_format(getVersion())) {
+            result = BnodeCacheMgr::get()->flush(this);
+        } else {
+            result = BlockCacheManager::getInstance()->flush(this);
+        }
+
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, (fdb_status)result,
                            "FLUSH", fileName);
@@ -3075,10 +3141,11 @@ uint64_t FileMgr::getBCacheImmutables() {
     // If bnodeCache is available fetch stats from it,
     // or else if blockCache is available fetch stats from it.
     // Note that both bnodeCache and blockCache cannot exist at the same time.
-    if (bnodeCache.load()) {
-        return bnodeCache.load()->getNumImmutables();
-    } else if (bCache.load()) {
+    if (bCache.load()) {
         return bCache.load()->getNumImmutables();
+    } else if (bnodeCache.load()) {
+        // Items written to a bnodeCache are treated as immutable
+        return bnodeCache.load()->getNumItems();
     } else {
         return 0;
     }

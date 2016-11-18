@@ -137,8 +137,8 @@ public:
     /* Fetch the number of items in the bnode cache */
     uint64_t getNumItems(void) const;
 
-    /* Fetch the number of immutables in the bnode cache */
-    uint64_t getNumImmutables(void) const;
+    /* Fetch the total number of items written to the bnode cache */
+    uint64_t getNumItemsWritten(void) const;
 
     /* Get the last time of access for this bnode cache */
     uint64_t getAccessTimestamp(void) const;
@@ -176,7 +176,7 @@ private:
     std::atomic<uint32_t> refCount;
     std::atomic<uint64_t> numVictims;
     std::atomic<uint64_t> numItems;
-    std::atomic<uint64_t> numImmutables;
+    std::atomic<uint64_t> numItemsWritten;
     std::atomic<uint64_t> accessTimestamp;
 
     // Flag if eviction is running on this victim
@@ -305,6 +305,14 @@ public:
      */
     bool freeFileBnodeCache(FileBnodeCache* fcache, bool force = false);
 
+    /**
+     * Discard all the dirty bnodes for a given file from the bnode cache.
+     * Note that those dirty bnodes are not written to disk.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    void removeDirtyBnodes(FileMgr* file);
+
     void updateBnodeCacheLimit(uint64_t to) {
         bnodeCacheLimit.store(to);
     }
@@ -344,13 +352,6 @@ private:
      */
     void updateParams(uint64_t cache_size, uint64_t flush_limit);
 
-    /**
-     * Discard all the dirty bnodes for a given file from the bnode cache.
-     * Note that those dirty bnodes are not written to disk.
-     *
-     * @param file Pointer to the file manager instance
-     */
-    void removeDirtyBnodes(FileMgr* file);
 
     /**
      * Discard all the clean bnodes for a given file from the bnode cache.
