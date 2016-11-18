@@ -81,6 +81,124 @@ struct btree_kv_ops;
 class FileMgr;
 class BnodeMgr;
 
+
+// Flag that HBTrieValue points to a document.
+#define HV_DOC (0x0)
+// Flag that HBTrieValue points to a sub B+tree.
+#define HV_SUB_TREE (0x80)
+// Flag that root node of sub B+tree is dirty.
+#define HV_DIRTY_ROOT (0x40)
+
+/**
+ * 9-byte structure for HB+trie internal value.
+ *
+ * it can point to
+ *   document offset             (flags == 0x0)
+ *   clean root node of sub-tree (flags == 0x80)
+ *   dirty root node of sub-tree (flags == 0x80 | 0x40)
+ */
+class HBTrieValue {
+public:
+    // default constructor
+    HBTrieValue() :
+        flags(0x0), offset(0x0) { }
+
+    // directly assign offset integer and flags
+    HBTrieValue(uint8_t _flags, uint64_t _offset) :
+        flags(_flags), offset(_offset) { }
+
+    // assign offset from (encoded) binary data given by caller
+    HBTrieValue(uint8_t _flags, void *value_8bytes) :
+        flags(_flags)
+    {
+        offset = *(reinterpret_cast<uint64_t*>(value_8bytes));
+        offset = _endian_decode(offset);
+    }
+
+    // assign offset (or pointer) using node addr info
+    HBTrieValue(BtreeNodeAddr _addr) {
+        flags = HV_SUB_TREE;
+        if (_addr.isDirty) {
+            // dirty node (store pointer address)
+            offset = reinterpret_cast<uint64_t>(_addr.ptr);
+            flags |= HV_DIRTY_ROOT;
+        } else {
+            // clean node (store offset)
+            offset = _addr.offset;
+        }
+    }
+
+    // parse & import flag & offset from existing raw HB+trie binary
+    HBTrieValue(void* value_9bytes) {
+        uint8_t *ptr = reinterpret_cast<uint8_t*>(value_9bytes);
+        flags = *ptr;
+        offset = *( reinterpret_cast<uint64_t*>(ptr+1) );
+        offset = _endian_decode(offset);
+    }
+
+    // export to raw binary including flags
+    // (9 bytes, for internal use inside HB+trie)
+    void *toBinary(void *buf) {
+        if (!buf) {
+            return nullptr;
+        }
+        uint8_t *ptr8 = static_cast<uint8_t*>(buf);
+        uint64_t *ptr64 = reinterpret_cast<uint64_t*>(ptr8+1);
+        *ptr64 = _endian_encode(offset);
+        *ptr8 = flags;
+        return buf;
+    }
+
+    // export to raw binary excluding flags
+    // (8 bytes, for return value outside HB+trie)
+    void *toBinaryOffsetOnly(void *buf) {
+        if (!buf) {
+            return nullptr;
+        }
+        uint64_t *ptr64 = reinterpret_cast<uint64_t*>(buf);
+        *ptr64 = _endian_encode(offset);
+        return buf;
+    }
+
+    bool isSubtree() {
+        return flags & HV_SUB_TREE;
+    }
+
+    bool isDirtyRoot() {
+        return flags & HV_DIRTY_ROOT;
+    }
+
+    uint64_t getOffset() const {
+        return offset;
+    }
+    Bnode* getChildPtr() const {
+        return reinterpret_cast<Bnode*>(offset);
+    }
+
+private:
+    // Flags
+    uint8_t flags;
+    // Offset (or pointer) to document or child B+tree.
+    uint64_t offset;
+};
+
+
+/**
+ * Parameters for BtreeV2 related funcitons.
+ */
+struct HBTrieV2Args {
+    HBTrieV2Args() :
+        prevChunkNo(0), rootAddr() { }
+
+    HBTrieV2Args(size_t _prev_chunk_no, BtreeNodeAddr _root_addr) :
+        prevChunkNo(_prev_chunk_no), rootAddr(_root_addr) { }
+
+    // Previous (caller) function's chunk number.
+    size_t prevChunkNo;
+    // Current (callee) function's B+tree root info.
+    BtreeNodeAddr rootAddr;
+};
+
 /**
  * HB+trie handle definition.
  */
@@ -96,6 +214,9 @@ public:
 
     HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
            BnodeMgr* _bnodeMgr, FileMgr *_file);
+
+    HBTrie(int _chunksize, int _btree_nodesize,
+           BtreeNodeAddr _root_addr, BnodeMgr* _bnodeMgr, FileMgr *_file);
 
     ~HBTrie();
 
@@ -124,6 +245,10 @@ public:
 
     bid_t getRootBid() const {
         return root_bid;
+    }
+
+    BtreeNodeAddr getRootAddr() const {
+        return rootAddr;
     }
 
     uint8_t getChunkSize() const {
@@ -268,8 +393,36 @@ public:
     static void deallocateBuffer(uint8_t **buf, int index);
 
 private:
+    // HB+trie internal value size (9 bytes)
+    static const size_t HV_SIZE;
+
     // Memory Pool
     static MemoryPool* hbtrieMP;
+
+    /**
+     * Wrapper class for allocateBuffer()/deallocateBuffer().
+     */
+    class MPWrapper {
+    public:
+        MPWrapper() :
+            buffer(nullptr), idx(-1) { }
+        ~MPWrapper() {
+            if (buffer) {
+                deallocateBuffer(&buffer, idx);
+            }
+        }
+
+        void allocate() {
+            idx = allocateBuffer(&buffer);
+        }
+        uint8_t *getAddr() const {
+            return buffer;
+        }
+
+    private:
+        uint8_t *buffer;
+        int idx;
+    };
 
     typedef enum {
         HBMETA_NORMAL,
@@ -288,7 +441,10 @@ private:
     uint8_t flag;
     uint8_t leaf_height_limit;
     uint32_t btree_nodesize;
+    // root node BID for old format.
     bid_t root_bid;
+    // root offset (or pointer) for V2 format.
+    BtreeNodeAddr rootAddr;
     union {
         BTreeBlkHandle *btreeblk_handle;
         BnodeMgr *bnodeMgr;
@@ -308,8 +464,10 @@ private:
      * Internal common HBTrie constructor initialization
      */
     void initTrie(int _chunksize, int _valuelen, int _btree_nodesize,
-              bid_t _root_bid, void* _btreestorage_handle,
-              FileMgr *_file, void* _doc_handle, hbtrie_func_readkey* _readkey);
+                  bid_t _root_bid, BtreeNodeAddr _root_addr,
+                  void* _btreestorage_handle,
+                  FileMgr *_file, void* _doc_handle,
+                  hbtrie_func_readkey* _readkey);
 
     inline int getNchunkRaw(void *rawkey, int rawkeylen) const
     {
@@ -320,6 +478,16 @@ private:
     {
         return (keylen-1) / chunksize + 1;
     }
+
+    /**
+     * Estimate B+tree meta data size for given value and prefix length.
+     *
+     * @param value Value that will be stored in the meta section of B+tree.
+     * @param prefixlen Length of prefix that will be stored in the meta
+     *        section of B+tree.
+     * @return Size of meta data.
+     */
+    metasize_t estMetaSize(void *value, uint16_t prefixlen);
 
     /**
      * Store HB+trie meta data in a raw buffer.
@@ -396,6 +564,52 @@ private:
     hbtrie_result _insert(void *rawkey, int rawkeylen,
                           void *value, void *oldvalue_out,
                           uint8_t flag);
+
+    /**
+     * Update HB+trie root node address if given B+tree is a root tree.
+     *
+     * @param cur_btree Current B+tree.
+     * @param cur_chunk_no Current chunk number.
+     */
+    void updateTrieRoot(BtreeV2& cur_btree,
+                        size_t cur_chunk_no);
+
+    /**
+     * Convert local B+tree result and return corresponding HB+trie result.
+     *
+     * @param br B+tree operation result.
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result convertBtreeResult(BtreeV2Result br);
+
+    /**
+     * Update HB+trie root node addr if necessary, and return result value.
+     *
+     * @param hr HB+trie operation result.
+     * @param cur_btree Current B+tree.
+     * @param cur_chunk_no Current chunk number.
+     * @return Given result value.
+     */
+    hbtrie_result updateTrieAndReturn(hbtrie_result hr,
+                                      BtreeV2& cur_btree,
+                                      size_t cur_chunk_no);
+
+    /**
+     * Internal insertion function based on BtreeV2.
+     *
+     * @param rawkey Key to insert.
+     * @param rawkeylen Length of key.
+     * @param value Value to insert.
+     * @param oldvalue_out Old value that will be returned as a result of
+     *        API call.
+     * @param args Addtional parameters.
+     * @param flag Insertion option.
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result _insertV2(void *rawkey, size_t rawkeylen,
+                            void *value, void *oldvalue_out,
+                            HBTrieV2Args args,
+                            uint8_t flag);
 
 
     inline void getLeafKey(void *key, void *str, size_t& len)

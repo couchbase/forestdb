@@ -25,6 +25,7 @@
 #include "bnodemgr.h"
 #include "bnodecache.h"
 #include "btree_new.h"
+#include "hbtrie.h"
 
 void bnode_basic_test()
 {
@@ -1604,6 +1605,150 @@ void bnodemgr_basic_test()
     TEST_RESULT("bnodemgr basic test");
 }
 
+void hbtriev2_basic_test()
+{
+    // test case for most common insertion cases
+    // (1 and 2-2 described in HBTrie::_insertV2()).
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 10;
+    uint64_t offset;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+    for (i=0; i<n; ++i) {
+        // key structure:
+        // ________k00001111
+        // ________k00002222
+        // ^       ^       ^
+        // chunk0  chunk1  chunk2
+        //
+        // Due to suffix optimization,
+        // third (chunk2) B+tree will not be created, and
+        // second (chunk1) B+tree will store 9-byte suffix.
+
+        sprintf(keybuf+8, "k%08d", (int)i*1111);
+        offset = i*100;
+        offset = _endian_encode(offset);
+        hr = hbtrie->insert(keybuf, 17, &offset, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    delete hbtrie;
+    delete b_mgr;
+
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 basic test");
+}
+
+void hbtriev2_substring_test()
+{
+    // test case for 2-1 described in HBTrie::_insertV2()).
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    uint64_t offset;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+
+    sprintf(keybuf+8, "c");
+    offset = 1;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 9, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    // insert two keys, where one key is a sub-string of the others.
+    sprintf(keybuf+8, "aaaaaaaa");
+    offset = 2;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 16, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    sprintf(keybuf+8, "aaaaaaaabbb");
+    offset = 3;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 19, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    // do the same task in an opposite order.
+    sprintf(keybuf+8, "bbbbbbbbccc");
+    offset = 4;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 19, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    sprintf(keybuf+8, "bbbbbbbb");
+    offset = 5;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 16, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    delete hbtrie;
+    delete b_mgr;
+
+    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 sub string test");
+}
+
 int main()
 {
     bnode_basic_test();
@@ -1626,6 +1771,9 @@ int main()
     btree_multiple_block_test();
     btree_metadata_test();
     btree_smaller_greater_test();
+
+    hbtriev2_basic_test();
+    hbtriev2_substring_test();
     return 0;
 }
 

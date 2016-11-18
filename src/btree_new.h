@@ -36,6 +36,11 @@ enum class BtreeV2Result {
 };
 
 struct BtreeV2Meta {
+    BtreeV2Meta() :
+        size(0), ctx(nullptr) { }
+    BtreeV2Meta(uint32_t _size, void* _ctx) :
+        size(_size), ctx(_ctx) { }
+
     // Size of meta data.
     uint32_t size;
     // Meta data.
@@ -162,6 +167,9 @@ public:
     }
     uint64_t getRootOffset() const {
         return rootAddr.offset;
+    }
+    BtreeNodeAddr getRootAddr() const {
+        return rootAddr;
     }
 
     /**
