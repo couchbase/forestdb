@@ -200,6 +200,21 @@ struct HBTrieV2Args {
 };
 
 /**
+ * Return values for BtreeV2 related recursive funcitons.
+ */
+struct HBTrieV2Rets {
+    HBTrieV2Rets() :
+        rootAddr() { }
+
+    HBTrieV2Rets(BtreeNodeAddr _root_addr) :
+        rootAddr(_root_addr) { }
+
+    // Current (callee) B+tree root info.
+    BtreeNodeAddr rootAddr;
+};
+
+
+/**
  * HB+trie handle definition.
  */
 class HBTrie {
@@ -550,12 +565,16 @@ private:
      * @param given_valuebuf Buffer that value will be returned as a result
      *        of this API call.
      * @param args Addtional parameters.
+     * @param rets Addtional return values.
+     * @param remove_key Flag to remove the found key.
      * @return HBTRIE_RESULT_SUCCESS on success.
      */
     hbtrie_result _findV2(void *rawkey,
                           size_t rawkeylen,
                           void *given_valuebuf,
-                          HBTrieV2Args args);
+                          HBTrieV2Args args,
+                          HBTrieV2Rets& rets,
+                          bool remove_key);
 
     hbtrie_result _remove(void *rawkey, int rawkeylen, uint8_t flag);
 

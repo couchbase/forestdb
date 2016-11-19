@@ -95,6 +95,15 @@ struct BtreeNodeAddr {
         }
     }
 
+    bool operator==(const BtreeNodeAddr &other) const {
+        return (other.isDirty == isDirty &&
+                other.isEmpty == isEmpty &&
+                other.offset == offset);
+    }
+    bool operator!=(const BtreeNodeAddr &other) const {
+        return !operator==(other);
+    }
+
     union {
         // Offset of node (if clean).
         uint64_t offset;

@@ -605,8 +605,8 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
         }
     }
 
-    // 4) remove the node if it becomes empty
-    if ( !node->getNentry() ) {
+    // 4) remove the node if it becomes empty & no meta data
+    if (!node->getNentry() && !node->getMetaSize()) {
         bMgr->removeDirtyNode( node );
 
         if (parent_node) {

@@ -1803,6 +1803,118 @@ void hbtriev2_substring_test()
     TEST_RESULT("hb+trie V2 sub string test");
 }
 
+void hbtriev2_remove_test()
+{
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 10;
+    uint64_t offset;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+
+    // key-value:
+    // ________          1
+    // ________k0000000  0
+    // ________k0000001  100
+    // ________k0000002  200
+    // ^       ^
+    // chunk0  chunk1
+
+    offset = 1;
+    offset = _endian_encode(offset);
+    hr = hbtrie->insert(keybuf, 8, &offset, nullptr);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%07d", (int)i);
+        offset = i*100;
+        offset = _endian_encode(offset);
+        hr = hbtrie->insert(keybuf, 16, &offset, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check
+    offset = 0;
+    hr = hbtrie->find(keybuf, 8, &offset);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    offset = _endian_decode(offset);
+    TEST_CHK(offset == 1);
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%07d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 16, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    // remove substring
+    hr = hbtrie->remove(keybuf, 8);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    hr = hbtrie->find(keybuf, 8, &offset);
+    TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+
+    // remove even number keys
+    for (i=0; i<n; i+=2) {
+        sprintf(keybuf+8, "k%07d", (int)i);
+        hr = hbtrie->remove(keybuf, 16);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check again
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%07d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 16, &offset);
+        if (i%2 == 1) {
+            // odd number should exist
+            TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+            offset = _endian_decode(offset);
+            TEST_CHK(offset == i*100);
+        } else {
+            // even number should not exist
+            TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+        }
+    }
+
+    delete hbtrie;
+    delete b_mgr;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 remove test");
+}
+
 int main()
 {
     bnode_basic_test();
@@ -1828,6 +1940,7 @@ int main()
 
     hbtriev2_basic_test();
     hbtriev2_substring_test();
+    hbtriev2_remove_test();
     return 0;
 }
 

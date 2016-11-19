@@ -676,7 +676,9 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
 hbtrie_result HBTrie::_findV2(void *rawkey,
                               size_t rawkeylen,
                               void *given_valuebuf,
-                              HBTrieV2Args args)
+                              HBTrieV2Args args,
+                              HBTrieV2Rets& rets,
+                              bool remove_key)
 {
     size_t cur_chunk_no = 0;
     bool is_custom_cmp = false;
@@ -729,9 +731,28 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
 
     if (rawkeylen == cur_chunk_no * chunksize) {
         // given key is exactly same as the current b+tree's prefix
-        // return the value in meta section
-        HBTrieValue hv_meta(hbmeta.value);
-        hv_meta.toBinaryOffsetOnly(given_valuebuf);
+        if (remove_key) {
+            // remove the value in the meta section
+            metasize_t metasize = estMetaSize(nullptr, hbmeta.prefix_len);
+            MPWrapper new_meta_buffer;
+            new_meta_buffer.allocate();
+
+            storeMeta( metasize, cur_chunk_no,
+                       is_custom_cmp ? HBMETA_LEAF : HBMETA_NORMAL,
+                       hbmeta.prefix, hbmeta.prefix_len,
+                       nullptr, new_meta_buffer.getAddr() );
+            cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
+            rets.rootAddr = cur_btree.getRootAddr();
+        } else {
+            // return the value in meta section
+            if (hbmeta.value) {
+                HBTrieValue hv_meta(hbmeta.value);
+                hv_meta.toBinaryOffsetOnly(given_valuebuf);
+            } else {
+                // value is NULL, which implies key not found.
+                return HBTRIE_RESULT_FAIL;
+            }
+        }
         return HBTRIE_RESULT_SUCCESS;
     }
 
@@ -783,7 +804,27 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
         }
 
         HBTrieV2Args next_args(cur_chunk_no, next_root);
-        hr = _findV2(rawkey, rawkeylen, given_valuebuf, next_args);
+        HBTrieV2Rets local_rets;
+        hr = _findV2(rawkey, rawkeylen, given_valuebuf,
+                     next_args, local_rets, remove_key);
+
+        if (hr == HBTRIE_RESULT_SUCCESS && remove_key) {
+            if (next_root != local_rets.rootAddr) {
+                // child B+tree's root node has been changed.
+                if (local_rets.rootAddr.isEmpty) {
+                    // child B+tree becomes empty => remove {key, ptr} pair.
+                    br = cur_btree.remove(kv_from_btree);
+                } else {
+                    // otherwise => update {key, ptr} pair
+                    HBTrieValue hv_new_ptr(local_rets.rootAddr);
+                    kv_from_btree = BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
+                                                hv_new_ptr.toBinary(hv_buf), HV_SIZE);
+                    br = cur_btree.insert(kv_from_btree);
+                }
+                hr = convertBtreeResult(br);
+            }
+            rets.rootAddr = cur_btree.getRootAddr();
+        }
         return hr;
     }
 
@@ -792,8 +833,16 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
         !memcmp(chunk, kv_from_btree.key, suffix_len)) {
         // same key
         HBTrieValue hv_from_btree(kv_from_btree.value);
-        hv_from_btree.toBinaryOffsetOnly(given_valuebuf);
-        return HBTRIE_RESULT_SUCCESS;
+
+        if (remove_key) {
+            // remove the key
+            br = cur_btree.remove(kv_from_btree);
+            rets.rootAddr = cur_btree.getRootAddr();
+            return convertBtreeResult(br);
+        } else {
+            hv_from_btree.toBinaryOffsetOnly(given_valuebuf);
+            return HBTRIE_RESULT_SUCCESS;
+        }
     }
 
     // otherwise, key not found
@@ -809,7 +858,8 @@ hbtrie_result HBTrie::find(void *rawkey, int rawkeylen, void *valuebuf)
             return HBTRIE_RESULT_FAIL;
         }
         HBTrieV2Args args(0, rootAddr);
-        return _findV2(rawkey, rawkeylen, valuebuf, args);
+        HBTrieV2Rets rets;
+        return _findV2(rawkey, rawkeylen, valuebuf, args, rets, false);
     }
 
     int nchunk = getNchunkRaw(rawkey, rawkeylen);
@@ -910,6 +960,21 @@ hbtrie_result HBTrie::_remove(void *rawkey, int rawkeylen, uint8_t flag)
 
 hbtrie_result HBTrie::remove(void *rawkey, int rawkeylen)
 {
+    if (ver_btreev2_format(fileHB->getVersion())) {
+        // V2 format
+        if (rootAddr.isEmpty) {
+            // empty HB+trie, fail
+            return HBTRIE_RESULT_FAIL;
+        }
+        HBTrieV2Args args(0, rootAddr);
+        HBTrieV2Rets rets;
+        hbtrie_result hr = _findV2(rawkey, rawkeylen, nullptr, args, rets, true);
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            rootAddr = rets.rootAddr;
+        }
+        return hr;
+    }
+
     return _remove(rawkey, rawkeylen, 0x0);
 }
 
