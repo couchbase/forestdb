@@ -501,6 +501,8 @@ void BnodeCacheMgr::removeCleanBnodes(FileMgr* file) {
                 fcache->numItems--;
                 // Decrement memory usage
                 bnodeCacheCurrentUsage.fetch_sub(item->getNodeSize());
+                // Free the item
+                delete item;
             }
             spin_unlock(&fcache->shards[i]->lock);
         }

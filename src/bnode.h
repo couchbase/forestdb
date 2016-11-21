@@ -97,8 +97,29 @@ struct BsaKvMeta {
     // Position of key-value pair.
     uint32_t kvPos;
     // Boolean flag indicates if corresponding key-value pair
-    // contains pointer to child node (true) or binary data (false).
+    // contains the pointer to a dirty inner child node (true),
+    // otherwise false.
     bool isPtr;
+    // Boolean flag indicates if corresponding key-value pair
+    // contains the pointer to a dirty root node of next level child
+    // tree (true), otherwise false. Since the pointer to the next root
+    // node is treated as a (wrapped) value in B+tree level, 'isPtr'
+    // value will not be set to true together.
+    bool isDirtyChildTree;
+};
+
+enum class BsaItrType {
+    // Traverse all items.
+    NORMAL,
+    // Traverse dirty child B+tree node only (items 'isPtr == true').
+    // Due to characteristics of B+tree, dirty child node is
+    // pointed to by intermediate node (level>1) only.
+    DIRTY_BTREE_NODE_ONLY,
+    // In HB+trie mode, traverse the dirty root node of next level
+    // tree only (items 'isDirtyChildTree == true')
+    // Due to characteristics of B+tree, the root node of next level
+    // child tree is pointed to by leaf node (level==1) only.
+    DIRTY_CHILD_TREE_ONLY
 };
 
 /**
@@ -188,43 +209,55 @@ public:
 
     /**
      * Get the first key-value pair in the array.
-     * If 'ptr_only' flag is set, return the first key-value pair that
-     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     * If 'mode' is DIRTY_BTREE_NODE_ONLY, return the first key-value pair that
+     * contains the pointer to the dirty child node (i.e., 'isPtr' is set).
+     * If 'mode' is DIRTY_CHILD_TREE_ONLY, return the first key-value pair that
+     * contains the pointer to the dirty child subtree on HB+trie hierarchy (i.e.,
+     * 'isDirtyChildTree' is set).
      *
-     * @param ptr_only Flag for getting key-pointer pair.
+     * @param mode Option for getting key-pointer pair.
      * @return First key-value pair.
      */
-    BsaItem first(bool ptr_only = false);
+    BsaItem first(BsaItrType mode = BsaItrType::NORMAL);
 
     /**
      * Get the last key-value pair in the array.
-     * If 'ptr_only' flag is set, return the last key-value pair that
-     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     * If 'mode' is DIRTY_BTREE_NODE_ONLY, return the last key-value pair that
+     * contains the pointer to the dirty child node (i.e., 'isPtr' is set).
+     * If 'mode' is DIRTY_CHILD_TREE_ONLY, return the last key-value pair that
+     * contains the pointer to the dirty child subtree on HB+trie hierarchy (i.e.,
+     * 'isDirtyChildTree' is set).
      *
-     * @param ptr_only Flag for getting key-pointer pair.
+     * @param mode Option for getting key-pointer pair.
      * @return Last key-value pair.
      */
-    BsaItem last(bool ptr_only = false);
+    BsaItem last(BsaItrType mode = BsaItrType::NORMAL);
 
     /**
      * Get the previous key-value pair of the given pair.
-     * If 'ptr_only' flag is set, return the first previous key-value pair that
-     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     * If 'mode' is DIRTY_BTREE_NODE_ONLY, return the first previous key-value pair
+     * that contains the pointer to the dirty child node (i.e., 'isPtr' is set).
+     * If 'mode' is DIRTY_CHILD_TREE_ONLY, return the first previous key-value pair
+     * that contains the pointer to the dirty child subtree on HB+trie hierarchy
+     * (i.e., 'isDirtyChildTree' is set).
      *
-     * @param ptr_only Flag for getting key-pointer pair.
+     * @param mode Option for getting key-pointer pair.
      * @return Previous key-value pair.
      */
-    BsaItem prev(BsaItem& cur, bool ptr_only = false);
+    BsaItem prev(BsaItem& cur, BsaItrType mode = BsaItrType::NORMAL);
 
     /**
      * Get the next key-value pair of the given pair.
-     * If 'ptr_only' flag is set, return the first next key-value pair that
-     * containing pointer to child node (i.e., 'isValueChildPtr' is set).
+     * If 'mode' is DIRTY_BTREE_NODE_ONLY, return the first next key-value pair that
+     * contains the pointer to dirty child node (i.e., 'isPtr' is set).
+     * If 'mode' is DIRTY_CHILD_TREE_ONLY, return the first next key-value pair
+     * that contains the pointer to dirty child subtree on HB+trie hierarchy (i.e.,
+     * 'isDirtyChildTree' is set).
      *
-     * @param ptr_only Flag for getting key-pointer pair.
+     * @param mode Option for getting key-pointer pair.
      * @return Next key-value pair.
      */
-    BsaItem next(BsaItem& cur, bool ptr_only = false);
+    BsaItem next(BsaItem& cur, BsaItrType mode = BsaItrType::NORMAL);
 
     /**
      * Find key-value pair for the given key.
@@ -300,6 +333,7 @@ public:
                               bool reset_isptr);
 
 private:
+
     /**
      * Fetch a key-value pair for the given index number.
      *

@@ -459,6 +459,30 @@ void HBTrie::btreeCascadedUpdate(struct list *btreelist,
     freeBtreeList(btreelist);
 }
 
+hbtrie_result HBTrie::writeDirtyNodes()
+{
+    if (!rootAddr.isDirty) {
+        // root node is clean
+        //  => there was no update.
+        return HBTRIE_RESULT_SUCCESS;
+    }
+
+    // load b+tree from the addr
+    BtreeV2Result br;
+    BtreeV2 root_btree;
+    root_btree.setBMgr(bnodeMgr);
+    br = root_btree.initFromAddr(rootAddr);
+    if (br != BtreeV2Result::SUCCESS) {
+        return HBTRIE_RESULT_FAIL;
+    }
+
+    br = root_btree.writeDirtyNodes(true);
+    if (br == BtreeV2Result::SUCCESS) {
+        rootAddr = root_btree.getRootAddr();
+    }
+    return convertBtreeResult(br);
+}
+
 hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                             struct list *btreelist, uint8_t flag)
 {
@@ -678,11 +702,11 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
     is_custom_cmp = setLastMapChunk(rawkey);
 
     // read from root
+    cur_btree.setBMgr(bnodeMgr);
     br = cur_btree.initFromAddr(args.rootAddr);
     if (br != BtreeV2Result::SUCCESS) {
         return HBTRIE_RESULT_FAIL;
     }
-    cur_btree.setBMgr(bnodeMgr);
 
     // TODO: set aux
     //btreeitem->btree.setAux(aux);
@@ -1753,11 +1777,11 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     is_custom_cmp = setLastMapChunk(rawkey);
 
     // read from root
+    cur_btree.setBMgr(bnodeMgr);
     br = cur_btree.initFromAddr(args.rootAddr);
     if (br != BtreeV2Result::SUCCESS) {
         return HBTRIE_RESULT_FAIL;
     }
-    cur_btree.setBMgr(bnodeMgr);
 
     // TODO: set aux
     //btreeitem->btree.setAux(aux);

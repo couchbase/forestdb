@@ -24,6 +24,7 @@
 #include "fdb_internal.h"
 #include "internal_types.h"
 #include "bnode.h"
+#include "hbtrie.h"
 
 
 Bnode::Bnode() :
@@ -707,7 +708,7 @@ void BsArray::adjustBaseOffset(uint32_t _new_base)
     }
 }
 
-BsaItem BsArray::first(bool ptr_only) {
+BsaItem BsArray::first(BsaItrType mode) {
     BsaItem not_found;
     size_t num_elems = kvMeta.size();
 
@@ -716,10 +717,13 @@ BsaItem BsArray::first(bool ptr_only) {
         return not_found;
     }
 
-    if (ptr_only) {
+    if (mode != BsaItrType::NORMAL) {
         uint32_t i;
         for (i=0; i<num_elems; ++i) {
-            if (kvMeta[i].isPtr) {
+            if (mode == BsaItrType::DIRTY_BTREE_NODE_ONLY && kvMeta[i].isPtr) {
+                return fetchItem(i);
+            } else if (mode == BsaItrType::DIRTY_CHILD_TREE_ONLY &&
+                kvMeta[i].isDirtyChildTree) {
                 return fetchItem(i);
             }
         }
@@ -729,7 +733,7 @@ BsaItem BsArray::first(bool ptr_only) {
     return fetchItem(0);
 }
 
-BsaItem BsArray::last(bool ptr_only) {
+BsaItem BsArray::last(BsaItrType mode) {
     BsaItem not_found;
     size_t num_elems = kvMeta.size();
 
@@ -738,10 +742,13 @@ BsaItem BsArray::last(bool ptr_only) {
         return not_found;
     }
 
-    if (ptr_only) {
+    if (mode != BsaItrType::NORMAL) {
         int i;
         for (i=static_cast<int>(num_elems)-1; i>=0; --i) {
-            if (kvMeta[i].isPtr) {
+            if (mode == BsaItrType::DIRTY_BTREE_NODE_ONLY && kvMeta[i].isPtr) {
+                return fetchItem(i);
+            } else if (mode == BsaItrType::DIRTY_CHILD_TREE_ONLY &&
+                kvMeta[i].isDirtyChildTree) {
                 return fetchItem(i);
             }
         }
@@ -751,17 +758,20 @@ BsaItem BsArray::last(bool ptr_only) {
     return fetchItem(num_elems - 1);
 }
 
-BsaItem BsArray::prev(BsaItem& cur, bool ptr_only) {
+BsaItem BsArray::prev(BsaItem& cur, BsaItrType mode) {
     BsaItem not_found;
     if ( cur.idx == 0 ) {
         // no previous item
         return not_found;
     }
 
-    if (ptr_only) {
+    if (mode != BsaItrType::NORMAL) {
         int i;
         for (i=static_cast<int>(cur.idx)-1; i>=0; --i) {
-            if (kvMeta[i].isPtr) {
+            if (mode == BsaItrType::DIRTY_BTREE_NODE_ONLY && kvMeta[i].isPtr) {
+                return fetchItem(i);
+            } else if (mode == BsaItrType::DIRTY_CHILD_TREE_ONLY &&
+                kvMeta[i].isDirtyChildTree) {
                 return fetchItem(i);
             }
         }
@@ -771,7 +781,7 @@ BsaItem BsArray::prev(BsaItem& cur, bool ptr_only) {
     return fetchItem(cur.idx - 1);
 }
 
-BsaItem BsArray::next(BsaItem& cur, bool ptr_only) {
+BsaItem BsArray::next(BsaItem& cur, BsaItrType mode) {
     BsaItem not_found;
     size_t num_elems = kvMeta.size();
 
@@ -780,10 +790,13 @@ BsaItem BsArray::next(BsaItem& cur, bool ptr_only) {
         return not_found;
     }
 
-    if (ptr_only) {
+    if (mode != BsaItrType::NORMAL) {
         uint32_t i;
         for (i=cur.idx+1; i<num_elems; ++i) {
-            if (kvMeta[i].isPtr) {
+            if (mode == BsaItrType::DIRTY_BTREE_NODE_ONLY && kvMeta[i].isPtr) {
+                return fetchItem(i);
+            } else if (mode == BsaItrType::DIRTY_CHILD_TREE_ONLY &&
+                kvMeta[i].isDirtyChildTree) {
                 return fetchItem(i);
             }
         }
@@ -1006,6 +1019,15 @@ void BsArray::constructKvMetaArray(uint32_t kv_data_size,
         offset += sizeof(valuelen_local);
 
         offset += keylen_local;
+
+        if (valuelen_local == HBTrie::getHvSize() &&
+            HBTrie::isDirtyChildTree(ptr+offset)) {
+            // points to a dirty child b+tree root node.
+            kvMeta[i].isDirtyChildTree = true;
+        } else {
+            kvMeta[i].isDirtyChildTree = false;
+        }
+
         offset += valuelen_local;
     }
 }
@@ -1153,6 +1175,14 @@ BsaItem BsArray::addToArray(BsaItem item, uint32_t idx, bool overwrite) {
 
     item.idx = idx;
     item.pos = offset;
+
+    if (item.valuelen == HBTrie::getHvSize() &&
+        HBTrie::isDirtyChildTree(item.value)) {
+        kvMeta[idx].isDirtyChildTree = true;
+    } else {
+        kvMeta[idx].isDirtyChildTree = false;
+    }
+
     return item;
 }
 

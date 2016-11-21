@@ -298,9 +298,11 @@ public:
      * in their parent nodes need to replace their memory pointers with offsets.
      * And those nodes are treated as clean since then.
      *
+     * @param visit_child_tree If true, visit child sub-tree on HB+trie
+     *        hiearachy as well.
      * @return SUCCESS on success.
      */
-    BtreeV2Result writeDirtyNodes();
+    BtreeV2Result writeDirtyNodes(bool visit_child_tree = false);
 
     /**
      * Convert given value to offset.
@@ -450,9 +452,12 @@ private:
      * Internal recursive function for writeDirtyNodes operation.
      *
      * @param cur_node Pointer to the current node.
+     * @param visit_child_tree If true, visit child sub-tree on HB+trie
+     *        hiearachy as well.
      * @return SUCCESS on success.
      */
-    BtreeV2Result _writeDirtyNodes( Bnode *cur_node );
+    BtreeV2Result _writeDirtyNodes(Bnode *cur_node,
+                                   bool visit_child_tree);
 
     // Bnode manager instance.
     BnodeMgr *bMgr;

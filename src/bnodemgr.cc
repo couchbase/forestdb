@@ -96,7 +96,15 @@ Bnode* BnodeMgr::readNode(uint64_t offset)
         return nullptr;
     }
     bnode_out->setCurOffset(offset);
-    cleanNodes.insert( bnode_out );
+
+    if (cleanNodes.find(bnode_out) != cleanNodes.end()) {
+        // Same clean node already exists in the current BnodeMgr,
+        // so we should not increase its ref count once again.
+        // => decrease the ref count that was increased by BnodeCache.
+        bnode_out->decRefCount();
+    } else {
+        cleanNodes.insert( bnode_out );
+    }
 
     return bnode_out;
 }
@@ -169,7 +177,9 @@ void BnodeMgr::flushDirtyNodes()
         //       as they will be relesed by cache during ejection.
     }
     dirtyNodes.clear();
-    BnodeCacheMgr::get()->flush(file);
+
+    // BnodeMgr doesn't need to flush BnodeCache here:
+    // it will be done in ForestDB-level functions.
 }
 
 void BnodeMgr::releaseCleanNode( Bnode *bnode )

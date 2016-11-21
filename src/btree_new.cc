@@ -857,7 +857,7 @@ void BtreeV2::shrinkHeight()
     height = new_root->getLevel();
 }
 
-BtreeV2Result BtreeV2::writeDirtyNodes()
+BtreeV2Result BtreeV2::writeDirtyNodes(bool visit_child_tree)
 {
     if ( !rootAddr.isDirty ) {
         // root node is clean
@@ -866,17 +866,20 @@ BtreeV2Result BtreeV2::writeDirtyNodes()
     }
 
     // start from the root node recursively
-    BtreeV2Result br = _writeDirtyNodes( rootAddr.ptr );
+    BtreeV2Result br = _writeDirtyNodes(rootAddr.ptr, visit_child_tree);
 
     // now root node becomes clean
     rootAddr = BtreeNodeAddr(rootAddr.ptr->getCurOffset(), nullptr);
 
-    bMgr->flushDirtyNodes();
+    // As multiple trees will share the same BnodeMgr, we don't need to
+    // call BnodeMgr::flushDirtyNodes() for each writeDirtyNodes().
+    // Flushing will be invoked by ForestDB-level functions.
 
     return br;
 }
 
-BtreeV2Result BtreeV2::_writeDirtyNodes( Bnode *cur_node )
+BtreeV2Result BtreeV2::_writeDirtyNodes(Bnode *cur_node,
+                                        bool visit_child_tree)
 {
     BtreeV2Result br;
 
@@ -886,12 +889,12 @@ BtreeV2Result BtreeV2::_writeDirtyNodes( Bnode *cur_node )
         // 2) replace ptr to offset
 
         BsArray& kvArr = cur_node->getKvArr();
-        BsaItem kvp = kvArr.first(true);
+        BsaItem kvp = kvArr.first(BsaItrType::DIRTY_BTREE_NODE_ONLY);
         uint64_t child_offset;
 
-        while ( !kvp.isEmpty() ) {
+        while (!kvp.isEmpty()) {
             Bnode *child_node = static_cast<Bnode*>(kvp.value);
-            br = _writeDirtyNodes( child_node );
+            br = _writeDirtyNodes(child_node, visit_child_tree);
             if (br != BtreeV2Result::SUCCESS) {
                 return br;
             }
@@ -899,10 +902,39 @@ BtreeV2Result BtreeV2::_writeDirtyNodes( Bnode *cur_node )
             child_offset = child_node->getCurOffset();
             child_offset = _endian_encode( child_offset );
 
-            BsaItem item = BsaItem(kvp.key, kvp.keylen, (void*)&child_offset, sizeof(child_offset));
+            BsaItem item = BsaItem(kvp.key, kvp.keylen,
+                                   (void*)&child_offset, sizeof(child_offset));
             kvArr.insert(item);
 
-            kvp = kvArr.next(kvp, true);
+            kvp = kvArr.next(kvp, BsaItrType::DIRTY_BTREE_NODE_ONLY);
+        }
+     } else if (visit_child_tree) {
+        // if leaf node and hb+trie-level traversal mode,
+        // 1) traverse dirty child b+tree
+        // 2) replace ptr (with HV_SUB_TREE | HV_DIRTY_ROOT flag) HV to
+        //    offset HV (with HV_SUB_TREE flag)
+
+        BsArray& kvArr = cur_node->getKvArr();
+        BsaItem kvp = kvArr.first(BsaItrType::DIRTY_CHILD_TREE_ONLY);
+        size_t hv_size = HBTrie::getHvSize();
+
+        while (!kvp.isEmpty()) {
+            uint8_t hv_buf[16];
+            HBTrieValue hv(kvp.value);
+            Bnode *child_node = hv.getChildPtr();
+            br = _writeDirtyNodes(child_node, visit_child_tree);
+            if (br != BtreeV2Result::SUCCESS) {
+                return br;
+            }
+
+            hv = HBTrieValue(HV_SUB_TREE, child_node->getCurOffset());
+
+            // replace dirty root info (addr) to clean root info (offset)
+            BsaItem item = BsaItem(kvp.key, kvp.keylen,
+                                   hv.toBinary(hv_buf), hv_size);
+            kvArr.insert(item);
+
+            kvp = kvArr.next(kvp, BsaItrType::DIRTY_CHILD_TREE_ONLY);
         }
     }
 

@@ -433,6 +433,13 @@ public:
                                 void *value, void *oldvalue_out);
 
     /**
+     * Recursively write all dirty nodes in the HB+trie.
+     *
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result writeDirtyNodes();
+
+    /**
      * Read the key of a document which is located at 'offset'.
      * This function internally calls 'trie->readkey' callback function.
      *
@@ -471,6 +478,28 @@ public:
      * freed (only for windows).
      */
     static void deallocateBuffer(uint8_t **buf, int index);
+
+    /**
+     * Return the size of HB+trie internal value.
+     *
+     * @return Size of HB+trie internal value.
+     */
+    static size_t getHvSize() {
+        return HV_SIZE;
+    }
+
+    /**
+     * Check if given HB+trie internal value is a pointer to a dirty child tree.
+     *
+     * @param value HB+trie internal value.
+     * @return True if dirty child tree.
+     */
+    static bool isDirtyChildTree(void *value) {
+        // get the first 1 byte.
+        uint8_t flag = *(static_cast<uint8_t*>(value));
+        uint8_t mask = HV_SUB_TREE | HV_DIRTY_ROOT;
+        return flag == mask;
+    }
 
 private:
     // HB+trie internal value size (9 bytes)

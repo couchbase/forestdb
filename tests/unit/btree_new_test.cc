@@ -312,6 +312,7 @@ void btree_iterator_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     BtreeKvPair kv;
     kv.value = (void*)valuebuf;
@@ -777,6 +778,7 @@ void btree_basic_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     for (i=0; i<n; ++i) {
         free(kv_list[i].key);
@@ -869,6 +871,7 @@ void btree_remove_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     for (i=0; i<n; ++i) {
         free(kv_list[i].key);
@@ -944,6 +947,7 @@ void btree_multiple_block_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     // retrieval check (clean node traversal)
     for (i=0; i<n; ++i) {
@@ -983,6 +987,7 @@ void btree_multiple_block_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     // retrieval check (clean node traversal)
     for (i=0; i<n; ++i) {
@@ -1089,6 +1094,7 @@ void btree_metadata_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     // read meta data from clean root node
     br = btree->readMeta(meta_chk);
@@ -1111,6 +1117,7 @@ void btree_metadata_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     // read meta data from clean root node
     br = btree->readMeta(meta_chk);
@@ -1174,6 +1181,7 @@ void btree_smaller_greater_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
 
     for (i=0; i<n; i++) {
         // a, b, c, ...
@@ -1583,6 +1591,7 @@ void bnodemgr_basic_test()
     uint64_t node_offset = bMgr->assignDirtyNodeOffset(bnode);
     bnode->setCurOffset(node_offset);
     bMgr->flushDirtyNodes();
+    BnodeCacheMgr::get()->flush(file);
 
     // read test
     Bnode *bnode_read = bMgr->readNode(node_offset);
@@ -1975,6 +1984,22 @@ void hbtriev2_insertion_case3_test()
         TEST_CHK(offset == i*100);
     }
 
+    hbtrie->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    b_mgr->releaseCleanNodes();
+
     delete hbtrie;
     delete b_mgr;
 
@@ -1985,6 +2010,138 @@ void hbtriev2_insertion_case3_test()
     FileMgr::shutdown();
 
     TEST_RESULT("hb+trie V2 insertion case 3 test");
+}
+
+void hbtriev2_partial_update_test()
+{
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 200;
+    uint64_t offset;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+    for (i=0; i<n; ++i) {
+        // key structure:
+        // ________k00000000
+        // ________k00000001
+        //         ...
+        // ________k00000009
+        // ________k00000010
+        // ________k00000011
+        // ^       ^       ^
+        // chunk0  chunk1  chunk2
+
+        sprintf(keybuf+8, "k%08d", (int)i);
+        offset = i*100;
+        offset = _endian_encode(offset);
+        hr = hbtrie->insert(keybuf, 17, &offset, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    // update key 55, 75, 95, 115, 135, 155.
+    for (i=55; i<=155; i+=20) {
+        sprintf(keybuf+8, "k%08d", (int)i);
+        // change offset
+        offset = i*100 + 1;
+        offset = _endian_encode(offset);
+        hr = hbtrie->insert(keybuf, 17, &offset, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check (dirty)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        if (55<=i && i<=155 &&
+            (i-55) % 20 == 0) {
+            TEST_CHK(offset == i*100 + 1);
+        } else {
+            TEST_CHK(offset == i*100);
+        }
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->flushDirtyNodes();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        if (55<=i && i<=155 &&
+            (i-55) % 20 == 0) {
+            TEST_CHK(offset == i*100 + 1);
+        } else {
+            TEST_CHK(offset == i*100);
+        }
+    }
+
+    delete hbtrie;
+    delete b_mgr;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 partial update test");
 }
 
 
@@ -2015,6 +2172,7 @@ int main()
     hbtriev2_substring_test();
     hbtriev2_remove_test();
     hbtriev2_insertion_case3_test();
+    hbtriev2_partial_update_test();
     return 0;
 }
 
