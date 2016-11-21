@@ -1915,6 +1915,79 @@ void hbtriev2_remove_test()
     TEST_RESULT("hb+trie V2 remove test");
 }
 
+void hbtriev2_insertion_case3_test()
+{
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 10;
+    uint64_t offset;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+    for (i=0; i<n; ++i) {
+        // key structure:
+        // ________k00000000
+        // ________k00000005
+        // ________k00000010
+        // ________k00000015
+        // ^       ^       ^
+        // chunk0  chunk1  chunk2
+
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        offset = i*100;
+        offset = _endian_encode(offset);
+        hr = hbtrie->insert(keybuf, 17, &offset, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        offset = 0;
+        hr = hbtrie->find(keybuf, 17, &offset);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        offset = _endian_decode(offset);
+        TEST_CHK(offset == i*100);
+    }
+
+    delete hbtrie;
+    delete b_mgr;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 insertion case 3 test");
+}
+
+
 int main()
 {
     bnode_basic_test();
@@ -1941,6 +2014,7 @@ int main()
     hbtriev2_basic_test();
     hbtriev2_substring_test();
     hbtriev2_remove_test();
+    hbtriev2_insertion_case3_test();
     return 0;
 }
 

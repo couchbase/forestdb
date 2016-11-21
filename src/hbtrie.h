@@ -33,7 +33,24 @@ extern "C" {
 
 #define _len2chunk(len) (( (len) + (chunksize-1) ) / chunksize)
 
+
 typedef uint16_t chunkno_t;
+
+// Flag that indicates if given B+tree is based on
+// custom compare function or not.
+#define CUSTOM_COMPARE_MODE (0x8000)
+
+struct hbtrie_meta {
+    bool isCustomCmpBtree() {
+        return chunkno & CUSTOM_COMPARE_MODE;
+    }
+
+    chunkno_t chunkno;
+    uint16_t prefix_len;
+    void *value;
+    void *prefix;
+};
+
 
 /**
  * Callback function for HB+trie, to fetch the entire full key string.
@@ -200,7 +217,55 @@ struct HBTrieV2Args {
 };
 
 /**
+ * Parameters for sub-functions of insertV2.
+ */
+struct HBTrieInsV2Args {
+    HBTrieInsV2Args(HBTrieV2Args& _caller_args,
+                    BtreeV2& _cur_tree,
+                    hbtrie_meta& _hbmeta,
+                    size_t _cur_chunk_no) :
+        callerArgs(_caller_args),
+        curTree(_cur_tree),
+        hbMeta(_hbmeta),
+        curChunkNo(_cur_chunk_no),
+        suffixLen(0),
+        kvFromBtree() { }
+
+    HBTrieInsV2Args(HBTrieV2Args& _caller_args,
+                    BtreeV2& _cur_tree,
+                    hbtrie_meta& _hbmeta,
+                    size_t _cur_chunk_no,
+                    size_t _suffix_len,
+                    BtreeKvPair _kv_from_btree) :
+        callerArgs(_caller_args),
+        curTree(_cur_tree),
+        hbMeta(_hbmeta),
+        curChunkNo(_cur_chunk_no),
+        suffixLen(_suffix_len),
+        kvFromBtree(_kv_from_btree) { }
+
+    // Parameters given by caller function.
+    HBTrieV2Args& callerArgs;
+    // Current B+tree.
+    BtreeV2& curTree;
+    // Current B+tree's meta data.
+    hbtrie_meta& hbMeta;
+    // Current chunk number.
+    size_t curChunkNo;
+    // Suffix length of the given key.
+    size_t suffixLen;
+    // Existing key from the current B+tree.
+    BtreeKvPair kvFromBtree;
+};
+
+/**
  * Return values for BtreeV2 related recursive funcitons.
+ *
+ * Note that this structure is used as a local return value for parent function
+ * on the recursive call stack. For example, parent tree itself should be
+ * updated when its child tree has been changed after the recursive function
+ * call, then we can get the child node's updates using this structure from the
+ * callee function.
  */
 struct HBTrieV2Rets {
     HBTrieV2Rets() :
@@ -564,8 +629,9 @@ private:
      * @param rawkeylen Length of key.
      * @param given_valuebuf Buffer that value will be returned as a result
      *        of this API call.
-     * @param args Addtional parameters.
-     * @param rets Addtional return values.
+     * @param args Additional parameters.
+     * @param rets Local return value to the parent function on the
+     *        recursive stack.
      * @param remove_key Flag to remove the found key.
      * @return HBTRIE_RESULT_SUCCESS on success.
      */
@@ -600,15 +666,6 @@ private:
                           uint8_t flag);
 
     /**
-     * Update HB+trie root node address if given B+tree is a root tree.
-     *
-     * @param cur_btree Current B+tree.
-     * @param cur_chunk_no Current chunk number.
-     */
-    void updateTrieRoot(BtreeV2& cur_btree,
-                        size_t cur_chunk_no);
-
-    /**
      * Convert local B+tree result and return corresponding HB+trie result.
      *
      * @param br B+tree operation result.
@@ -617,16 +674,17 @@ private:
     hbtrie_result convertBtreeResult(BtreeV2Result br);
 
     /**
-     * Update HB+trie root node addr if necessary, and return result value.
+     * Set HBTrieV2Rets (third param) value to the root address of
+     * the current tree (second param), if hr (first param) is SUCCESS.
      *
      * @param hr HB+trie operation result.
      * @param cur_btree Current B+tree.
-     * @param cur_chunk_no Current chunk number.
+     * @param rets Local return value to caller.
      * @return Given result value.
      */
-    hbtrie_result updateTrieAndReturn(hbtrie_result hr,
+    hbtrie_result setLocalReturnValue(hbtrie_result hr,
                                       BtreeV2& cur_btree,
-                                      size_t cur_chunk_no);
+                                      HBTrieV2Rets& rets);
 
     /**
      * Internal insertion function based on BtreeV2.
@@ -636,15 +694,57 @@ private:
      * @param value Value to insert.
      * @param oldvalue_out Old value that will be returned as a result of
      *        API call.
-     * @param args Addtional parameters.
+     * @param args Additional parameters.
+     * @param rets Local return value to the parent function on the
+     *        recursive stack.
      * @param flag Insertion option.
      * @return HBTRIE_RESULT_SUCCESS on success.
      */
     hbtrie_result _insertV2(void *rawkey, size_t rawkeylen,
-                            void *value, void *oldvalue_out,
+                            void *given_value, void *oldvalue_out,
                             HBTrieV2Args args,
+                            HBTrieV2Rets& rets,
                             uint8_t flag);
 
+    /**
+     * Internal insertion function for the case 2 described in _insertV2().
+     *
+     * @param rawkey Key to insert.
+     * @param rawkeylen Length of key.
+     * @param value Value to insert.
+     * @param oldvalue_out Old value that will be returned as a result of
+     *        API call.
+     * @param ins_args Additional parameters for insertion.
+     * @param rets Local return value to the parent function on the
+     *        recursive stack.
+     * @param flag Insertion option.
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result _insertV2Case2(void *rawkey, size_t rawkeylen,
+                                 void *given_value, void *oldvalue_out,
+                                 HBTrieInsV2Args& ins_args,
+                                 HBTrieV2Rets& rets,
+                                 uint8_t flag);
+
+    /**
+     * Internal insertion function for the case 3 described in _insertV2().
+     *
+     * @param rawkey Key to insert.
+     * @param rawkeylen Length of key.
+     * @param value Value to insert.
+     * @param oldvalue_out Old value that will be returned as a result of
+     *        API call.
+     * @param ins_args Additional parameters for insertion.
+     * @param rets Local return value to the parent function on the
+     *        recursive stack.
+     * @param flag Insertion option.
+     * @return HBTRIE_RESULT_SUCCESS on success.
+     */
+    hbtrie_result _insertV2Case3(void *rawkey, size_t rawkeylen,
+                                 void *given_value, void *oldvalue_out,
+                                 HBTrieInsV2Args& ins_args,
+                                 HBTrieV2Rets& rets,
+                                 uint8_t flag);
 
     inline void getLeafKey(void *key, void *str, size_t& len)
     {

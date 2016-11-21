@@ -42,23 +42,6 @@
 #endif
 #endif
 
-typedef uint16_t chunkno_t;
-
-// Flag that indicates if given B+tree is based on
-// custom compare function or not.
-#define CUSTOM_COMPARE_MODE (0x8000)
-
-struct hbtrie_meta {
-    bool isCustomCmpBtree() {
-        return chunkno & CUSTOM_COMPARE_MODE;
-    }
-
-    chunkno_t chunkno;
-    uint16_t prefix_len;
-    void *value;
-    void *prefix;
-};
-
 typedef enum {
     HBMETA_NORMAL,
     HBMETA_LEAF,
@@ -1700,15 +1683,6 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
     return ret_result;
 }
 
-void HBTrie::updateTrieRoot(BtreeV2& cur_btree,
-                            size_t cur_chunk_no)
-{
-    if (cur_chunk_no == 0) {
-        // chunk number == 0 implies root B+tree
-        rootAddr = cur_btree.getRootAddr();
-    }
-}
-
 hbtrie_result HBTrie::convertBtreeResult(BtreeV2Result br) {
     if (br == BtreeV2Result::SUCCESS) {
         return HBTRIE_RESULT_SUCCESS;
@@ -1717,12 +1691,12 @@ hbtrie_result HBTrie::convertBtreeResult(BtreeV2Result br) {
     }
 }
 
-hbtrie_result HBTrie::updateTrieAndReturn(hbtrie_result hr,
-                                         BtreeV2& cur_btree,
-                                         size_t cur_chunk_no)
+hbtrie_result HBTrie::setLocalReturnValue(hbtrie_result hr,
+                                          BtreeV2& cur_btree,
+                                          HBTrieV2Rets& rets)
 {
     if (hr == HBTRIE_RESULT_SUCCESS) {
-        updateTrieRoot(cur_btree, cur_chunk_no);
+        rets.rootAddr = cur_btree.getRootAddr();
     }
     return hr;
 }
@@ -1731,6 +1705,7 @@ hbtrie_result HBTrie::updateTrieAndReturn(hbtrie_result hr,
 hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
                                  void *given_value, void *oldvalue_out,
                                  HBTrieV2Args args,
+                                 HBTrieV2Rets& rets,
                                  uint8_t flag )
 {
     // < insertion cases in HB+trie >
@@ -1803,7 +1778,19 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     if (cur_chunk_no > args.prevChunkNo + 1) {
         // it means that there is a skipped prefix
         // between parent sub-tree and child sub-tree.
-        // TODO: case 3
+
+        // check if prefix is identical.
+        size_t prefix_start_pos = (args.prevChunkNo + 1) * chunksize;
+        if (hbmeta.prefix_len + prefix_start_pos > rawkeylen ||
+            memcmp(hbmeta.prefix,
+                   static_cast<uint8_t*>(rawkey) + prefix_start_pos,
+                   hbmeta.prefix_len)) {
+
+            // prefix mismatch, CASE 3.
+            HBTrieInsV2Args ins_args(args, cur_btree, hbmeta, cur_chunk_no);
+            return _insertV2Case3(rawkey, rawkeylen, given_value, oldvalue_out,
+                                  ins_args, rets, flag);
+        }
     }
 
     if (rawkeylen == cur_chunk_no * chunksize) {
@@ -1819,7 +1806,8 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
                    hbmeta.prefix, hbmeta.prefix_len,
                    given_value, new_meta_buffer.getAddr() );
         cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
-        return HBTRIE_RESULT_SUCCESS;
+        hr = HBTRIE_RESULT_SUCCESS;
+        return setLocalReturnValue(hr, cur_btree, rets);
     }
 
     void *chunk = static_cast<uint8_t*>(rawkey) + (cur_chunk_no * chunksize);
@@ -1866,8 +1854,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         BtreeKvPair kv_insert =
             BtreeKvPair(chunk, suffix_len, hb_value.toBinary(hv_buf), HV_SIZE);
         br = cur_btree.insert(kv_insert);
-        return updateTrieAndReturn(convertBtreeResult(br),
-                                   cur_btree, cur_chunk_no);
+        return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
     // otherwise, same chunk already exists.
 
@@ -1883,8 +1870,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
             BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
             hv_new.toBinary(hv_buf), HV_SIZE);
         br = cur_btree.insert(kv_insert);
-        return updateTrieAndReturn(convertBtreeResult(br),
-                                   cur_btree, cur_chunk_no);
+        return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
 
     // check if value points to sub b+tree
@@ -1900,8 +1886,21 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         }
 
         HBTrieV2Args next_args(cur_chunk_no, next_root);
-        hr = _insertV2(rawkey, rawkeylen, given_value, oldvalue_out, next_args, flag);
-        return updateTrieAndReturn(hr, cur_btree, cur_chunk_no);
+        HBTrieV2Rets local_rets;
+        hr = _insertV2(rawkey, rawkeylen, given_value, oldvalue_out,
+                       next_args, local_rets, flag);
+
+        if (hr == HBTRIE_RESULT_SUCCESS &&
+            next_root != local_rets.rootAddr) {
+            // child B+tree's root node has been changed.
+            //  => update {key, ptr} pair
+            HBTrieValue hv_new_ptr(local_rets.rootAddr);
+            kv_from_btree = BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
+                                        hv_new_ptr.toBinary(hv_buf), HV_SIZE);
+            br = cur_btree.insert(kv_from_btree);
+            hr = convertBtreeResult(br);
+        }
+        return setLocalReturnValue(hr, cur_btree, rets);
     }
     // otherwise, value points to document
 
@@ -1912,13 +1911,23 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         BtreeKvPair kv_insert(kv_from_btree.key, kv_from_btree.keylen,
                               hv_new.toBinary(hv_buf), HV_SIZE);
         br = cur_btree.insert(kv_insert);
-        return updateTrieAndReturn(convertBtreeResult(br),
-                                   cur_btree, cur_chunk_no);
+        return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
 
     // not exact matching key, only chunk part is same.
     //  => CASE 2.
+    HBTrieInsV2Args ins_args(args, cur_btree, hbmeta, cur_chunk_no,
+                             suffix_len, kv_from_btree);
+    return _insertV2Case2(rawkey, rawkeylen, given_value, oldvalue_out,
+                          ins_args, rets, flag);
+}
 
+hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
+                                     void *given_value, void *oldvalue_out,
+                                     HBTrieInsV2Args& ins_args,
+                                     HBTrieV2Rets& rets,
+                                     uint8_t flag)
+{
     //                               prefix     first_diff
     //                               <---->     v
     // key: xxxxxx xxxxxx ... xxxxxx xxxxxx xxxxxx xxxx
@@ -1929,6 +1938,16 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     // Note: 'kv_from_btree.key' is not a full key since prefix is skipped,
     //       so it starts from the current chunk.
     //       'rawkey' is a full key starts from chunk 0.
+
+    BtreeV2& cur_btree = ins_args.curTree;
+    size_t cur_chunk_no = ins_args.curChunkNo;
+    size_t suffix_len = ins_args.suffixLen;
+    BtreeKvPair kv_from_btree = ins_args.kvFromBtree;
+    BtreeV2Result br;
+    uint8_t hv_buf[HV_SIZE];
+
+    void *chunk = static_cast<uint8_t*>(rawkey) + (cur_chunk_no * chunksize);
+
     size_t first_diff = (cur_chunk_no+1) * chunksize;
     size_t cur_chunk_pos = cur_chunk_no * chunksize;
 
@@ -1988,15 +2007,13 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
 
         br = next_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br),
-                                       cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
 
         // insert long key into the new sub tree
         br = next_btree.insert(long_key);
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br),
-                                       cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
     } else {
         // otherwise: CASE 2-2.
@@ -2015,8 +2032,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
 
         br = next_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br),
-                                       cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
 
         // insert two keys
@@ -2027,8 +2043,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
                                 kv_from_btree.value, kv_from_btree.valuelen);
         br = next_btree.insert(existing_kv);
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br),
-                                      cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
 
         // 2) rawkey (given by caller)
@@ -2038,8 +2053,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
                              hv_new.toBinary(hv_buf), HV_SIZE);
         br = next_btree.insert(given_kv);
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br),
-                                       cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
     }
 
@@ -2050,8 +2064,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     BtreeKvPair new_tree_kv(chunk, chunksize, new_tree_hv.toBinary(hv_buf), HV_SIZE);
     br = cur_btree.insert(new_tree_kv);
     if (br != BtreeV2Result::SUCCESS) {
-        return updateTrieAndReturn(convertBtreeResult(br),
-                                   cur_btree, cur_chunk_no);
+        return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
 
     if (kv_from_btree.keylen != chunksize &&
@@ -2062,11 +2075,113 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         //  remove() after insert() is invoked.)
         br = cur_btree.remove(kv_from_btree);
         if (br != BtreeV2Result::SUCCESS) {
-            return updateTrieAndReturn(convertBtreeResult(br), cur_btree, cur_chunk_no);
+            return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
         }
     }
 
-    return updateTrieAndReturn(convertBtreeResult(br), cur_btree, cur_chunk_no);
+    return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
+
+}
+
+hbtrie_result HBTrie::_insertV2Case3(void *rawkey, size_t rawkeylen,
+                                     void *given_value, void *oldvalue_out,
+                                     HBTrieInsV2Args& ins_args,
+                                     HBTrieV2Rets& rets,
+                                     uint8_t flag)
+{
+    //               skipped prefix (old prefix for cur_tree)
+    //                        <------------------>
+    //           prefix for new_tree        new prefix for cur_tree
+    //                        <---->        <---->
+    // key: xxxxxx ... xxxxxx xxxxxx xxxxxx xxxxxx xxxxxx
+    //      ^          ^             ^             ^
+    //      chunk0     prevChunkNo   diff_chunk    cur_chunk_no
+    //                               (new_tree)      (cur_tree)
+
+    HBTrieV2Args& args = ins_args.callerArgs;
+    BtreeV2& cur_btree = ins_args.curTree;
+    hbtrie_meta& hbmeta = ins_args.hbMeta;
+    size_t cur_chunk_no = ins_args.curChunkNo;
+    BtreeV2Result br;
+
+    // 1) find first different chunk
+    size_t prefix_start_pos = (args.prevChunkNo + 1) * chunksize;
+    size_t first_diff = prefix_start_pos;
+    size_t cur_chunk_pos = cur_chunk_no * chunksize;
+    for (; first_diff < cur_chunk_pos; ++first_diff) {
+        if (*(static_cast<uint8_t*>(hbmeta.prefix) +
+                first_diff - prefix_start_pos) !=
+            *(static_cast<uint8_t*>(rawkey) + first_diff)) {
+            break;
+        }
+    }
+    size_t diff_chunk = first_diff / chunksize;
+
+    // 2) create a new sub-tree for 'diff_chunk'
+    BtreeV2 new_tree;
+    MPWrapper new_meta_buffer;
+    metasize_t new_metasize;
+
+    new_meta_buffer.allocate();
+    size_t prefix_len_new_tree = diff_chunk * chunksize - prefix_start_pos;
+
+    if (hbmeta.prefix_len + prefix_start_pos == rawkeylen) {
+        // given key is exactly same as the new tree's prefix
+        //  => store value in the meta section
+        HBTrieValue meta_value_new_tree(HV_DOC, given_value);
+        uint8_t meta_value_buf_new_tree[HV_SIZE];
+        storeMeta( new_metasize, diff_chunk, HBMETA_NORMAL,
+                   static_cast<uint8_t*>(hbmeta.prefix),
+                   prefix_len_new_tree,
+                   meta_value_new_tree.toBinary(meta_value_buf_new_tree),
+                   new_meta_buffer.getAddr() );
+    } else {
+        // otherwise => empty value
+        storeMeta( new_metasize, diff_chunk, HBMETA_NORMAL,
+                   static_cast<uint8_t*>(hbmeta.prefix),
+                   prefix_len_new_tree, nullptr,
+                   new_meta_buffer.getAddr() );
+    }
+
+    new_tree.init();
+    new_tree.setBMgr(bnodeMgr);
+
+    br = new_tree.updateMeta(BtreeV2Meta(new_metasize,
+                                         new_meta_buffer.getAddr()));
+    if (br != BtreeV2Result::SUCCESS) {
+        return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
+    }
+
+    // 3) adjust old child tree (cur_tree) prefix
+    size_t prefix_len_cur_tree = (cur_chunk_no - diff_chunk - 1) * chunksize;
+    storeMeta( new_metasize, cur_chunk_no, HBMETA_NORMAL,
+               static_cast<uint8_t*>(hbmeta.prefix) +
+                   prefix_len_new_tree + chunksize,
+               prefix_len_cur_tree,
+               hbmeta.value,
+               new_meta_buffer.getAddr() );
+
+    // 4) insert old child tree (cur_tree) into the new tree.
+    void *chunk_old_tree = static_cast<uint8_t*>(hbmeta.prefix) +
+                           prefix_len_new_tree;
+    BtreeKvPair new_kv;
+    HBTrieValue new_hv(cur_btree.getRootAddr());
+    uint8_t new_hv_buf[HV_SIZE];
+    new_kv = BtreeKvPair(static_cast<uint8_t*>(chunk_old_tree), chunksize,
+                         new_hv.toBinary(new_hv_buf), HV_SIZE);
+    br = new_tree.insert(new_kv);
+    if (br != BtreeV2Result::SUCCESS) {
+        return setLocalReturnValue(convertBtreeResult(br), new_tree, rets);
+    }
+
+    // 5) insert suffix of rawkey into the new tree.
+    void *chunk_rawkey = static_cast<uint8_t*>(rawkey) + diff_chunk * chunksize;
+    size_t suffix_len = rawkeylen - diff_chunk * chunksize;
+    new_hv = HBTrieValue(HV_DOC, given_value);
+    new_kv = BtreeKvPair(static_cast<uint8_t*>(chunk_rawkey), suffix_len,
+                         new_hv.toBinary(new_hv_buf), HV_SIZE);
+    br = new_tree.insert(new_kv);
+    return setLocalReturnValue(convertBtreeResult(br), new_tree, rets);
 }
 
 hbtrie_result HBTrie::insert(void *rawkey, int rawkeylen,
@@ -2095,7 +2210,13 @@ hbtrie_result HBTrie::insert(void *rawkey, int rawkeylen,
             rootAddr = cur_btree.getRootAddr();
         }
         HBTrieV2Args args(0, rootAddr);
-        return _insertV2(rawkey, rawkeylen, value, oldvalue_out, args, 0x0);
+        HBTrieV2Rets rets;
+        hbtrie_result hr = _insertV2(rawkey, rawkeylen, value, oldvalue_out,
+                                     args, rets, 0x0);
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            rootAddr = rets.rootAddr;
+        }
+        return hr;
     }
 
     return _insert(rawkey, rawkeylen, value, oldvalue_out, 0x0);
