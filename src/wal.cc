@@ -284,6 +284,7 @@ Snapshot::Snapshot() :
     memset(&snaplist_elem, 0, sizeof(struct list_elem));
     list_init(&active_txn_list);
     memset(&stat, 0, sizeof(KvsStat));
+    memset(&cmp_info, 0, sizeof(struct _fdb_key_cmp_info));
     avl_init(&key_tree, &cmp_info);
     avl_init(&seq_tree, NULL);
 }
