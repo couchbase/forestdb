@@ -28,6 +28,7 @@
 #include "btree_fast_str_kv.h"
 #include "internal_types.h"
 #include "version.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -130,7 +131,7 @@ HBTrie::HBTrie() :
     chunksize(0), valuelen(0), flag(0x0), leaf_height_limit(0), btree_nodesize(0),
     root_bid(0), rootAddr(), btreeblk_handle(NULL), fileHB(NULL), doc_handle(NULL),
     btree_kv_ops(NULL), btree_leaf_kv_ops(NULL), readkey(NULL), map(NULL),
-    last_map_chunk(NULL)
+    last_map_chunk(NULL), getCmpFuncCB(nullptr)
 {
     aux = &cmp_args;
 }
@@ -191,6 +192,7 @@ void HBTrie::initTrie(int _chunksize, int _valuelen, int _btree_nodesize,
     flag = 0x0;
     leaf_height_limit = 0;
     map = NULL;
+    getCmpFuncCB = nullptr;
 
     // assign key-value operations
     if (ver_btreev2_format(fileHB->getVersion())) {
@@ -688,7 +690,6 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
                               bool remove_key)
 {
     size_t cur_chunk_no = 0;
-    bool is_custom_cmp = false;
     uint8_t hv_buf[HV_SIZE];
 
     BtreeV2 cur_btree;
@@ -699,8 +700,6 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
     //struct btree btree, btree_new;
     struct hbtrie_meta hbmeta;
 
-    is_custom_cmp = setLastMapChunk(rawkey);
-
     // read from root
     cur_btree.setBMgr(bnodeMgr);
     br = cur_btree.initFromAddr(args.rootAddr);
@@ -708,22 +707,21 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
         return HBTRIE_RESULT_FAIL;
     }
 
-    // TODO: set aux
-    //btreeitem->btree.setAux(aux);
     MPWrapper meta_buffer;
     meta_buffer.allocate();
     bmeta = BtreeV2Meta(cur_btree.getMetaSize(), meta_buffer.getAddr());
     cur_btree.readMeta(bmeta);
     fetchMeta(bmeta.size, &hbmeta, bmeta.ctx);
 
-    if (hbmeta.isCustomCmpBtree()) {
-        // (leaf) b+tree using custom compare function
-        is_custom_cmp = true;
-        hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
-    }
-    (void)is_custom_cmp; // will be addressed later (custom compare function)
-
     cur_chunk_no = hbmeta.chunkno;
+    if (cur_chunk_no) {
+        // If this is not the root B+tree (cur_chunk_no > 0),
+        // set custom cmp function if exists.
+        // Note that root B+tree does not use custom cmp function,
+        // since it stores KVS ID which always should be in a
+        // lexicographical order.
+        cur_btree.setCmpFunc(getCmpFuncForGivenKey(rawkey));
+    }
 
     // check if there is a skipped prefix.
     if (cur_chunk_no > args.prevChunkNo + 1) {
@@ -744,8 +742,7 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
             MPWrapper new_meta_buffer;
             new_meta_buffer.allocate();
 
-            storeMeta( metasize, cur_chunk_no,
-                       is_custom_cmp ? HBMETA_LEAF : HBMETA_NORMAL,
+            storeMeta( metasize, cur_chunk_no, HBMETA_NORMAL,
                        hbmeta.prefix, hbmeta.prefix_len,
                        nullptr, new_meta_buffer.getAddr() );
             cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
@@ -775,11 +772,17 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
     size_t cur_chunklen = std::min(suffix_len, static_cast<size_t>(chunksize));
     MPWrapper key_buffer;
 
-    // if suffix length is smaller than a chunk size
-    //  => no sub-tree related processes, just find an exact match key.
     BtreeKvPair kv_from_btree;
-    if (cur_chunklen < chunksize) {
-        kv_from_btree = BtreeKvPair(chunk, cur_chunklen, hv_buf, 0);
+    // If custom cmp function is assigned, we cannot split the key
+    // into multiple chunks as it is not in a lexicographical order.
+    // So there are always 2-levels of trees in custom cmp mode:
+    // chunk 0 (KVS ID) and chunk 1 (actual key).
+    // We directly compare the entire key in this case.
+    if (cur_chunklen < chunksize || cur_btree.getCmpFunc()) {
+        // if suffix length is smaller than a chunk size, OR
+        // custom cmp mode
+        //  => no sub-tree related processes, just find an exact match key.
+        kv_from_btree = BtreeKvPair(chunk, suffix_len, hv_buf, 0);
         br = cur_btree.find(kv_from_btree, false);
     } else {
         // if suffix length is equal to or longer than a chunk size
@@ -1725,6 +1728,30 @@ hbtrie_result HBTrie::setLocalReturnValue(hbtrie_result hr,
     return hr;
 }
 
+btree_new_cmp_func* HBTrie::getCmpFuncForGivenKey(void *rawkey)
+{
+    btree_new_cmp_func *cmp_func = nullptr;
+
+    if (getCmpFuncCB) {
+        // get KVS ID from the first chunk
+        uint64_t kvs_id;
+        // the reason why we call this function is because
+        // chunk size is variable (4~64 bytes).
+        buf2kvid(chunksize, rawkey, &kvs_id);
+
+        auto entry = cmpFuncMap.find(kvs_id);
+        if (entry == cmpFuncMap.end()) {
+            // KVS ID doesn't exist in the map
+            //  => we should reflect the latest info.
+            cmp_func = getCmpFuncCB(this, kvs_id, nullptr);
+            cmpFuncMap.insert(std::make_pair(kvs_id, cmp_func));
+        } else {
+            cmp_func = entry->second;
+        }
+    }
+    return cmp_func;
+}
+
 // Recursive function.
 hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
                                  void *given_value, void *oldvalue_out,
@@ -1766,15 +1793,12 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     //
 
     size_t cur_chunk_no = 0;
-    bool is_custom_cmp = false;
     uint8_t hv_buf[HV_SIZE];
     BtreeV2 cur_btree;
     BtreeV2Meta bmeta;
     BtreeV2Result br;
     hbtrie_result hr;
     struct hbtrie_meta hbmeta;
-
-    is_custom_cmp = setLastMapChunk(rawkey);
 
     // read from root
     cur_btree.setBMgr(bnodeMgr);
@@ -1783,20 +1807,21 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         return HBTRIE_RESULT_FAIL;
     }
 
-    // TODO: set aux
-    //btreeitem->btree.setAux(aux);
     MPWrapper meta_buffer;
     meta_buffer.allocate();
     bmeta = BtreeV2Meta(cur_btree.getMetaSize(), meta_buffer.getAddr());
     cur_btree.readMeta(bmeta);
     fetchMeta(bmeta.size, &hbmeta, bmeta.ctx);
 
-    if (hbmeta.isCustomCmpBtree()) {
-        // b+tree using custom compare function
-        is_custom_cmp = true;
-        hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
-    }
     cur_chunk_no = hbmeta.chunkno;
+    if (cur_chunk_no) {
+        // If this is not the root B+tree (cur_chunk_no > 0),
+        // set custom cmp function if exists.
+        // Note that root B+tree does not use custom cmp function,
+        // since it stores KVS ID which always should be in a
+        // lexicographical order.
+        cur_btree.setCmpFunc(getCmpFuncForGivenKey(rawkey));
+    }
 
     // check if there is a skipped prefix.
     if (cur_chunk_no > args.prevChunkNo + 1) {
@@ -1825,8 +1850,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
 
-        storeMeta( metasize, cur_chunk_no,
-                   is_custom_cmp ? HBMETA_LEAF : HBMETA_NORMAL,
+        storeMeta( metasize, cur_chunk_no, HBMETA_NORMAL,
                    hbmeta.prefix, hbmeta.prefix_len,
                    given_value, new_meta_buffer.getAddr() );
         cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
@@ -1845,11 +1869,18 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     size_t cur_chunklen = std::min(suffix_len, static_cast<size_t>(chunksize));
     MPWrapper key_buffer;
 
-    // if suffix length is smaller than a chunk size
-    //  => no sub-tree related processes, just find an exact match key.
+
     BtreeKvPair kv_from_btree;
-    if (cur_chunklen < chunksize) {
-        kv_from_btree = BtreeKvPair(chunk, cur_chunklen, hv_buf, 0);
+    // If custom cmp function is assigned, we cannot split the key
+    // into multiple chunks as it is not in a lexicographical order.
+    // So there are always 2-levels of trees in custom cmp mode:
+    // chunk 0 (KVS ID) and chunk 1 (actual key).
+    // We directly compare the entire key in this case.
+    if (cur_chunklen < chunksize || cur_btree.getCmpFunc()) {
+        // if suffix length is smaller than a chunk size, OR
+        // custom cmp mode
+        //  => no sub-tree related processes, just find an exact match key.
+        kv_from_btree = BtreeKvPair(chunk, suffix_len, hv_buf, 0);
         br = cur_btree.find(kv_from_btree, false);
     } else {
         // if suffix length is equal to or longer than a chunk size
@@ -2044,6 +2075,8 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
         //   both (given key, found key) are longer than a chunk size.
         //   create a new sub-tree and insert two keys into it.
 
+        // check if custom cmp function exists
+        btree_new_cmp_func *cmp_func = getCmpFuncForGivenKey(rawkey);
         metasize = estMetaSize(given_value, prefix_len);
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
@@ -2053,6 +2086,7 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
 
         next_btree.init();
         next_btree.setBMgr(bnodeMgr);
+        next_btree.setCmpFunc(cmp_func);
 
         br = next_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
         if (br != BtreeV2Result::SUCCESS) {

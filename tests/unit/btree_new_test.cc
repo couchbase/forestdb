@@ -558,7 +558,7 @@ void bnode_split_test()
 }
 
 static int bnode_custom_cmp_func(void *key1, size_t keylen1,
-    void *key2, size_t keylen2, void *aux)
+                                 void *key2, size_t keylen2)
 {
     // only compare the last digit (8th byte)
     char chr1 = *((char*)key1 + 7);
@@ -1224,6 +1224,105 @@ void btree_smaller_greater_test()
     FileMgr::shutdown();
 
     TEST_RESULT("btree smaller greater test");
+}
+
+
+static int btree_custom_cmp_func(void *key1, size_t keylen1,
+                                 void *key2, size_t keylen2)
+{
+    // skip first 5 bytes, and only compare the last 3 digit (6~8th bytes)
+    uint8_t* key1_suffix = static_cast<uint8_t*>(key1) + 5;
+    uint8_t* key2_suffix = static_cast<uint8_t*>(key2) + 5;
+    return memcmp(key1_suffix, key2_suffix, 3);
+}
+
+void btree_custom_cmp_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 100;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+    btree->setCmpFunc(btree_custom_cmp_func);
+
+    BtreeKvPair kv;
+
+    for (i=0; i<n; i++) {
+        // key structure
+        // KK100000
+        // KK099001
+        // KK098002
+        // ...
+        sprintf(keybuf, "KK%03d%03d", (int)(n-i), (int)i);
+        sprintf(valuebuf, "VV%06d", (int)i);
+        kv.key = keybuf;
+        kv.value = valuebuf;
+        kv.keylen = kv.valuelen = 8;
+        btree->insert(kv);
+    }
+
+    // retrieval check (dirty)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "KK%03d%03d", (int)(n-i), (int)i);
+        sprintf(valuebuf_chk, "VV%06d", (int)i);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        kv.value = valuebuf;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "KK%03d%03d", (int)(n-i), (int)i);
+        sprintf(valuebuf_chk, "VV%06d", (int)i);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        kv.value = valuebuf;
+        br = btree->find(kv);
+        TEST_CHK(br == BtreeV2Result::SUCCESS);
+        TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    fr.file->commit_FileMgr(false, nullptr);
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree custom compare function test");
 }
 
 void bsa_seq_insert_test()
@@ -2145,6 +2244,118 @@ void hbtriev2_partial_update_test()
 }
 
 
+btree_new_cmp_func* hbtriev2_cmp_func_callback(HBTrie *hbtrie,
+                                               uint64_t kvs_id,
+                                               void *aux)
+{
+    (void)hbtrie;
+    (void)aux;
+    // ID 0: normal lexicographical order
+    // ID 1: custom function (btree_custom_cmp_func)
+    if (kvs_id == 1) {
+        return btree_custom_cmp_func;
+    }
+    return nullptr;
+}
+
+void hbtriev2_custom_cmp_test()
+{
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 100;
+    uint64_t offset;
+    uint64_t kvs_id;
+    char keybuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+    hbtrie->setCmpFuncCB(hbtriev2_cmp_func_callback);
+
+    for (kvs_id = 0; kvs_id <= 1; ++kvs_id) {
+        uint64_t encoded = _endian_encode(kvs_id);
+        memcpy(keybuf, &encoded, sizeof(encoded));
+        for (i=0; i<n; ++i) {
+            // key structure
+            // __KVS_ID_KK100000
+            // __KVS_ID_KK099001
+            // __KVS_ID_KK098002
+            // ^        ^
+            // chunk0   chunk1
+            // ...
+            sprintf(keybuf+8, "KK%03d%03d", (int)(n-i), (int)i);
+            offset = i*100;
+            offset = _endian_encode(offset);
+            hr = hbtrie->insert(keybuf, 16, &offset, nullptr);
+            TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        }
+    }
+
+    // retrieval check
+    for (kvs_id = 0; kvs_id <= 1; ++kvs_id) {
+        uint64_t encoded = _endian_encode(kvs_id);
+        memcpy(keybuf, &encoded, sizeof(encoded));
+        for (i=0; i<n; ++i) {
+            sprintf(keybuf+8, "KK%03d%03d", (int)(n-i), (int)i);
+            offset = 0;
+            hr = hbtrie->find(keybuf, 16, &offset);
+            TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+            offset = _endian_decode(offset);
+            TEST_CHK(offset == i*100);
+        }
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (kvs_id = 0; kvs_id <= 1; ++kvs_id) {
+        uint64_t encoded = _endian_encode(kvs_id);
+        memcpy(keybuf, &encoded, sizeof(encoded));
+        for (i=0; i<n; ++i) {
+            sprintf(keybuf+8, "KK%03d%03d", (int)(n-i), (int)i);
+            offset = 0;
+            hr = hbtrie->find(keybuf, 16, &offset);
+            TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+            offset = _endian_decode(offset);
+            TEST_CHK(offset == i*100);
+        }
+    }
+
+    delete hbtrie;
+    delete b_mgr;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 custom compare function test");
+}
+
 int main()
 {
     bnode_basic_test();
@@ -2167,12 +2378,14 @@ int main()
     btree_multiple_block_test();
     btree_metadata_test();
     btree_smaller_greater_test();
+    btree_custom_cmp_test();
 
     hbtriev2_basic_test();
     hbtriev2_substring_test();
     hbtriev2_remove_test();
     hbtriev2_insertion_case3_test();
     hbtriev2_partial_update_test();
+    hbtriev2_custom_cmp_test();
     return 0;
 }
 

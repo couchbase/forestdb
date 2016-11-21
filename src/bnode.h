@@ -419,9 +419,8 @@ enum class BnodeResult {
 /**
  * Definition of variable-length key comparison function.
  */
-typedef int btree_new_cmp_func( void *key1, size_t keylen1,
-                                void *key2, size_t keylen2,
-                                void *aux );
+typedef int btree_new_cmp_func(void *key1, size_t keylen1,
+                               void *key2, size_t keylen2);
 
 /**
  * Report error on given Bnode.

@@ -168,6 +168,13 @@ public:
         bMgr = _bnode_mgr;
     }
 
+    void setCmpFunc(btree_new_cmp_func *_func) {
+        cmpFunc = _func;
+    }
+    btree_new_cmp_func* getCmpFunc() const {
+        return cmpFunc;
+    }
+
     uint64_t getNentry() const {
         return nentry;
     }
@@ -467,6 +474,8 @@ private:
     BtreeNodeAddr rootAddr;
     // Number of entries in the tree.
     uint64_t nentry;
+    // Custom comparison function (nullptr if not assigned).
+    btree_new_cmp_func *cmpFunc;
 };
 
 class BtreeIteratorV2 {

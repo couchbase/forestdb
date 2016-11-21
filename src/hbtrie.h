@@ -24,6 +24,8 @@
 #include "list.h"
 #include "memory_pool.h"
 
+#include <unordered_map>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -278,6 +280,11 @@ struct HBTrieV2Rets {
     BtreeNodeAddr rootAddr;
 };
 
+// A callback function that returns custom compare function pointer
+// corresponding to the given KVS ID.
+typedef btree_new_cmp_func* HBTrieV2GetCmpFunc(HBTrie *hbtrie,
+                                               uint64_t kvs_id,
+                                               void *aux);
 
 /**
  * HB+trie handle definition.
@@ -398,6 +405,10 @@ public:
 
     hbtrie_cmp_map *getMapFunction() const {
         return map;
+    }
+
+    void setCmpFuncCB(HBTrieV2GetCmpFunc *cb_func) {
+        getCmpFuncCB = cb_func;
     }
 
     inline void valueSetMsb(void *value);
@@ -567,6 +578,25 @@ private:
     void *last_map_chunk;
 
     /**
+     * Local map of {KVS ID, assigned custom compare function pointer}.
+     * If given KVS doesn't use custom compare function, then 'nullptr' is
+     * stored.
+     * However, a new KVS can be added at the runtime, and we should
+     * reflect the new KVS custom compare function info into 'cmpFuncMap'.
+     * In that case, we invoke 'getCmpFuncCB' below, get the new
+     * custom function info, and insert the pair into the map.
+     */
+    std::unordered_map<uint64_t, btree_new_cmp_func*> cmpFuncMap;
+
+    /**
+     * Callback function given by ForestDB handle.
+     * It returns custom compare function corresponding to the given
+     * first chunk, which stores KVS ID.
+     */
+    HBTrieV2GetCmpFunc *getCmpFuncCB;
+
+
+    /**
      * Internal common HBTrie constructor initialization
      */
     void initTrie(int _chunksize, int _valuelen, int _btree_nodesize,
@@ -711,6 +741,16 @@ private:
     hbtrie_result setLocalReturnValue(hbtrie_result hr,
                                       BtreeV2& cur_btree,
                                       HBTrieV2Rets& rets);
+
+    /**
+     * Get custom compare function corresponding to the KVS ID
+     * that is located at the beginning of the given key.
+     * If there is no assigned custom function, then return nullptr.
+     *
+     * @param rawkey Key.
+     * @return Custom compare function pointer.
+     */
+    btree_new_cmp_func* getCmpFuncForGivenKey(void *rawkey);
 
     /**
      * Internal insertion function based on BtreeV2.

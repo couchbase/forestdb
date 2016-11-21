@@ -164,7 +164,8 @@ struct NodeActionItem {
 
 BtreeV2::BtreeV2() :
     bMgr(nullptr),
-    rootAddr(BLK_NOT_FOUND, nullptr)
+    rootAddr(BLK_NOT_FOUND, nullptr),
+    cmpFunc(nullptr)
 {
     init();
 }
@@ -364,6 +365,8 @@ BtreeV2Result BtreeV2::_insert( std::vector<BtreeKvPair>& kv_list,
     }
 
     // Now, 'node' is a writable dirty node.
+    // Set custom cmp function.
+    node->setCmpFunc(cmpFunc);
 
     size_t i;
     if ( node->getLevel() > 1 ) {
@@ -554,6 +557,8 @@ BtreeV2Result BtreeV2::_remove( std::vector<BtreeKvPair>& kv_list,
     }
 
     // Now, 'node' is a writable dirty node.
+    // Set custom cmp function.
+    node->setCmpFunc(cmpFunc);
 
     size_t i;
     if ( node->getLevel() > 1 ) {
@@ -693,6 +698,9 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
         }
     }
 
+    // Set custom cmp function.
+    node->setCmpFunc(cmpFunc);
+
     BsaItem kvp;
     if ( node->getLevel() > 1 ) {
         // intermediate node
@@ -796,15 +804,16 @@ void BtreeV2::growHeight(std::list<NodeActionItem*>& actions)
     // 1) create a new root node
     Bnode *new_root = new Bnode();
     Bnode *old_root = rootAddr.ptr;
-    bMgr->addDirtyNode( new_root );
-    new_root->setLevel( height+1 );
+    bMgr->addDirtyNode(new_root);
+    new_root->setLevel(height+1);
+    new_root->setCmpFunc(cmpFunc);
 
     // 2) execute action items
     doActionItems(new_root, actions);
 
     // 3) move existing meta data
     //    from the old root to the new root
-    new_root->setMeta( old_root->getMeta(), old_root->getMetaSize() );
+    new_root->setMeta(old_root->getMeta(), old_root->getMetaSize());
     old_root->clearMeta();
 
     // 4) modify the B+tree info

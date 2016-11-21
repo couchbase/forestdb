@@ -291,6 +291,7 @@ void Bnode::migrateEntries( size_t cur_num_elems,
     // allocate next new node
     Bnode *bnode = new Bnode();
     bnode->setLevel(level);
+    bnode->setCmpFunc(cmpFunc);
     new_nodes.push_back(bnode);
 
     // copy first_kvp ~ last_kvp
@@ -414,6 +415,7 @@ Bnode* Bnode::cloneNode()
     dst->setLevel(level);
     dst->setFlags(flags);
     dst->setMeta(meta, metaSize);
+    dst->setCmpFunc(cmpFunc);
 
     // copy all key-value pair instances
     BsArray& src_arr = this->getKvArr();
@@ -661,7 +663,7 @@ INLINE int BsaCmp(BsaItem& aa, BsaItem& bb, void *aux)
         // custom compare function is defined
         Bnode *bnode = reinterpret_cast<Bnode*>(aux);
         btree_new_cmp_func *func = bnode->getCmpFunc();
-        return func(aa.key, aa.keylen, bb.key, bb.keylen, aux);
+        return func(aa.key, aa.keylen, bb.key, bb.keylen);
     } else {
         // lexicographical order
         if (aa.keylen == bb.keylen) {
