@@ -942,6 +942,12 @@ BtreeIteratorV2::BtreeIteratorV2(BtreeV2 *_btree,
 }
 
 BtreeIteratorV2::~BtreeIteratorV2() {
+    for (int cursor = btree->getHeight() - 1; cursor >= 0; --cursor) {
+        Bnode *oldBnode = bnodeItrs[cursor].getIteratorBnode();
+        if (oldBnode) { // Release reference to bnode from the cursor
+            btree->bMgr->releaseCleanNode(oldBnode);
+        }
+    }
     uint8_t *bnodeArrayBuf = reinterpret_cast<uint8_t *>(bnodeItrs);
     // Release memory for all the Bnode Iterators in one single deallocation
     delete [] bnodeArrayBuf;

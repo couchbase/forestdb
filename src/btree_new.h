@@ -54,7 +54,7 @@ struct BtreeNodeAddr {
         isEmpty(true)
     { }
 
-    BtreeNodeAddr( uint64_t _offset, Bnode* _ptr ) {
+    BtreeNodeAddr( uint64_t _offset, Bnode* _ptr = nullptr ) {
         if (_offset == BLK_NOT_FOUND) {
             if (_ptr) {
                 // point to dirty node
