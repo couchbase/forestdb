@@ -244,13 +244,11 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
     fdb_kvs_id_t kv_id;
     HBTrie *trie = reinterpret_cast<HBTrie *>(aux);
-    BTreeBlkHandle *bhandle;
     FileMgr *file;
     struct avl_node *a;
     struct kvs_node query, *node;
 
-    bhandle = trie->getBtreeBlkHandle();
-    file = bhandle->getFile();
+    file = trie->getFileMgr();
 
     if (!file->getKVHeader_UNLOCKED()->custom_cmp_enabled) {
         return NULL;

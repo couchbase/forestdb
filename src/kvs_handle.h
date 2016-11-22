@@ -73,6 +73,16 @@ public:
      */
     void createKvsInfo(FdbKvsHandle *root_handle,
                        const char *kvs_name);
+    /**
+     * Reset index and doc I/O handles.
+     */
+    void resetIOHandles();
+    /**
+     * Free and release index and doc I/O handles.
+     * @param useBtreeV2format - indicates which I/O handles needs freeing.
+     * @return FDB_RESULT_ALLOC_FAIL - as the default return type.
+     */
+    fdb_status freeIOHandles(bool useBtreeV2format);
 
     /**
      * Initialize the root handle.

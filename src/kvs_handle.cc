@@ -172,6 +172,45 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     handle_busy.store(kv_handle.handle_busy.load());
 }
 
+void FdbKvsHandle::resetIOHandles() {
+    dhandle = nullptr;
+    bnodeMgr = nullptr;
+    trie = nullptr;
+    seqtrie = nullptr;
+    staletreeV2 = nullptr;
+}
+
+fdb_status FdbKvsHandle::freeIOHandles(bool useBtreeV2) { // LCOV_EXCL_START
+    if (useBtreeV2) {
+        delete bnodeMgr;
+        delete dhandle;
+        delete trie;
+        if (kvs) {
+            delete seqtrie;
+        } else {
+            delete seqtreeV2;
+        }
+        delete staletreeV2;
+    } else {
+        delete bhandle;
+        delete dhandle;
+        delete trie;
+        if (kvs) {
+            delete seqtrie;
+        } else {
+            if (seqtree) {
+                delete seqtree->getKVOps();
+                delete seqtree;
+            }
+        }
+        if (staletree) {
+            delete staletree->getKVOps();
+            delete staletree;
+        }
+    }
+    return FDB_RESULT_ALLOC_FAIL;
+} // LCOV_EXCL_STOP
+
 void FdbKvsHandle::initBusy() {
     handle_busy = nullptr;
 }

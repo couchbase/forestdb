@@ -28,9 +28,11 @@
 // Forward declarations
 class FileMgr;
 class BTreeBlkHandle;
+class BnodeMgr;
 class DocioHandle;
 class HBTrie;
 class BTree;
+class BtreeV2;
 
 /**
  * Abstraction that defines all operations related to compaction
@@ -39,7 +41,7 @@ class Compaction {
 public:
     Compaction() : fileMgr(nullptr), btreeHandle(nullptr), docHandle(nullptr),
                    keyTrie(nullptr), seqTree(nullptr), seqTrie(nullptr),
-                   staleTree(nullptr) { }
+                   staleTree(nullptr), oldFileStaleOps(nullptr) { }
 
     /**
      * Compact a given file by copying its active blocks to the new file.
@@ -285,10 +287,20 @@ private:
 
 
     FileMgr *fileMgr; // file manager instance for a new file
-    BTreeBlkHandle *btreeHandle; // btree block handle for a new file
+    union {
+        BTreeBlkHandle *btreeHandle; // btree block handle for a new file
+        BnodeMgr *bnodeMgr; // BTree Node Manager for the new file
+    };
     DocioHandle *docHandle; // document block handle for a new file
     HBTrie *keyTrie; // key index trie for a new file
-    BTree *seqTree; // seq index tree for a new file
+    union {
+        BTree *seqTree; // seq index tree for a new file
+        BtreeV2 *seqTreeV2; // seq index tree for a new file based on BtreeV2
+    };
     HBTrie *seqTrie; // seq index trie for a new file
-    BTree *staleTree; // stale block tree for a new file
+    union {
+        BTree *staleTree; // stale block tree for a new file
+        BtreeV2 *staleTreeV2; // stale block tree for a new file
+    };
+    BTreeKVOps *oldFileStaleOps; // stale ops of old file, freed on success!
 };

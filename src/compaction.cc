@@ -28,6 +28,8 @@
 
 #include "bgflusher.h"
 #include "btree.h"
+#include "btree_new.h"
+#include "bnodemgr.h"
 #include "btreeblock.h"
 #include "btree_kv.h"
 #include "compaction.h"
@@ -249,11 +251,25 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
     handle->cur_header_revnum = fdb_set_file_header(handle);
 
-    // (6) Flush all the dirty blocks of the current file
-    handle->bhandle->flushBuffer();
-    // Note that we should flush 'bhandle' of the new file too, since it now
-    // contains a dirty block for the new root node.
-    compaction.btreeHandle->flushBuffer();
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        // (6) Release the reference counts on all Btree nodes of old file so
+        // that they may be evicted in case of memory pressure.
+        handle->bnodeMgr->releaseCleanNodes();
+    } else {
+        // (6) Flush all the dirty blocks of the current file
+        handle->bhandle->flushBuffer();
+    }
+    if (ver_btreev2_format(compaction.fileMgr->getVersion())) {
+        // Since compaction would have filled up the BnodeCache with many
+        // entries, we can release the reference counts on them so that they
+        // may be evicted in case of memory pressure.
+        compaction.bnodeMgr->releaseCleanNodes();
+    } else {
+        // Flush dirty blocks of the new file too..
+        // Note that we should flush 'bhandle' of the new file too, since it now
+        // contains a dirty block for the new root node.
+        compaction.btreeHandle->flushBuffer();
+    }
 
     // (7) Commit the current file
     fdb_status fs = handle->file->commit_FileMgr(
@@ -412,7 +428,11 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
                                       WalFlushCallbacks::purgeSeqTreeEntry,
                                       WalFlushCallbacks::updateKvsDeltaStats,
                                       &flush_items);
-    handle->bhandle->flushBuffer();
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        handle->bnodeMgr->releaseCleanNodes();
+    } else {
+        handle->bhandle->flushBuffer();
+    }
 
     _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                &dirty_idtree_root, &dirty_seqtree_root, true);
@@ -464,14 +484,24 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     handle->file = compaction.fileMgr;
     handle->kv_info_offset = new_file_kv_info_offset;
 
-    delete handle->bhandle;
-    handle->bhandle = compaction.btreeHandle;
+    if (ver_btreev2_format(old_file->getVersion())) {
+        delete handle->bnodeMgr;
+    } else {
+        delete handle->bhandle;
+    }
+    if (ver_btreev2_format(compaction.fileMgr->getVersion())) {
+        handle->bnodeMgr = compaction.bnodeMgr;
+    } else {
+        handle->bhandle = compaction.btreeHandle;
+    }
 
     delete handle->dhandle;
     handle->dhandle = compaction.docHandle;
 
     delete handle->trie;
     handle->trie = compaction.keyTrie;
+    // Since compaction is successful, delete old KVOps of the old file..
+    delete compaction.oldFileStaleOps; // NULL if not applicable
 
     handle->config.encryption_key = compaction.fileMgr->getEncryption()->key;
 
@@ -480,15 +510,31 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
             delete handle->seqtrie;
             handle->seqtrie = compaction.seqTrie;
         } else {
-            delete handle->seqtree;
-            handle->seqtree = compaction.seqTree;
+            if (ver_btreev2_format(old_file->getVersion())) {
+                delete handle->seqtreeV2; // if old file was in BtreeV2
+            } else {
+                delete handle->seqtree;
+            }
+            if (ver_btreev2_format(compaction.fileMgr->getVersion())) {
+                handle->seqtreeV2 = compaction.seqTreeV2;
+            } else {
+                handle->seqtree = compaction.seqTree;
+            }
         }
     }
 
     // we don't need to free 'kv_ops'
     // as it is re-used by'new_staletree'.
-    delete handle->staletree;
-    handle->staletree = compaction.staleTree;
+    if (ver_btreev2_format(old_file->getVersion())) {
+        delete handle->staletreeV2;
+    } else {
+        delete handle->staletree;
+    }
+    if (ver_btreev2_format(compaction.fileMgr->getVersion())) {
+        handle->staletreeV2 = compaction.staleTreeV2;
+    } else {
+        handle->staletree = compaction.staleTree;
+    }
 
     compaction.fileMgr->updateFileStatus(FILE_NORMAL, old_file->getFileName());
 
@@ -573,18 +619,29 @@ fdb_status Compaction::createFile(const std::string file_name,
     fileMgr->fhandleAdd(handle->fhandle);
     fileMgr->setInPlaceCompaction(in_place_compaction);
 
-    // create new hb-trie and related handles
-    btreeHandle = new BTreeBlkHandle(fileMgr, fileMgr->getBlockSize());
-    btreeHandle->setLogCallback(&handle->log_callback);
-
     docHandle = new DocioHandle(fileMgr,
                                 handle->config.compress_document_body,
                                 &handle->log_callback);
 
-    keyTrie = new HBTrie(handle->trie->getChunkSize(),
-                         handle->trie->getValueLen(),
-                         fileMgr->getBlockSize(), BLK_NOT_FOUND,
-                         btreeHandle, (void*)docHandle, _fdb_readkey_wrap);
+    // create new hb-trie and related handles
+    if (ver_btreev2_format(fileMgr->getVersion())) {
+        bnodeMgr = new BnodeMgr();
+        bnodeMgr->setFile(fileMgr);
+        bnodeMgr->setLogCallback(&handle->log_callback);
+        BtreeNodeAddr rootAddr;
+        keyTrie = new HBTrie(handle->trie->getChunkSize(),
+                             fileMgr->getBlockSize(),
+                             rootAddr, bnodeMgr, fileMgr);
+    } else {
+        btreeHandle = new BTreeBlkHandle(fileMgr, fileMgr->getBlockSize());
+        btreeHandle->setLogCallback(&handle->log_callback);
+        keyTrie = new HBTrie(handle->trie->getChunkSize(),
+                             handle->trie->getValueLen(),
+                             fileMgr->getBlockSize(), BLK_NOT_FOUND,
+                             btreeHandle, (void*)docHandle, _fdb_readkey_wrap);
+
+    }
+
 
     keyTrie->setLeafCmp(_fdb_custom_cmp_wrap);
     // set aux
@@ -595,31 +652,58 @@ fdb_status Compaction::createFile(const std::string file_name,
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree
         if (handle->kvs) { // multi KV instance mode
-            seqTrie = new HBTrie(sizeof(fdb_kvs_id_t),
-                                 OFFSET_SIZE, fileMgr->getBlockSize(),
-                                 BLK_NOT_FOUND, btreeHandle,
-                                 (void *)docHandle, _fdb_readseq_wrap);
-        } else {
-            BTree *old_seqtree = handle->seqtree;
-            seqTree = new BTree(btreeHandle, old_seqtree->getKVOps(),
-                                old_seqtree->getBlkSize(), old_seqtree->getKSize(),
-                                old_seqtree->getVSize(), 0x0, NULL);
+            if (ver_btreev2_format(fileMgr->getVersion())) {
+                BtreeNodeAddr rootAddr;
+                seqTrie = new HBTrie(sizeof(fdb_kvs_id_t),
+                                     fileMgr->getBlockSize(),
+                                     rootAddr, bnodeMgr, fileMgr);
+            } else {
+                seqTrie = new HBTrie(sizeof(fdb_kvs_id_t),
+                                     OFFSET_SIZE, fileMgr->getBlockSize(),
+                                     BLK_NOT_FOUND, btreeHandle,
+                                     (void *)docHandle, _fdb_readseq_wrap);
+            }
+        } else { // single KV instance mode
+            if (ver_btreev2_format(fileMgr->getVersion())) { // New Btree V2
+                seqTreeV2 = new BtreeV2();
+                seqTreeV2->setBMgr(bnodeMgr);
+                seqTreeV2->init();
+            } else { // use older btree format
+                BTree *old_seqtree = handle->seqtree;
+                seqTree = new BTree(btreeHandle, old_seqtree->getKVOps(),
+                                    old_seqtree->getBlkSize(), old_seqtree->getKSize(),
+                                    old_seqtree->getVSize(), 0x0, NULL);
+            }
         }
     }
 
     // stale-block tree
-    if (ver_staletree_support(ver_get_latest_magic())) {
-        BTreeKVOps *stale_kv_ops;
-        if (handle->staletree) {
-            stale_kv_ops = handle->staletree->getKVOps();
-        } else {
-            // this happens when the current file's version is older than MAGIC_002.
-            stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
+    if (ver_staletree_support(fileMgr->getVersion())) {
+        if (ver_btreev2_format(fileMgr->getVersion())) { // New Btree V2
+            staleTreeV2 = new BtreeV2();
+            staleTreeV2->setBMgr(bnodeMgr);
+            staleTreeV2->init();
+            // In old Btree format, we "move" the fileKVOps from old Btree
+            // to the Btree in the new file. So while migrating from old format
+            // to new format, we must simply free the old fileKVOps on success
+            if (!ver_btreev2_format(handle->file->getVersion())) {
+                if (handle->staletree) {// Migrating from MAGIC_002 => MAGIC_003
+                    // Stash and Free this on successful compaction only
+                    oldFileStaleOps = handle->staletree->getKVOps();
+                }
+            }
+        } else { // Retain the old BTree format into the new file on compaction
+            BTreeKVOps *stale_kv_ops;
+            if (handle->staletree) {
+                stale_kv_ops = handle->staletree->getKVOps();
+            } else {
+                // this happens when the current file's version is older than MAGIC_002.
+                stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
+            }
+            staleTree = new BTree(btreeHandle, stale_kv_ops, handle->config.blocksize,
+                                  sizeof(filemgr_header_revnum_t), OFFSET_SIZE,
+                                  0x0, NULL);
         }
-
-        staleTree = new BTree(btreeHandle, stale_kv_ops, handle->config.blocksize,
-                              sizeof(filemgr_header_revnum_t), OFFSET_SIZE,
-                              0x0, NULL);
     } else {
         staleTree = NULL;
     }
@@ -628,24 +712,39 @@ fdb_status Compaction::createFile(const std::string file_name,
 }
 
 void Compaction::cleanUpCompactionErr(FdbKvsHandle *handle) {
-    btreeHandle->resetSubblockInfo();
+    if (!ver_btreev2_format(fileMgr->getVersion())) {
+        btreeHandle->resetSubblockInfo();
+    }
     FileMgr::setCompactionState(fileMgr, NULL, FILE_REMOVED_PENDING);
     fileMgr->fhandleRemove(handle->fhandle);
+    uint64_t fileVersion = fileMgr->getVersion();
     FileMgr::close(fileMgr, true /* clean up cache */, fileMgr->getFileName(),
                    &handle->log_callback);
 
     // Free all the resources allocated.
-    delete btreeHandle;
+    if (ver_btreev2_format(fileVersion)) {
+        delete bnodeMgr;
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->kvs) {
+                delete seqTrie;
+            } else {
+                delete seqTreeV2;
+            }
+        }
+        delete staleTreeV2;
+    } else {
+        delete btreeHandle;
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->kvs) {
+                delete seqTrie;
+            } else {
+                delete seqTree;
+            }
+        }
+        delete staleTree;
+    }
     delete docHandle;
     delete keyTrie;
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (handle->kvs) {
-            delete seqTrie;
-        } else {
-            delete seqTree;
-        }
-    }
-    delete staleTree;
 }
 
 fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
@@ -770,7 +869,11 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     // Move all docs from the current file to the new file
     fs = copyDocs(&handle, prob, clone_docs);
     if (fs != FDB_RESULT_SUCCESS) {
-        handle.bhandle->flushBuffer();
+        if (ver_btreev2_format(handle.file->getVersion())) {
+            handle.bnodeMgr->releaseCleanNodes();
+        } else {
+            handle.bhandle->flushBuffer();
+        }
         FdbEngine::getInstance()->closeKVHandle(&handle);
         return fs;
     }
@@ -788,7 +891,11 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     if (last_wal_hdr_revnum < old_hdr_revnum) {
         fs = copyWalDocs(&handle, last_wal_hdr_bid, old_hdr_bid);
         if (fs != FDB_RESULT_SUCCESS) {
-            handle.bhandle->flushBuffer();
+            if (ver_btreev2_format(handle.file->getVersion())) {
+                handle.bnodeMgr->releaseCleanNodes();
+            } else {
+                handle.bhandle->flushBuffer();
+            }
             FdbEngine::getInstance()->closeKVHandle(&handle);
             return fs;
         }
@@ -802,7 +909,11 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     new_handle = handle;
     new_handle.file = fileMgr;
     new_handle.dhandle = docHandle;
-    new_handle.bhandle = btreeHandle;
+    if (ver_btreev2_format(fileMgr->getVersion())) {
+        new_handle.bnodeMgr = bnodeMgr;
+    } else {
+        new_handle.bhandle = btreeHandle;
+    }
     new_handle.trie = keyTrie;
     new_handle.kv_info_offset = BLK_NOT_FOUND;
 
@@ -813,9 +924,18 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
         new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
         new_handle.seqtrie = seqTrie;
     } else {
-        new_handle.seqtree = seqTree;
+        if (ver_btreev2_format(fileMgr->getVersion())) {
+            new_handle.seqtreeV2 = seqTreeV2;
+        } else {
+            new_handle.seqtree = seqTree;
+        }
+
     }
-    new_handle.staletree = staleTree;
+    if (ver_btreev2_format(fileMgr->getVersion())) {
+        new_handle.staletreeV2 = staleTreeV2;
+    } else {
+        new_handle.staletree = staleTree;
+    }
 
     new_handle.last_hdr_bid = new_handle.file->getNextAllocBlock();
     new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid; // WAL was flushed
@@ -825,8 +945,12 @@ fdb_status Compaction::copyDocsUptoMarker(FdbKvsHandle *rhandle,
     fs = new_handle.file->commit_FileMgr(false, // asynchronous commit is ok
                                          log_callback);
 
-    handle.bhandle->flushBuffer();
-    new_handle.bhandle->resetSubblockInfo();
+    if (ver_btreev2_format(fileMgr->getVersion())) {
+        handle.bnodeMgr->releaseCleanNodes();
+    } else {
+        handle.bhandle->flushBuffer();
+        new_handle.bhandle->resetSubblockInfo();
+    }
 
     handle.shandle = NULL;
     FdbEngine::getInstance()->closeKVHandle(&handle);
@@ -1063,14 +1187,24 @@ fdb_status Compaction::copyWalDocs(FdbKvsHandle *handle,
         new_handle = *handle;
         new_handle.file = fileMgr;
         new_handle.trie = keyTrie;
-        if (handle->kvs) {
-            new_handle.seqtrie = seqTrie;
-        } else {
-            new_handle.seqtree = seqTree;
-        }
-        new_handle.staletree = staleTree;
         new_handle.dhandle = docHandle;
-        new_handle.bhandle = btreeHandle;
+        if (ver_btreev2_format(fileMgr->getVersion())) { // use BtreeV2
+            if (handle->kvs) {
+                new_handle.seqtrie = seqTrie;
+            } else {
+                new_handle.seqtreeV2 = seqTreeV2;
+            }
+            new_handle.staletreeV2 = staleTreeV2;
+            new_handle.bnodeMgr = bnodeMgr;
+        } else { // initialize the handle with older BTree format..
+            if (handle->kvs) {
+                new_handle.seqtrie = seqTrie;
+            } else {
+                new_handle.seqtree = seqTree;
+            }
+            new_handle.staletree = staleTree;
+            new_handle.bhandle = btreeHandle;
+        }
 
         fileMgr->getWal()->flush_Wal((void*) &new_handle,
                                      WalFlushCallbacks::flushItem,
@@ -1155,14 +1289,24 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
     new_handle = *handle;
     new_handle.file = fileMgr;
     new_handle.trie = keyTrie;
-    if (handle->kvs) {
-        new_handle.seqtrie = seqTrie;
-    } else {
-        new_handle.seqtree = seqTree;
-    }
-    new_handle.staletree = staleTree;
     new_handle.dhandle = docHandle;
-    new_handle.bhandle = btreeHandle;
+    if (ver_btreev2_format(fileMgr->getVersion())) { // use BtreeV2
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtreeV2 = seqTreeV2;
+        }
+        new_handle.staletreeV2 = staleTreeV2;
+        new_handle.bnodeMgr = bnodeMgr;
+    } else { // initialize the handle with older BTree format..
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtree = seqTree;
+        }
+        new_handle.staletree = staleTree;
+        new_handle.bhandle = btreeHandle;
+    }
 
     // 1/10 of the block cache size or
     // if block cache is disabled, set to the minimum size
@@ -1186,9 +1330,13 @@ fdb_status Compaction::copyDocs(FdbKvsHandle *handle,
     while( hr == HBTRIE_RESULT_SUCCESS ) {
 
         hr = it->nextValueOnly((void*)&offset);
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            break;
+        if (ver_btreev2_format(handle->file->getVersion())) {
+            handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            fs = handle->bhandle->flushBuffer();
+            if (fs != FDB_RESULT_SUCCESS) {
+                break;
+            }
         }
         offset = _endian_decode(offset);
 
@@ -1469,14 +1617,24 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
     new_handle = *handle;
     new_handle.file = fileMgr;
     new_handle.trie = keyTrie;
-    if (handle->kvs) {
-        new_handle.seqtrie = seqTrie;
-    } else {
-        new_handle.seqtree = seqTree;
-    }
-    new_handle.staletree = staleTree;
     new_handle.dhandle = docHandle;
-    new_handle.bhandle = btreeHandle;
+    if (ver_btreev2_format(fileMgr->getVersion())) { // use BtreeV2
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtreeV2 = seqTreeV2;
+        }
+        new_handle.staletreeV2 = staleTreeV2;
+        new_handle.bnodeMgr = bnodeMgr;
+    } else { // initialize the handle with older BTree format..
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtree = seqTree;
+        }
+        new_handle.staletree = staleTree;
+        new_handle.bhandle = btreeHandle;
+    }
 
     _doc = (struct docio_object *)
         calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
@@ -1491,12 +1649,16 @@ fdb_status Compaction::cloneDocs(FdbKvsHandle *handle, size_t *prob)
     while( hr == HBTRIE_RESULT_SUCCESS ) {
 
         it->nextValueOnly((void*)&offset);
-        fs = handle->bhandle->flushBuffer();
-        if (fs != FDB_RESULT_SUCCESS) {
-            free(_doc);
-            delete it;
-            free(offset_array);
-            return fs;
+        if (ver_btreev2_format(handle->file->getVersion())) {
+            handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            fs = handle->bhandle->flushBuffer();
+            if (fs != FDB_RESULT_SUCCESS) {
+                free(_doc);
+                delete it;
+                free(offset_array);
+                return fs;
+            }
         }
         offset = _endian_decode(offset);
 
@@ -1781,14 +1943,24 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
     new_handle = *handle;
     new_handle.file = fileMgr;
     new_handle.trie = keyTrie;
-    if (handle->kvs) {
-        new_handle.seqtrie = seqTrie;
-    } else {
-        new_handle.seqtree = seqTree;
-    }
-    new_handle.staletree = staleTree;
     new_handle.dhandle = docHandle;
-    new_handle.bhandle = btreeHandle;
+    if (ver_btreev2_format(fileMgr->getVersion())) { // use BtreeV2
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtreeV2 = seqTreeV2;
+        }
+        new_handle.staletreeV2 = staleTreeV2;
+        new_handle.bnodeMgr = bnodeMgr;
+    } else { // initialize the handle with older BTree format..
+        if (handle->kvs) {
+            new_handle.seqtrie = seqTrie;
+        } else {
+            new_handle.seqtree = seqTree;
+        }
+        new_handle.staletree = staleTree;
+        new_handle.bhandle = btreeHandle;
+    }
     new_handle.kv_info_offset = BLK_NOT_FOUND;
 
     doc = (struct docio_object *)
@@ -1888,7 +2060,11 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
                                        got_lock, prob, delay_us);
                     c = sum_docsize = 0;
                 }
-                handle->bhandle->flushBuffer();
+                if (ver_btreev2_format(handle->file->getVersion())) {
+                    handle->bnodeMgr->releaseCleanNodes();
+                } else {
+                    handle->bhandle->flushBuffer();
+                }
 
                 if (new_handle.kvs) {
                     // multi KV instance mode .. append up-to-date KV header
@@ -1919,7 +2095,9 @@ fdb_status Compaction::copyDelta(FdbKvsHandle *handle,
                             fileMgr->getFileName());
                     return fs;
                 }
-                new_handle.bhandle->resetSubblockInfo();
+                if (!ver_btreev2_format(fileMgr->getVersion())) {
+                    new_handle.bhandle->resetSubblockInfo();
+                }
             }
 
         } else {
@@ -2468,7 +2646,11 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
     FileMgr *new_file = handle->file;
     FileMgr *very_old_file;
 
-    handle->bhandle->flushBuffer();
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        handle->bnodeMgr->releaseCleanNodes();
+    } else {
+        handle->bhandle->flushBuffer();
+    }
 
     // sync dirty root nodes
     struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
@@ -2589,7 +2771,9 @@ fdb_status Compaction::commitAndRemovePending(FdbKvsHandle *handle,
     // They will be cleaned up later.
     FileMgr::close(old_file, false, handle->filename.c_str(), &handle->log_callback);
 
-    handle->bhandle->resetSubblockInfo();
+    if (!ver_btreev2_format(handle->file->getVersion())) {
+        handle->bhandle->resetSubblockInfo();
+    }
 
     new_file->mutexUnlock();
 

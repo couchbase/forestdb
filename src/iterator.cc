@@ -33,6 +33,7 @@
 #include "iterator.h"
 #include "btree_var_kv_ops.h"
 #include "time_utils.h"
+#include "version.h"
 
 #include "memleak.h"
 
@@ -289,6 +290,10 @@ FdbIterator::~FdbIterator()
 
     if (seqtrieIterator) {
         delete seqtrieIterator;
+    }
+
+    if (ver_btreev2_format(iterHandle->file->getVersion())) {
+        iterHandle->bnodeMgr->releaseCleanNodes();
     }
 
     if (iterType == FDB_ITR_REG) {
@@ -563,7 +568,9 @@ fetch_hbtrie:
     if (seek_pref == FDB_ITR_SEEK_HIGHER) {
         // fetch next key
         hr = hbtrieIterator->next(iterKey.data, iterKey.len, (void*)&iterOffset);
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(this, iterKey.data, iterKey.len,
@@ -572,7 +579,9 @@ fetch_hbtrie:
                 // key[HB+trie] < seek_key .. move forward
                 hr = hbtrieIterator->next(iterKey.data, iterKey.len,
                                           &iterOffset);
-                iterHandle->bhandle->flushBuffer();
+                if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+                    iterHandle->bhandle->flushBuffer();
+                }
             }
             iterOffset = _endian_decode(iterOffset);
 
@@ -597,7 +606,9 @@ fetch_hbtrie:
                 if (fetch_next) {
                     hr = hbtrieIterator->next(iterKey.data, iterKey.len,
                                               (void*)&iterOffset);
-                    iterHandle->bhandle->flushBuffer();
+                    if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+                        iterHandle->bhandle->flushBuffer();
+                    }
                     iterOffset = _endian_decode(iterOffset);
                 }
             }
@@ -605,7 +616,9 @@ fetch_hbtrie:
     } else {
         // fetch prev key
         hr = hbtrieIterator->prev(iterKey.data, iterKey.len, (void*)&iterOffset);
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(this, iterKey.data, iterKey.len,
                                seek_key_kv, seek_keylen_kv);
@@ -613,7 +626,10 @@ fetch_hbtrie:
                 // key[HB+trie] > seek_key .. move backward
                 hr = hbtrieIterator->prev(iterKey.data, iterKey.len,
                                           (void*)&iterOffset);
-                iterHandle->bhandle->flushBuffer();
+
+                if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+                    iterHandle->bhandle->flushBuffer();
+                }
             }
             iterOffset = _endian_decode(iterOffset);
 
@@ -638,7 +654,9 @@ fetch_hbtrie:
                 if (fetch_next) {
                     hr = hbtrieIterator->prev(iterKey.data, iterKey.len,
                                               (void*)&iterOffset);
-                    iterHandle->bhandle->flushBuffer();
+                    if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+                        iterHandle->bhandle->flushBuffer();
+                    }
                     iterOffset = _endian_decode(iterOffset);
                 }
             }
@@ -1210,7 +1228,9 @@ start:
             } else { // seek_type == ITR_SEEK_NEXT
                 hr = hbtrieIterator->next(key, iterKey.len, (void*)&iterOffset);
             }
-            iterHandle->bhandle->flushBuffer();
+            if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+                iterHandle->bhandle->flushBuffer();
+            }
             iterOffset = _endian_decode(iterOffset);
             if (!(iterOpt & FDB_ITR_NO_DELETES) ||
                   hr != HBTRIE_RESULT_SUCCESS) {
@@ -1570,7 +1590,9 @@ start_seq:
         } else {
             br = seqtreeIterator->prev(&seqnum, (void *)&offset);
         }
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             seqNum = seqnum;
@@ -1658,7 +1680,9 @@ start_seq:
         struct docio_object _hbdoc;
         hr = iterHandle->trie->find(_doc.key, _doc.length.keylen,
                                  (void *)&hboffset);
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
@@ -1746,7 +1770,9 @@ start_seq:
         } else {
             br = seqtreeIterator->next(&seqnum, (void *)&offset);
         }
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             seqNum = seqnum;
@@ -1841,7 +1867,9 @@ start_seq:
         struct docio_object _hbdoc;
         hr = iterHandle->trie->find(_doc.key, _doc.length.keylen,
                                  (void *)&hboffset);
-        iterHandle->bhandle->flushBuffer();
+        if (!ver_btreev2_format(iterHandle->file->getVersion())) {
+            iterHandle->bhandle->flushBuffer();
+        }
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);

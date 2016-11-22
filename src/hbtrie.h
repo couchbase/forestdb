@@ -292,9 +292,6 @@ public:
            BTreeBlkHandle* _btreeblk_handle, void* _doc_handle,
            hbtrie_func_readkey* _readkey);
 
-    HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-           BnodeMgr* _bnodeMgr, FileMgr *_file);
-
     HBTrie(int _chunksize, int _btree_nodesize,
            BtreeNodeAddr _root_addr, BnodeMgr* _bnodeMgr, FileMgr *_file);
 
