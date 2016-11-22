@@ -163,6 +163,7 @@ struct NodeActionItem {
 
 
 BtreeV2::BtreeV2() :
+    bMgr(nullptr),
     rootAddr(BLK_NOT_FOUND, nullptr)
 {
     init();
@@ -173,7 +174,6 @@ BtreeV2::~BtreeV2() {
 
 BtreeV2Result BtreeV2::init()
 {
-    bMgr = nullptr;
     rootAddr = BtreeNodeAddr(BLK_NOT_FOUND, nullptr);
     nentry = 0;
     height = 1;
