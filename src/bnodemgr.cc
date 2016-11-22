@@ -34,7 +34,9 @@ BnodeMgr::BnodeMgr() :
     file(nullptr),
     curBid(BLK_NOT_FOUND),
     curOffset(0),
-    logCallback(nullptr)
+    logCallback(nullptr),
+    nlivenodes(0),
+    ndeltanodes(0)
 { }
 
 BnodeMgr::~BnodeMgr()
@@ -162,7 +164,7 @@ uint64_t BnodeMgr::assignDirtyNodeOffset( Bnode *bnode )
     return offset;
 }
 
-void BnodeMgr::flushDirtyNodes()
+void BnodeMgr::moveDirtyNodesToBcache()
 {
     int ret;
     for (auto &entry: dirtyNodes) {

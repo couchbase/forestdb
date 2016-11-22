@@ -216,9 +216,16 @@ void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
     std::map<uint64_t, stale_data*>::iterator cur;
     std::list<stale_data*>::iterator list_cur;
 
+    bool btreev2 = ver_btreev2_format(handle->file->getVersion());
+
     r = handle->file->getKvsStatOps()->statGet(0, &stat);
-    handle->bhandle->setNLiveNodes(stat.nlivenodes);
-    handle->bhandle->setNDeltaNodes(stat.nlivenodes);
+    if (btreev2) {
+        handle->bnodeMgr->setNLiveNodes(stat.nlivenodes);
+        handle->bnodeMgr->setNDeltaNodes(stat.nlivenodes);
+    } else {
+        handle->bhandle->setNLiveNodes(stat.nlivenodes);
+        handle->bhandle->setNDeltaNodes(stat.nlivenodes);
+    }
     (void)r;
 
     buf = (uint8_t *)calloc(1, bufsize);
@@ -358,9 +365,16 @@ void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
 
             // insert into stale-block tree
             _doc_offset = _endian_encode(doc_offset);
-            handle->staletree->insert((void *)&_revnum, (void *)&_doc_offset);
-            handle->bhandle->flushBuffer();
-            handle->bhandle->resetSubblockInfo();
+            if (btreev2) {
+                BtreeKvPair kv((void *)&_revnum, sizeof(uint64_t),
+                    (void *)&_doc_offset, sizeof(uint64_t));
+                handle->staletreeV2->insert(kv);
+                handle->bnodeMgr->releaseCleanNodes();
+            } else {
+                handle->staletree->insert((void *)&_revnum, (void *)&_doc_offset);
+                handle->bhandle->flushBuffer();
+                handle->bhandle->resetSubblockInfo();
+            }
 
             if (from_mergetree && first_loop) {
                 // if from_mergetree flag is set and this is the first loop,
@@ -398,10 +412,17 @@ void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
         first_loop = false;
     } // gather stale blocks
 
-    delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
-    handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_NLIVENODES, delta);
-    delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
-    delta *= handle->config.blocksize;
+    if (btreev2) {
+        delta = handle->bnodeMgr->getNLiveNodes() - stat.nlivenodes;
+        handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_NLIVENODES, delta);
+        delta = handle->bnodeMgr->getNDeltaNodes() - stat.nlivenodes;
+        delta *= handle->config.blocksize;
+    } else {
+        delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
+        handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_NLIVENODES, delta);
+        delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
+        delta *= handle->config.blocksize;
+    }
     handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_DELTASIZE, delta);
 
     free(buf);

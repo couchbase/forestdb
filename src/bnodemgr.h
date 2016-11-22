@@ -50,6 +50,22 @@ public:
         return logCallback;
     }
 
+    int64_t getNLiveNodes() const {
+        return nlivenodes;
+    }
+
+    void setNLiveNodes(int64_t _nlivenodes) {
+        nlivenodes = _nlivenodes;
+    }
+
+    int64_t getNDeltaNodes() const {
+        return ndeltanodes;
+    }
+
+    void setNDeltaNodes(int64_t _ndeltanodes) {
+        ndeltanodes = _ndeltanodes;
+    }
+
     /**
      * Add a dirty node to 'dirtyNodes' set.
      *
@@ -97,9 +113,9 @@ public:
     uint64_t assignDirtyNodeOffset( Bnode *bnode );
 
     /**
-     * Flush all dirty nodes into B+tree node cache.
+     * Move all dirty nodes into B+tree node cache.
      */
-    void flushDirtyNodes();
+    void moveDirtyNodesToBcache();
 
     /**
      * Decrease the reference counter of the given clean node, to make it
@@ -127,5 +143,11 @@ private:
     size_t curOffset;
     // Error log callback function.
     ErrLogCallback *logCallback;
+    // TODO: functions using below two members should be adapted later
+    // as new nodes are not block-aligned (smaller than 4KB).
+    // The number of live nodes.
+    int64_t nlivenodes;
+    // The number of delta nodes.
+    int64_t ndeltanodes;
 };
 

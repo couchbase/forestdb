@@ -312,7 +312,7 @@ void btree_iterator_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     BtreeKvPair kv;
     kv.value = (void*)valuebuf;
@@ -778,7 +778,7 @@ void btree_basic_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     for (i=0; i<n; ++i) {
         free(kv_list[i].key);
@@ -871,7 +871,7 @@ void btree_remove_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     for (i=0; i<n; ++i) {
         free(kv_list[i].key);
@@ -947,7 +947,7 @@ void btree_multiple_block_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     // retrieval check (clean node traversal)
     for (i=0; i<n; ++i) {
@@ -987,7 +987,7 @@ void btree_multiple_block_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     // retrieval check (clean node traversal)
     for (i=0; i<n; ++i) {
@@ -1094,7 +1094,7 @@ void btree_metadata_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     // read meta data from clean root node
     br = btree->readMeta(meta_chk);
@@ -1117,7 +1117,7 @@ void btree_metadata_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     // read meta data from clean root node
     br = btree->readMeta(meta_chk);
@@ -1181,7 +1181,7 @@ void btree_smaller_greater_test()
 
     // flush dirty nodes
     btree->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
 
     for (i=0; i<n; i++) {
         // a, b, c, ...
@@ -1590,7 +1590,7 @@ void bnodemgr_basic_test()
     // assign offset, and flush
     uint64_t node_offset = bMgr->assignDirtyNodeOffset(bnode);
     bnode->setCurOffset(node_offset);
-    bMgr->flushDirtyNodes();
+    bMgr->moveDirtyNodesToBcache();
     BnodeCacheMgr::get()->flush(file);
 
     // read test
@@ -1985,7 +1985,7 @@ void hbtriev2_insertion_case3_test()
     }
 
     hbtrie->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
     BnodeCacheMgr::get()->flush(fr.file);
 
     // retrieval check (clean nodes)
@@ -2075,7 +2075,7 @@ void hbtriev2_partial_update_test()
     }
 
     hbtrie->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
     BnodeCacheMgr::get()->flush(fr.file);
 
     // retrieval check (clean nodes)
@@ -2114,7 +2114,7 @@ void hbtriev2_partial_update_test()
     }
 
     hbtrie->writeDirtyNodes();
-    b_mgr->flushDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
     BnodeCacheMgr::get()->flush(fr.file);
 
     // retrieval check (clean)

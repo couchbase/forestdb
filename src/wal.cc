@@ -1752,7 +1752,14 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
     struct fdb_root_info root_info;
     size_t i = 0;
     LATENCY_STAT_START();
+    bool btreev2 = ver_btreev2_format(file->getVersion());
     bool do_sort = !file->isFullyResident();
+
+    if (btreev2) {
+        // With new B+tree, we don't need to get old offset,
+        // so sorting is not necessary.
+        do_sort = false;
+    }
 
     if (do_sort) {
         avl_init(tree, WAL_SORTED_FLUSH);
@@ -1799,8 +1806,15 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                         }
                     } else {
                         spin_unlock(&key_shards[i].lock);
-                        item->old_offset = get_old_offset(dbhandle, item);
+                        if (btreev2 && item->action != WAL_ACT_REMOVE) {
+                            // With new B+tree, and the action is not REMOVE,
+                            // we don't need to read old offset.
+                            item->old_offset = 0;
+                        } else {
+                            item->old_offset = get_old_offset(dbhandle, item);
+                        }
                         spin_lock(&key_shards[i].lock);
+
                         if (item->old_offset == item->offset) {
                             // Sometimes if there are uncommitted transactional
                             // items along with flushed committed items when

@@ -3838,6 +3838,8 @@ fdb_commit_start:
                                            &handle->log_callback);
     }
 
+    bool btreev2 = ver_btreev2_format(handle->file->getVersion());
+
     if (handle->file->getWal()->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle) ||
         handle->file->getWal()->getDirtyStatus_Wal() == FDB_WAL_PENDING ||
         opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
@@ -3870,6 +3872,18 @@ fdb_commit_start:
         handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
         wal_flushed = true;
 
+        if (btreev2) {
+            handle->trie->writeDirtyNodes();
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                if (handle->config.multi_kv_instances) {
+                    handle->seqtrie->writeDirtyNodes();
+                } else {
+                    handle->seqtreeV2->writeDirtyNodes();
+                }
+            }
+            handle->bnodeMgr->moveDirtyNodesToBcache();
+        }
+
         _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                    &dirty_idtree_root, &dirty_seqtree_root, true);
     }
@@ -3897,6 +3911,10 @@ fdb_commit_start:
                                                     handle->kv_info_offset,
                                                     handle->file->getSeqnum(),
                                                     false);
+        if (btreev2) {
+            handle->staletreeV2->writeDirtyNodes();
+            handle->bnodeMgr->moveDirtyNodesToBcache();
+        }
     }
 
     SuperblockBase *sb = handle->file->getSb();
@@ -3986,7 +4004,9 @@ fdb_commit_start:
         handle->file->getWal()->releaseFlushedItems_Wal(&flush_items);
     }
 
-    handle->bhandle->resetSubblockInfo();
+    if (!btreev2) {
+        handle->bhandle->resetSubblockInfo();
+    }
 
     handle->dirty_updates = 0;
     handle->file->mutexUnlock();
@@ -5452,6 +5472,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
     int64_t delta;
     struct docio_object _doc;
     FileMgr *file = handle->dhandle->getFile();
+    bool btreev2 = ver_btreev2_format(handle->file->getVersion());
 
     memset(var_key, 0, handle->config.chunksize);
     if (handle->kvs) {
@@ -5477,8 +5498,15 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                    _kvs_delta_stat_cmp);
     }
 
-    int64_t nlivenodes = handle->bhandle->getNLiveNodes();
-    int64_t ndeltanodes = handle->bhandle->getNDeltaNodes();
+    int64_t nlivenodes = 0;
+    int64_t ndeltanodes = 0;
+    if (btreev2) {
+        nlivenodes = handle->bnodeMgr->getNLiveNodes();
+        ndeltanodes = handle->bnodeMgr->getNDeltaNodes();
+    } else {
+        nlivenodes = handle->bhandle->getNLiveNodes();
+        ndeltanodes = handle->bhandle->getNDeltaNodes();
+    }
 
     if (item->action == WAL_ACT_INSERT ||
         item->action == WAL_ACT_LOGICAL_REMOVE) {
@@ -5523,10 +5551,17 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
             }
         }
 
-        delta = handle->bhandle->getNLiveNodes() - nlivenodes;
-        kvs_delta_stat->nlivenodes += delta;
-        delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
-        delta *= handle->config.blocksize;
+        if (btreev2) {
+            delta = handle->bnodeMgr->getNLiveNodes() - nlivenodes;
+            kvs_delta_stat->nlivenodes += delta;
+            delta = handle->bnodeMgr->getNDeltaNodes() - ndeltanodes;
+            delta *= handle->config.blocksize;
+        } else {
+            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+            kvs_delta_stat->nlivenodes += delta;
+            delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
+            delta *= handle->config.blocksize;
+        }
         kvs_delta_stat->deltasize += delta;
 
         if (old_offset == BLK_NOT_FOUND) {
@@ -5674,7 +5709,11 @@ uint64_t WalFlushCallbacks::getOldOffset(void *dbhandle,
                                  item->header->keylen,
                                  (void*)&old_offset);
     }
-    handle->bhandle->flushBuffer();
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        handle->bnodeMgr->releaseCleanNodes();
+    } else {
+        handle->bhandle->flushBuffer();
+    }
     old_offset = _endian_decode(old_offset);
 
     return old_offset;
@@ -5694,12 +5733,19 @@ void WalFlushCallbacks::purgeSeqTreeEntry(void *dbhandle,
     struct wal_kvs_delta_stat kvs_delta_query;
 
     FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
+    bool btreev2 = ver_btreev2_format(handle->file->getVersion());
+
     struct avl_node *node = avl_first(stale_seqnum_list);
     while (node) {
         seq_entry = _get_entry(node, struct wal_stale_seq_entry, avl_entry);
         node = avl_next(node);
-        nlivenodes = handle->bhandle->getNLiveNodes();
-        ndeltanodes = handle->bhandle->getNDeltaNodes();
+        if (btreev2) {
+            nlivenodes = handle->bnodeMgr->getNLiveNodes();
+            ndeltanodes = handle->bnodeMgr->getNDeltaNodes();
+        } else {
+            nlivenodes = handle->bhandle->getNLiveNodes();
+            ndeltanodes = handle->bhandle->getNDeltaNodes();
+        }
         _seqnum = _endian_encode(seq_entry->seqnum);
         if (handle->kvs) {
             // multi KV instance mode .. HB+trie
@@ -5724,10 +5770,17 @@ void WalFlushCallbacks::purgeSeqTreeEntry(void *dbhandle,
         if (delta_stat_node) {
             delta_stat = _get_entry(delta_stat_node, struct wal_kvs_delta_stat,
                                     avl_entry);
-            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
-            delta_stat->nlivenodes += delta;
-            delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
-            delta *= handle->config.blocksize;
+            if (btreev2) {
+                delta = handle->bnodeMgr->getNLiveNodes() - nlivenodes;
+                delta_stat->nlivenodes += delta;
+                delta = handle->bnodeMgr->getNDeltaNodes() - ndeltanodes;
+                delta *= handle->config.blocksize;
+            } else {
+                delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+                delta_stat->nlivenodes += delta;
+                delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
+                delta *= handle->config.blocksize;
+            }
             delta_stat->deltasize += delta;
         }
         avl_remove(stale_seqnum_list, &seq_entry->avl_entry);

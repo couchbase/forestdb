@@ -27,6 +27,7 @@
 #include "docio.h"
 #include "staleblock.h"
 #include "kvs_handle.h"
+#include "version.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -247,33 +248,38 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
                                     bid_t *dirty_seqtree_root,
                                     bool dirty_wal_flush)
 {
-    *prev_node = *new_node = NULL;
-    *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
+    // Note: in B+tree V2 mode, BnodeMgr instance keeps and manages all
+    // dirty nodes so we don't need to use FileMgr's dirty node
+    // related APIs anymore.
+    if (!ver_btreev2_format(handle->file->getVersion())) {
+        *prev_node = *new_node = NULL;
+        *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
 
-    *prev_node = handle->file->dirtyUpdateGetLatest();
+        *prev_node = handle->file->dirtyUpdateGetLatest();
 
-    // discard all cached index blocks
-    // to avoid data inconsistency with other writers
-    handle->bhandle->discardBlocks();
+        // discard all cached index blocks
+        // to avoid data inconsistency with other writers
+        handle->bhandle->discardBlocks();
 
-    // create a new dirty update entry if previous one exists
-    // (if we don't this, we cannot identify which block on
-    //  dirty copy or actual file is more recent during the WAL flushing.)
+        // create a new dirty update entry if previous one exists
+        // (if we don't this, we cannot identify which block on
+        //  dirty copy or actual file is more recent during the WAL flushing.)
 
-    // on dirty wal flush, create a new dirty update entry
-    // although there is no previous immutable dirty updates.
+        // on dirty wal flush, create a new dirty update entry
+        // although there is no previous immutable dirty updates.
 
-    if (*prev_node || dirty_wal_flush) {
-        *new_node = handle->file->dirtyUpdateNewNode();
-        // sync dirty root nodes
-        FileMgr::dirtyUpdateGetRoot(*prev_node,
-                                    dirty_idtree_root, dirty_seqtree_root);
+        if (*prev_node || dirty_wal_flush) {
+            *new_node = handle->file->dirtyUpdateNewNode();
+            // sync dirty root nodes
+            FileMgr::dirtyUpdateGetRoot(*prev_node,
+                                        dirty_idtree_root, dirty_seqtree_root);
+        }
+        handle->bhandle->setDirtyUpdate(*prev_node);
+        handle->bhandle->setDirtyUpdateWriter(*new_node);
+
+        // assign dirty root nodes to FDB handle
+        _fdb_import_dirty_root(handle, *dirty_idtree_root, *dirty_seqtree_root);
     }
-    handle->bhandle->setDirtyUpdate(*prev_node);
-    handle->bhandle->setDirtyUpdateWriter(*new_node);
-
-    // assign dirty root nodes to FDB handle
-    _fdb_import_dirty_root(handle, *dirty_idtree_root, *dirty_seqtree_root);
 }
 
 // 1. get dirty root from FDB handle,
@@ -286,30 +292,33 @@ INLINE void _fdb_dirty_update_finalize(FdbKvsHandle *handle,
                                        bid_t *dirty_seqtree_root,
                                        bool commit)
 {
-    // read dirty root nodes from FDB handle
-    _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
-    // assign dirty root nodes to dirty update entry
-    if (new_node) {
-        FileMgr::dirtyUpdateSetRoot(new_node,
-                                    *dirty_idtree_root, *dirty_seqtree_root);
-    }
-    // clear dirty update setting in bhandle
-    handle->bhandle->clearDirtyUpdate();
-    // finalize new_node
-    if (new_node) {
-        handle->file->dirtyUpdateSetImmutable(prev_node, new_node);
-    }
-    // close previous immutable node
-    if (prev_node) {
-        FileMgr::dirtyUpdateCloseNode(prev_node);
-    }
-    if (commit) {
-        // write back new_node's dirty blocks
-        handle->file->dirtyUpdateCommit(new_node, &handle->log_callback);
-    } else {
-        // if this update set is still dirty,
-        // discard all cached index blocks to avoid data inconsistency.
-        handle->bhandle->discardBlocks();
+    // Note: please see the comments in _fdb_dirty_update_ready().
+    if (!ver_btreev2_format(handle->file->getVersion())) {
+        // read dirty root nodes from FDB handle
+        _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+        // assign dirty root nodes to dirty update entry
+        if (new_node) {
+            FileMgr::dirtyUpdateSetRoot(new_node,
+                                        *dirty_idtree_root, *dirty_seqtree_root);
+        }
+        // clear dirty update setting in bhandle
+        handle->bhandle->clearDirtyUpdate();
+        // finalize new_node
+        if (new_node) {
+            handle->file->dirtyUpdateSetImmutable(prev_node, new_node);
+        }
+        // close previous immutable node
+        if (prev_node) {
+            FileMgr::dirtyUpdateCloseNode(prev_node);
+        }
+        if (commit) {
+            // write back new_node's dirty blocks
+            handle->file->dirtyUpdateCommit(new_node, &handle->log_callback);
+        } else {
+            // if this update set is still dirty,
+            // discard all cached index blocks to avoid data inconsistency.
+            handle->bhandle->discardBlocks();
+        }
     }
 }
 
