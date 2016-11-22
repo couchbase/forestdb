@@ -386,7 +386,17 @@ public:
         stat.reset();
     }
 
-    filemgr_header_len_t size;
+    // Why Atomic?
+    // Consider following example of a race..
+    // 1. Thread 1 does commit, loading the header with a new size
+    //    since the new filename needs to be persisted in header
+    // 2. Auto compaction daemon opens file for compaction and does
+    //    fdb_kvs_get_committed_seqnum() which calls getHeaderBid()
+    //    which first checks if a header is present by reading the
+    //    size variable outside of the file manager spin lock
+    //    Atomic allows us to avoid grabbing spin lock for simple
+    //    header size reads
+    std::atomic<filemgr_header_len_t> size;
     filemgr_header_revnum_t revnum;
     std::atomic<uint64_t> seqnum;
     std::atomic<uint64_t> bid;
