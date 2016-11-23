@@ -113,6 +113,12 @@ public:
     uint64_t assignDirtyNodeOffset( Bnode *bnode );
 
     /**
+     * After writing multiple B+tree nodes, mark the rest of space in the last
+     * block as stale and append index block meta including block marker.
+     */
+    void markEndOfIndexBlocks();
+
+    /**
      * Move all dirty nodes into B+tree node cache.
      */
     void moveDirtyNodesToBcache();

@@ -3876,18 +3876,6 @@ fdb_commit_start:
         handle->file->getWal()->setDirtyStatus_Wal(FDB_WAL_CLEAN);
         wal_flushed = true;
 
-        if (btreev2) {
-            handle->trie->writeDirtyNodes();
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (handle->config.multi_kv_instances) {
-                    handle->seqtrie->writeDirtyNodes();
-                } else {
-                    handle->seqtreeV2->writeDirtyNodes();
-                }
-            }
-            handle->bnodeMgr->moveDirtyNodesToBcache();
-        }
-
         _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                    &dirty_idtree_root, &dirty_seqtree_root, true);
     }
@@ -3916,8 +3904,18 @@ fdb_commit_start:
                                                     handle->file->getSeqnum(),
                                                     false);
         if (btreev2) {
+            // write/flush all index nodes at once
+            handle->trie->writeDirtyNodes();
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                if (handle->config.multi_kv_instances) {
+                    handle->seqtrie->writeDirtyNodes();
+                } else {
+                    handle->seqtreeV2->writeDirtyNodes();
+                }
+            }
             handle->staletreeV2->writeDirtyNodes();
             handle->bnodeMgr->moveDirtyNodesToBcache();
+            handle->bnodeMgr->markEndOfIndexBlocks();
         }
     }
 

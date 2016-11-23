@@ -68,6 +68,9 @@ Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
     Bnode* bnode_out;
     fdb_status ret = BnodeCacheMgr::get()->invalidateBnode(file, clean_bnode);
 
+    uint64_t prev_offset = clean_bnode->getCurOffset();
+    size_t prev_length = clean_bnode->getNodeSize();
+
     if (ret == FDB_RESULT_SUCCESS) {
         // clean node is ejected from cache.
         // now we can modify it as a dirty node without cloning.
@@ -81,6 +84,9 @@ Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
         bnode_out = clean_bnode->cloneNode();
     }
     addDirtyNode(bnode_out);
+
+    // make the region of previous clean node as stale.
+    file->markStale(prev_offset, prev_length);
 
     return bnode_out;
 }
@@ -162,6 +168,16 @@ uint64_t BnodeMgr::assignDirtyNodeOffset( Bnode *bnode )
     curOffset = remaining_size % blocksize_avail;
 
     return offset;
+}
+
+void BnodeMgr::markEndOfIndexBlocks()
+{
+    // mark the rest of space of the current block as stale
+    size_t blocksize = file->getBlockSize();
+    file->addStaleBlock(curBid * blocksize + curOffset, blocksize - curOffset);
+
+    // add block marker
+    BnodeCacheMgr::get()->addLastBlockMeta(file, curBid);
 }
 
 void BnodeMgr::moveDirtyNodesToBcache()
