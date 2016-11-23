@@ -335,6 +335,10 @@ public:
         return rootAddr;
     }
 
+    void setRootAddr(BtreeNodeAddr _root_addr) {
+        rootAddr = _root_addr;
+    }
+
     uint8_t getChunkSize() const {
         return chunksize;
     }

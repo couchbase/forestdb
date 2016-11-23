@@ -1136,6 +1136,8 @@ void fdb_sync_db_header(FdbKvsHandle *handle)
             handle->last_hdr_bid = hdr_bid;
             handle->cur_header_revnum = revnum;
 
+            bool is_btree_v2 = ver_btreev2_format(version);
+
             fdb_fetch_header(version, header_buf, &idtree_root,
                              &new_seq_root, &new_stale_root, &dummy64,
                              &dummy64, &dummy64,
@@ -1143,34 +1145,59 @@ void fdb_sync_db_header(FdbKvsHandle *handle)
                              &handle->kv_info_offset, &header_flags,
                              &compacted_filename, &prev_filename);
 
-            if (handle->dirty_updates) {
+            if (!is_btree_v2 && handle->dirty_updates) {
                 // discard all cached writable b+tree nodes
                 // to avoid data inconsistency with other writers
                 handle->bhandle->discardBlocks();
             }
 
-            handle->trie->setRootBid(idtree_root);
+            if (is_btree_v2) {
+                BtreeNodeAddr root_addr(idtree_root);
+                handle->trie->setRootAddr(root_addr);
+            } else {
+                handle->trie->setRootBid(idtree_root);
+            }
 
             if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                 if (new_seq_root != handle->seqtree->getRootBid()) {
                     if (handle->config.multi_kv_instances) {
-                        handle->seqtrie->setRootBid(new_seq_root);
+                        if (is_btree_v2) {
+                            BtreeNodeAddr root_addr(new_seq_root);
+                            handle->seqtrie->setRootAddr(root_addr);
+                        } else {
+                            handle->seqtrie->setRootBid(new_seq_root);
+                        }
                     } else {
-                        handle->seqtree->initFromBid(handle->seqtree->getBhandle(),
-                                                     handle->seqtree->getKVOps(),
-                                                     handle->seqtree->getBlkSize(),
-                                                     new_seq_root);
+                        if (is_btree_v2) {
+                            BtreeNodeAddr root_addr(new_seq_root);
+                            handle->seqtreeV2->initFromAddr(root_addr);
+                        } else {
+                            handle->seqtree->initFromBid(handle->seqtree->getBhandle(),
+                                                         handle->seqtree->getKVOps(),
+                                                         handle->seqtree->getBlkSize(),
+                                                         new_seq_root);
+                        }
                     }
                 }
             }
 
             if (ver_staletree_support(version)) {
-                handle->staletree->initFromBid(handle->staletree->getBhandle(),
-                                               handle->staletree->getKVOps(),
-                                               handle->staletree->getBlkSize(),
-                                               new_stale_root);
+                if (is_btree_v2) {
+
+                    BtreeNodeAddr root_addr(new_stale_root);
+                    handle->staletreeV2->initFromAddr(root_addr);
+                } else {
+                    handle->staletree->initFromBid(handle->staletree->getBhandle(),
+                                                   handle->staletree->getKVOps(),
+                                                   handle->staletree->getBlkSize(),
+                                                   new_stale_root);
+                }
             } else {
-                handle->staletree = NULL;
+                if (is_btree_v2) {
+                    handle->staletreeV2 = NULL;
+                } else {
+                    handle->staletree = NULL;
+                }
             }
 
             if (prev_filename) {
@@ -1486,21 +1513,35 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle)
     KvsStat stat;
 
     cur_file = handle->file;
+    bool is_btree_v2 = ver_btreev2_format(cur_file->getVersion());
 
     // hb+trie or idtree root bid
-    bid_t _root_bid = handle->trie->getRootBid();
-    _edn_safe_64 = _endian_encode(_root_bid);
+    uint64_t _root_address;
+    if (is_btree_v2) {
+        _root_address = handle->trie->getRootAddr().offset;
+    } else {
+        _root_address = handle->trie->getRootBid();
+    }
+    _edn_safe_64 = _endian_encode(_root_address);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
             // multi KVS mode: hb+trie root bid
-            _root_bid = handle->seqtrie->getRootBid();
+            if (is_btree_v2) {
+                _root_address = handle->seqtrie->getRootAddr().offset;
+            } else {
+                _root_address = handle->seqtrie->getRootBid();
+            }
         } else {
             // single KVS mode: b+tree root bid
-            _root_bid = handle->seqtree->getRootBid();
+            if (is_btree_v2) {
+                _root_address = handle->seqtreeV2->getRootAddr().offset;
+            } else {
+                _root_address = handle->seqtree->getRootBid();
+            }
         }
-        _edn_safe_64 = _endian_encode(_root_bid);
+        _edn_safe_64 = _endian_encode(_root_address);
         seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     } else {
         memset(buf + offset, 0xff, sizeof(uint64_t));
@@ -1509,8 +1550,12 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle)
 
     // stale block tree root bid (MAGIC_002)
     if (ver_staletree_support(handle->file->getVersion())) {
-        _root_bid = handle->staletree->getRootBid();
-        _edn_safe_64 = _endian_encode(_root_bid);
+        if (is_btree_v2) {
+            _root_address = handle->staletreeV2->getRootAddr().offset;
+        } else {
+            _root_address = handle->staletree->getRootBid();
+        }
+        _edn_safe_64 = _endian_encode(_root_address);
         seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     }
 
@@ -2683,7 +2728,8 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         } // end of zero max_seqnum check
     } // end of durable snapshot locating
 
-    if (ver_btreev2_format(version)) {
+    bool is_btree_v2 = ver_btreev2_format(version);
+    if (is_btree_v2) {
         // BtreeV2 uses a BnodeManager instead of BtreeBlockHandle
         handle->bnodeMgr = new BnodeMgr();
         handle->bnodeMgr->setFile(handle->file);
@@ -2753,7 +2799,11 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                     handle->file->mutexUnlock();
                 }
                 delete handle->dhandle;
-                delete handle->bhandle;
+                if (is_btree_v2) {
+                    delete handle->bnodeMgr;
+                } else {
+                    delete handle->bhandle;
+                }
                 free(prev_filename);
                 FileMgr::close(handle->file, false, NULL,
                                &handle->log_callback);
@@ -2802,7 +2852,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         return FDB_RESULT_OPEN_FAIL;
     }
 
-    if (ver_btreev2_format(version)) {
+    if (is_btree_v2) {
         BtreeNodeAddr rootAddr(trie_root_bid);
         handle->trie = new HBTrie(config->chunksize,
                                   handle->file->getBlockSize(), rootAddr,
@@ -2826,7 +2876,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     handle->seqnum = seqnum;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->config.multi_kv_instances) {
-            if (ver_btreev2_format(version)) {
+            if (is_btree_v2) {
                 BtreeNodeAddr rootAddr(seq_root_bid);
                 // multi KV instance mode .. HB+trie using BtreeV2
                 handle->seqtrie = new HBTrie(sizeof(fdb_kvs_id_t),
@@ -2842,15 +2892,11 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
             }
 
         } else {// single KV instance mode .. normal B+tree
-            if (ver_btreev2_format(handle->file->getVersion())) {
+            if (is_btree_v2) {
                 handle->seqtreeV2 = new BtreeV2();
                 handle->seqtreeV2->setBMgr(handle->bnodeMgr);
-                if (seq_root_bid == BLK_NOT_FOUND) {
-                    handle->seqtreeV2->init();
-                } else {
-                    BtreeNodeAddr rootOffset(seq_root_bid);
-                    handle->seqtreeV2->initFromAddr(rootOffset);
-                }
+                BtreeNodeAddr rootOffset(seq_root_bid);
+                handle->seqtreeV2->initFromAddr(rootOffset);
             } else {
                 BTreeKVOps *seq_kv_ops = new FixedKVOps(8, 8,
                                              _cmp_uint64_t_endian_safe);
@@ -2874,7 +2920,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
     // Stale-block tree (supported since MAGIC_002)
     // this tree is independent to multi/single KVS mode option
     if (ver_staletree_support(version)) {
-        if (ver_btreev2_format(version)) {
+        if (is_btree_v2) {
             // new B+treeV2
             handle->staletreeV2 = new BtreeV2();
             handle->staletreeV2->setBMgr(handle->bnodeMgr);
@@ -2911,7 +2957,7 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         handle->staletree = NULL;
     }
 
-    if (ver_btreev2_format(version)) {
+    if (is_btree_v2) {
         handle->bnodeMgr->releaseCleanNodes();
     } else {
         status = handle->bhandle->flushBuffer();
@@ -2939,7 +2985,9 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
                            cur_bmp_revnum,
                            !(handle->config.durability_opt & FDB_DRB_ASYNC),
                            &handle->log_callback);
-        handle->bhandle->resetSubblockInfo();
+        if (!is_btree_v2) {
+            handle->bhandle->resetSubblockInfo();
+        }
 
         handle->file->mutexUnlock();
     }
@@ -5245,7 +5293,8 @@ fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
         }
     }
 
-    if (ver_btreev2_format(handle->file->getVersion())) {
+    bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
+    if (is_btree_v2) {
         handle->bnodeMgr->releaseCleanNodes();
     } else {
         handle->bhandle->flushBuffer();
@@ -5269,17 +5318,29 @@ fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
             // multi KV instance mode
             delete handle->seqtrie;
         } else {
-            delete handle->seqtree->getKVOps();
-            delete handle->seqtree;
+            if (is_btree_v2) {
+                delete handle->seqtreeV2;
+            } else {
+                delete handle->seqtree->getKVOps();
+                delete handle->seqtree;
+            }
         }
     }
 
-    if (handle->staletree) {
-        delete handle->staletree->getKVOps();
-        delete handle->staletree;
+    if (is_btree_v2) {
+        delete handle->staletreeV2;
+    } else {
+        if (handle->staletree) {
+            delete handle->staletree->getKVOps();
+            delete handle->staletree;
+        }
     }
 
-    delete handle->bhandle;
+    if (is_btree_v2) {
+        delete handle->bnodeMgr;
+    } else {
+        delete handle->bhandle;
+    }
     delete handle->dhandle;
 
     return fs;

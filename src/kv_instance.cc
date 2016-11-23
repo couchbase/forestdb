@@ -2155,7 +2155,9 @@ fdb_kvs_create_start:
                                 cur_bmp_revnum,
                                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                                 &root_handle->log_callback);
-        root_handle->bhandle->resetSubblockInfo();
+        if (!ver_btreev2_format(root_handle->file->getVersion())) {
+            root_handle->bhandle->resetSubblockInfo();
+        }
     }
 
     file->mutexUnlock();
