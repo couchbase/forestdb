@@ -711,7 +711,24 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
         }
         // recursive call
         BtreeNodeAddr next_addr( kvp );
-        return _find( kv, next_addr, allocate_memory, opt );
+        BtreeV2Result br = _find( kv, next_addr, allocate_memory, opt );
+
+        // Same as the cases described in seekGreaterOrEqualRecursiveBT()
+        // below, we need to explore prev/next child node too if given opt is
+        // not exact match.
+        if (br != BtreeV2Result::SUCCESS &&
+            opt != FindOption::EQUAL) {
+            if (opt == FindOption::SMALLER_OR_EQUAL) {
+                // smaller option: visit smaller child node once again.
+                BtreeNodeAddr smaller_node(node->getKvArr().prev(kvp));
+                return _find(kv, smaller_node, allocate_memory, opt);
+            } else if (opt == FindOption::GREATER_OR_EQUAL) {
+                // greater option: visit greater child node once again.
+                BtreeNodeAddr greater_node(node->getKvArr().next(kvp));
+                return _find(kv, greater_node, allocate_memory, opt);
+            }
+        }
+        return br;
     }
 
     // leaf node

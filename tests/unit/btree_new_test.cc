@@ -1226,6 +1226,111 @@ void btree_smaller_greater_test()
     TEST_RESULT("btree smaller greater test");
 }
 
+void btree_smaller_greater_edge_case_test()
+{
+    TEST_INIT();
+
+    BtreeV2 *btree;
+    BtreeV2Result br;
+    BnodeMgr *b_mgr;
+
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./btree_new_testfile");
+
+    int r = system(SHELL_DEL" btree_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+
+    size_t i;
+    size_t n = 100;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+    btree = new BtreeV2();
+    btree->setBMgr(b_mgr);
+
+    BtreeKvPair kv;
+
+    for (i=0; i<n; i++) {
+        // key structure
+        // k0000100
+        // k0000200
+        // k0000300
+        // ...
+        sprintf(keybuf, "k%07d", (int)i * 100);
+        sprintf(valuebuf, "v%07d", (int)i * 100);
+        kv.key = keybuf;
+        kv.value = valuebuf;
+        kv.keylen = kv.valuelen = 8;
+        btree->insert(kv);
+    }
+
+    // flush dirty nodes
+    btree->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // greater check
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%07d", (int)i * 100 + 50);
+        sprintf(valuebuf_chk, "v%07d", (int)(i+1) * 100);
+        kv.key = keybuf;
+        kv.keylen = 8;
+        kv.value = valuebuf;
+        br = btree->findGreaterOrEqual(kv);
+
+        if (i == n-1) {
+            // out of the range => must fail
+            TEST_CHK(br != BtreeV2Result::SUCCESS);
+        } else {
+            TEST_CHK(br == BtreeV2Result::SUCCESS);
+            TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+        }
+    }
+
+    // smaller check
+    for (i=0; i<n; ++i) {
+        if (i==0) {
+            // make a key smaller than the smallest key
+            sprintf(keybuf, "aaaaaaaa");
+        } else {
+            sprintf(keybuf, "k%07d", (int)i * 100 - 50);
+            sprintf(valuebuf_chk, "v%07d", (int)(i-1) * 100);
+        }
+        kv.key = keybuf;
+        kv.keylen = 8;
+        kv.value = valuebuf;
+        br = btree->findSmallerOrEqual(kv);
+
+        if (i == 0) {
+            // out of the range => must fail
+            TEST_CHK(br != BtreeV2Result::SUCCESS);
+        } else {
+            TEST_CHK(br == BtreeV2Result::SUCCESS);
+            TEST_CMP(kv.value, valuebuf_chk, kv.valuelen);
+        }
+    }
+
+    delete btree;
+    delete b_mgr;
+
+    fr.file->commit_FileMgr(false, nullptr);
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("btree smaller greater edge case test");
+}
+
 
 static int btree_custom_cmp_func(void *key1, size_t keylen1,
                                  void *key2, size_t keylen2)
@@ -2378,6 +2483,7 @@ int main()
     btree_multiple_block_test();
     btree_metadata_test();
     btree_smaller_greater_test();
+    btree_smaller_greater_edge_case_test();
     btree_custom_cmp_test();
 
     hbtriev2_basic_test();
