@@ -859,6 +859,9 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
                                       handle_in->trie->getRootAddr(),
                                       handle_out->bnodeMgr,
                                       handle_out->file);
+        if (handle_out->kvs) {
+            handle_out->trie->setCmpFuncCB(FdbEngine::getCmpFuncCB);
+        }
     } else {
         // initialize the btree block handle.
         handle_out->bhandle = new BTreeBlkHandle(handle_out->file,
@@ -872,6 +875,12 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
                                       handle_out->bhandle,
                                       (void *)handle_out->dhandle,
                                       _fdb_readkey_wrap);
+        // set aux for cmp wrapping function
+        handle_out->trie->setLeafHeightLimit(0xff);
+        handle_out->trie->setLeafCmp(_fdb_custom_cmp_wrap);
+        if (handle_out->kvs) {
+            handle_out->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
+        }
     }
 
     handle_out->dirty_updates = handle_in->dirty_updates;
@@ -879,15 +888,6 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
     handle_out->last_wal_flush_hdr_bid = handle_in->last_wal_flush_hdr_bid;
     handle_out->kv_info_offset = handle_in->kv_info_offset;
     handle_out->op_stats = handle_in->op_stats;
-
-    // set aux for cmp wrapping function
-    handle_out->trie->setLeafHeightLimit(0xff);
-    handle_out->trie->setLeafCmp(_fdb_custom_cmp_wrap);
-
-    if (handle_out->kvs) {
-        handle_out->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
-    }
-
     handle_out->seqnum = handle_in->seqnum;
     if (handle_out->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle_out->config.multi_kv_instances) {
@@ -1650,6 +1650,9 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
         if (!handle->trie) { // LCOV_EXCL_START
             return handle->freeIOHandles(useBtreeV2);
         } // LCOV_EXCL_STOP
+        if (handle->kvs) {
+            handle->trie->setCmpFuncCB(FdbEngine::getCmpFuncCB);
+        }
     } else {
         // create new hb-trie and related handles
         handle->bhandle = new BTreeBlkHandle(handle_in->file,
@@ -1668,12 +1671,12 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
         if (!handle->trie) { // LCOV_EXCL_START
             return handle->freeIOHandles(useBtreeV2);
         } // LCOV_EXCL_STOP
+        handle->trie->setLeafCmp(_fdb_custom_cmp_wrap);
+        handle->trie->setLeafHeightLimit(handle_in->trie->getLeafHeightLimit());
+        if (handle->kvs) {
+            handle->trie->setMapFunction(handle_in->trie->getMapFunction());
+        }
     }
-
-    handle->trie->setLeafCmp(_fdb_custom_cmp_wrap);
-    handle->trie->setFlag(handle_in->trie->getFlag());
-    handle->trie->setLeafHeightLimit(handle_in->trie->getLeafHeightLimit());
-    handle->trie->setMapFunction(handle_in->trie->getMapFunction());
 
     if (handle_in->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree
@@ -2804,19 +2807,20 @@ fdb_status FdbEngine::openFdb(FdbKvsHandle *handle,
         handle->trie = new HBTrie(config->chunksize,
                                   handle->file->getBlockSize(), rootAddr,
                                   handle->bnodeMgr, handle->file);
+        if (handle->kvs) {
+            handle->trie->setCmpFuncCB(FdbEngine::getCmpFuncCB);
+        }
     } else {
         handle->trie = new HBTrie(config->chunksize, OFFSET_SIZE,
                                   handle->file->getBlockSize(), trie_root_bid,
                                   handle->bhandle,
                                   (void *)handle->dhandle, _fdb_readkey_wrap);
-    }
-
-    // set aux for cmp wrapping function
-    handle->trie->setLeafHeightLimit(0xff);
-    handle->trie->setLeafCmp(_fdb_custom_cmp_wrap);
-
-    if (handle->kvs) {
-        handle->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
+        // set aux for cmp wrapping function
+        handle->trie->setLeafHeightLimit(0xff);
+        handle->trie->setLeafCmp(_fdb_custom_cmp_wrap);
+        if (handle->kvs) {
+            handle->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
+        }
     }
 
     handle->seqnum = seqnum;

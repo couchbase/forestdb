@@ -266,7 +266,6 @@ void skew_basic_test()
 
     trie = new HBTrie(8, 8, blocksize, BLK_NOT_FOUND,
                       bhandle, (void *)&dhandle, _readkey_wrap_memory);
-    trie->setFlag(HBTRIE_FLAG_COMPACT);
     trie->setLeafHeightLimit(1);
 
     for (i=0;i<n;++i){

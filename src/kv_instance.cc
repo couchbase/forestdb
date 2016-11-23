@@ -2450,3 +2450,36 @@ bool FdbEngine::isAnyKvsHandleOpened(FdbFileHandle *fhandle,
 
     return false;
 }
+
+btree_new_cmp_func* FdbEngine::getCmpFuncCB(HBTrie *hbtrie,
+                                            uint64_t kvs_id,
+                                            void *aux)
+{
+    (void)aux;
+    FileMgr *file = hbtrie->getFileMgr();
+    if (!file->getKVHeader_UNLOCKED()->custom_cmp_enabled) {
+        // no custom compare function is assigned
+        return NULL;
+    }
+
+    // search by id
+    struct avl_node *a;
+    struct kvs_node query, *node;
+    if (kvs_id > 0) {
+        query.id = kvs_id;
+        spin_lock(&file->getKVHeader_UNLOCKED()->lock);
+        a = avl_search(file->getKVHeader_UNLOCKED()->idx_id, &query.avl_id, _kvs_cmp_id);
+        spin_unlock(&file->getKVHeader_UNLOCKED()->lock);
+
+        if (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+            return static_cast<btree_new_cmp_func*>(node->custom_cmp);
+        }
+    } else {
+        // root handle
+        return static_cast<btree_new_cmp_func*>(
+               file->getKVHeader_UNLOCKED()->default_kvs_cmp);
+    }
+    return nullptr;
+}
+

@@ -632,6 +632,9 @@ fdb_status Compaction::createFile(const std::string file_name,
         keyTrie = new HBTrie(handle->trie->getChunkSize(),
                              fileMgr->getBlockSize(),
                              rootAddr, bnodeMgr, fileMgr);
+        if (handle->kvs) {
+            keyTrie->setCmpFuncCB(FdbEngine::getCmpFuncCB);
+        }
     } else {
         btreeHandle = new BTreeBlkHandle(fileMgr, fileMgr->getBlockSize());
         btreeHandle->setLogCallback(&handle->log_callback);
@@ -639,15 +642,12 @@ fdb_status Compaction::createFile(const std::string file_name,
                              handle->trie->getValueLen(),
                              fileMgr->getBlockSize(), BLK_NOT_FOUND,
                              btreeHandle, (void*)docHandle, _fdb_readkey_wrap);
-
+        keyTrie->setLeafCmp(_fdb_custom_cmp_wrap);
+        keyTrie->setLeafHeightLimit(handle->trie->getLeafHeightLimit());
+        if (handle->kvs) {
+            keyTrie->setMapFunction(handle->trie->getMapFunction());
+        }
     }
-
-
-    keyTrie->setLeafCmp(_fdb_custom_cmp_wrap);
-    // set aux
-    keyTrie->setFlag(handle->trie->getFlag());
-    keyTrie->setLeafHeightLimit(handle->trie->getLeafHeightLimit());
-    keyTrie->setMapFunction(handle->trie->getMapFunction());
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree

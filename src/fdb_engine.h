@@ -24,6 +24,7 @@
 #include "internal_types.h"
 #include "file_handle.h"
 #include "kvs_handle.h"
+#include "bnode.h"
 
 /**
  * Class that defines the list of callback functions invoked for each WAL item
@@ -832,6 +833,18 @@ public:
     static fdb_status fetchHandleStats(fdb_kvs_handle *handle,
                                        fdb_handle_stats_cb callback,
                                        void *ctx);
+    /**
+     * Callback function for HB+trie, to get custom compare function for the
+     * given KVS ID.
+     *
+     * @param hbtrie HB+trie instance.
+     * @param kvs_id KVS ID.
+     * @param aux Auxiliary parameter.
+     * @return Pointer to custom compare function.
+     */
+    static btree_new_cmp_func* getCmpFuncCB(HBTrie *hbtrie,
+                                            uint64_t kvs_id,
+                                            void *aux);
 
 private:
 
