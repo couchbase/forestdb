@@ -5630,6 +5630,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
+        old_offset = BLK_NOT_FOUND;
         handle->trie->insert(item->header->key, item->header->keylen,
                              (void *)&_offset, (void *)&old_offset);
         if (ver_btreev2_format(handle->file->getVersion())) {

@@ -985,6 +985,9 @@ void BsArray::copyFromOtherArray(BsArray& src_array,
     // copy kvMeta from source
     // Only 'isPtr' part is valid; 'kvPos' part will be updated
     // in constructKvMetaArray() below.
+
+    // resize kvMeta
+    setNumElems(num_elems);
     std::copy(src_kv_meta.begin() + start_item.idx,
               src_kv_meta.begin() + start_item.idx + num_elems,
               kvMeta.begin());
@@ -1002,7 +1005,7 @@ void BsArray::constructKvMetaArray(uint32_t kv_data_size,
 
     kvDataSize = kv_data_size;
 
-    // resize both kvPos, isPtr
+    // resize kvMeta
     setNumElems(num_elems);
 
     uint16_t keylen_local, valuelen_local;

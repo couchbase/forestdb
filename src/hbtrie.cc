@@ -1964,6 +1964,10 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     if ( kv_from_btree.keylen == suffix_len &&
          !memcmp(kv_from_btree.key, chunk, suffix_len) ) {
         // exactly same key => update B+tree entry
+        if (oldvalue_out) {
+            hv_from_btree.toBinaryOffsetOnly(oldvalue_out);
+        }
+
         HBTrieValue hv_new(HV_DOC, given_value);
         BtreeKvPair kv_insert(kv_from_btree.key, kv_from_btree.keylen,
                               hv_new.toBinary(hv_buf), HV_SIZE);

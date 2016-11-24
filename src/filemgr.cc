@@ -2159,10 +2159,8 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                                  ErrLogCallback *log_callback,
                                  bool read_on_cache_miss) {
 
-    // Applies to block aligned buffer cache only
-    if (ver_btreev2_format(getVersion())) {
-        return FDB_RESULT_EOPNOTSUPP;
-    }
+    // In Btree V2 mode, DocIO or appending/reading header
+    // can invoke this function.
 
     size_t lock_no;
     ssize_t r;
@@ -2248,7 +2246,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                 }
                 return status;
             }
-#ifdef __CRC32
+
             status = checkCRC32(buf);
             if (status != FDB_RESULT_SUCCESS) {
                 _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
@@ -2271,7 +2269,7 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
                 }
                 return status;
             }
-#endif
+
             r = BlockCacheManager::getInstance()->write(this, bid, buf,
                                                         BCACHE_REQ_CLEAN,
                                                         false);
@@ -2334,7 +2332,6 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
             return status;
         }
 
-#ifdef __CRC32
         status = checkCRC32(buf);
         if (status != FDB_RESULT_SUCCESS) {
             _log_errno_str(fopsHandle, fMgrOps, log_callback, status, "READ",
@@ -2349,7 +2346,6 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
             }
             return status;
         }
-#endif
     }
     return status;
 }
@@ -2562,7 +2558,14 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
     setIoInprog();
     if (global_config.getNcacheBlock() > 0) {
         if (ver_btreev2_format(getVersion())) {
-            result = BnodeCacheMgr::get()->flush(this);
+            if (bnodeCache.load(std::memory_order_relaxed)) {
+                result = BnodeCacheMgr::get()->flush(this);
+            } else {
+                // It means that 'FileBnodeCache' instance is not
+                // created yet, because no B+tree related operation
+                // has been executed. This is not an actual error.
+                result = FDB_RESULT_SUCCESS;
+            }
         } else {
             result = BlockCacheManager::getInstance()->flush(this);
         }
