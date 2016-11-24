@@ -136,7 +136,11 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     fhandle = kv_handle.fhandle;
 
     trie = kv_handle.trie;
-    staletree = kv_handle.staletree;
+    if (ver_btreev2_format(file->getVersion())) {
+        staletreeV2 = kv_handle.staletreeV2;
+    } else {
+        staletree = kv_handle.staletree;
+    }
     if (kv_handle.kvs) {
         seqtrie = kv_handle.seqtrie;
     } else {

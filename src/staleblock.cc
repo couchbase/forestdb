@@ -273,7 +273,7 @@ void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
             while ( cur != mergeTree.end() ) {
                 item = cur->second;
 
-                if (handle->staletree) {
+                if (handle->staletree || handle->staletreeV2) {
                     count++;
 
                     _pos = _endian_encode(item->pos);
@@ -323,7 +323,7 @@ void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
             while ( list_cur != staleList.end() ) {
                 item = *list_cur;
 
-                if (handle->staletree) {
+                if (handle->staletree || handle->staletreeV2) {
                     count++;
 
                     _pos = _endian_encode(item->pos);
@@ -783,10 +783,15 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
     // remove merged commit headers
     for (i=0; i<n_revnums; ++i) {
         _revnum = _endian_encode(revnum_array[i]);
-        handle->staletree->remove((void*)&_revnum);
         if (is_btree_v2) {
+            BtreeKvPair kv((void *)&_revnum, /* key */
+                           sizeof(uint64_t), /* key length */
+                           nullptr, /* value */
+                           0); /* value length */
+            handle->staletreeV2->remove(kv);
             handle->bnodeMgr->releaseCleanNodes();
         } else {
+            handle->staletree->remove((void*)&_revnum);
             handle->bhandle->flushBuffer();
         }
     }
@@ -939,7 +944,6 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
 void StaleDataManager::rollbackStaleBlocks(FdbKvsHandle *handle,
                                filemgr_header_revnum_t cur_revnum)
 {
-    btree_result br;
     filemgr_header_revnum_t i, _revnum;
     StaleInfoCommit *commit, query;
     StaleInfoEntry *entry;
@@ -952,12 +956,15 @@ void StaleDataManager::rollbackStaleBlocks(FdbKvsHandle *handle,
     // remove from on-disk stale-tree
     for (i = handle->rollback_revnum; i < cur_revnum; ++i) {
         _revnum = _endian_encode(i);
-        br = handle->staletree->remove((void*)&_revnum);
-        // don't care the result
-        (void)br;
         if (is_btree_v2) {
+            BtreeKvPair kv((void *)&_revnum, /* key */
+                           sizeof(uint64_t), /* key length */
+                           nullptr, /* value */
+                           0); /* value length */
+            handle->staletreeV2->remove(kv);
             handle->bnodeMgr->releaseCleanNodes();
         } else {
+            handle->staletree->remove((void*)&_revnum);
             handle->bhandle->flushBuffer();
         }
     }

@@ -640,7 +640,11 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
                 }
             }
         }
-        handle->staletree = new_db.staletree;
+        if (is_btree_v2) {
+            handle->staletreeV2 = new_db.staletreeV2;
+        } else {
+            handle->staletree = new_db.staletree;
+        }
 
         new_file->mutexUnlock();
         // remove self: WARNING must not close this handle if snapshots
@@ -1207,7 +1211,6 @@ void fdb_sync_db_header(FdbKvsHandle *handle)
 
             if (ver_staletree_support(version)) {
                 if (is_btree_v2) {
-
                     BtreeNodeAddr root_addr(new_stale_root);
                     handle->staletreeV2->initFromAddr(root_addr);
                 } else {
