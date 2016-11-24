@@ -1850,9 +1850,11 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
 
+        HBTrieValue hb_value_meta(HV_DOC, given_value);
+
         storeMeta( metasize, cur_chunk_no, HBMETA_NORMAL,
                    hbmeta.prefix, hbmeta.prefix_len,
-                   given_value, new_meta_buffer.getAddr() );
+                   hb_value_meta.toBinary(hv_buf), new_meta_buffer.getAddr() );
         cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
         hr = HBTRIE_RESULT_SUCCESS;
         return setLocalReturnValue(hr, cur_btree, rets);
