@@ -2423,7 +2423,11 @@ fdb_kvs_remove_start:
         _kv_id = alca(uint8_t, size_id);
         kvid2buf(size_id, kv_id, _kv_id);
         root_handle->seqtrie->removePartial(_kv_id, size_id);
-        root_handle->bhandle->flushBuffer();
+        if (is_btree_v2) {
+            root_handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            root_handle->bhandle->flushBuffer();
+        }
     }
 
     _fdb_dirty_update_finalize(root_handle, prev_node, new_node,

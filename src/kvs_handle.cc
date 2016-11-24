@@ -125,6 +125,7 @@ void FdbKvsHandle::createKvsInfo(FdbKvsHandle *root_handle,
 
 void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     kvs_config = kv_handle.kvs_config;
+    file = kv_handle.file;
 
     freeKvsInfo();
     if (kv_handle.kvs) {
@@ -139,10 +140,13 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     if (kv_handle.kvs) {
         seqtrie = kv_handle.seqtrie;
     } else {
-        seqtree = kv_handle.seqtree;
+        if (ver_btreev2_format(file->getVersion())) {
+            seqtreeV2 = kv_handle.seqtreeV2;
+        } else {
+            seqtree = kv_handle.seqtree;
+        }
     }
 
-    file = kv_handle.file;
     dhandle = kv_handle.dhandle;
     if (ver_btreev2_format(file->getVersion())) {
         bnodeMgr = kv_handle.bnodeMgr;

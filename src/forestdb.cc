@@ -623,10 +623,20 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
                     handle->seqtrie = new_db.seqtrie;
                 }
             } else {
-                delete handle->seqtree->getKVOps();
-                delete handle->seqtree;
+                if (is_btree_v2) {
+                    delete handle->seqtreeV2;
+                    handle->seqtreeV2 = nullptr;
+                } else {
+                    delete handle->seqtree->getKVOps();
+                    delete handle->seqtree;
+                    handle->seqtree = nullptr;
+                }
                 if (new_db.config.seqtree_opt == FDB_SEQTREE_USE) {
-                    handle->seqtree = new_db.seqtree;
+                    if (is_btree_v2) {
+                        handle->seqtreeV2 = new_db.seqtreeV2;
+                    } else {
+                        handle->seqtree = new_db.seqtree;
+                    }
                 }
             }
         }
@@ -5979,8 +5989,12 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "seqtrie: flag %x\n", h->seqtrie->getFlag());
     fprintf(stderr, "seqtrie: leaf_height_limit %u\n",
             h->seqtrie->getLeafHeightLimit());
-    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
-    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
+    if (ver_btreev2_format(h->file->getVersion())) {
+        fprintf(stderr, "seqtrie: root_offset %" _F64 "\n",
+                h->seqtrie->getRootAddr().offset);
+    } else {
+        fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
+    }
 
     fprintf(stderr, "file: getFileName() %s\n", h->file->getFileName());
     fprintf(stderr, "file: refCount %d\n", h->file->getRefCount_UNLOCKED());
