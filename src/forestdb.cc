@@ -590,8 +590,11 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         // compaction has completed successfully. Mark self for deletion
         new_file->mutexLock();
 
-        if (ver_btreev2_format(handle->file->getVersion())) {
+        bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
+        if (is_btree_v2) {
             handle->bnodeMgr->releaseCleanNodes();
+            delete handle->bnodeMgr;
+            handle->bnodeMgr = new_db.bnodeMgr;
         } else {
             status = handle->bhandle->flushBuffer();
             if (status != FDB_RESULT_SUCCESS) {
@@ -599,9 +602,9 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
                 FdbEngine::getInstance()->closeKVHandle(&new_db);
                 return status;
             }
+            delete handle->bhandle;
+            handle->bhandle = new_db.bhandle;
         }
-        delete handle->bhandle;
-        handle->bhandle = new_db.bhandle;
 
         delete handle->dhandle;
         handle->dhandle = new_db.dhandle;
@@ -946,6 +949,8 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
 
 static void _fdb_cleanup_open_err(fdb_kvs_handle *handle)
 {
+    bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
+
     delete handle->trie;
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -953,21 +958,30 @@ static void _fdb_cleanup_open_err(fdb_kvs_handle *handle)
             // multi KV instance mode
             delete handle->seqtrie;
         } else {
-            delete handle->seqtree->getKVOps();
-            delete handle->seqtree;
+            if (is_btree_v2) {
+                delete handle->seqtreeV2;
+            } else {
+                delete handle->seqtree->getKVOps();
+                delete handle->seqtree;
+            }
         }
     }
 
-    if (handle->staletree) {
-        delete handle->staletree->getKVOps();
-        delete handle->staletree;
+    if (is_btree_v2) {
+        delete handle->staletreeV2;
+        delete handle->bnodeMgr;
+    } else {
+        if (handle->staletree) {
+            delete handle->staletree->getKVOps();
+            delete handle->staletree;
+        }
+        delete handle->bhandle;
     }
 
-    delete handle->bhandle;
     delete handle->dhandle;
 
     FileMgr::close(handle->file, handle->config.cleanup_cache_onclose,
-                        handle->filename.c_str(), &handle->log_callback);
+                   handle->filename.c_str(), &handle->log_callback);
 }
 
 LIBFDB_API
@@ -1306,31 +1320,26 @@ fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status)
 
 static void _fdb_sync_dirty_root(FdbKvsHandle *handle)
 {
-    bid_t dirty_idtree_root = BLK_NOT_FOUND;
-    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    if (!ver_btreev2_format(handle->file->getVersion()) && !handle->shandle) {
+        bid_t dirty_idtree_root = BLK_NOT_FOUND;
+        bid_t dirty_seqtree_root = BLK_NOT_FOUND;
 
-    if (handle->shandle) {
-        // skip snapshot
-        return;
+        struct filemgr_dirty_update_node *dirty_update;
+        dirty_update = handle->file->dirtyUpdateGetLatest();
+        handle->bhandle->setDirtyUpdate(dirty_update);
+
+        if (dirty_update) {
+            FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
+                                        &dirty_seqtree_root);
+            _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+            handle->bhandle->discardBlocks();
+        }
     }
-
-    struct filemgr_dirty_update_node *dirty_update;
-    dirty_update = handle->file->dirtyUpdateGetLatest();
-    handle->bhandle->setDirtyUpdate(dirty_update);
-
-    if (dirty_update) {
-        FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
-                                    &dirty_seqtree_root);
-        _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
-        handle->bhandle->discardBlocks();
-    }
-
-    return;
 }
 
 static void _fdb_release_dirty_root(FdbKvsHandle *handle)
 {
-    if (!handle->shandle) {
+    if (!ver_btreev2_format(handle->file->getVersion()) && !handle->shandle) {
         struct filemgr_dirty_update_node *dirty_update;
         dirty_update = handle->bhandle->getDirtyUpdate();
         if (dirty_update) {
@@ -3716,10 +3725,13 @@ fdb_set_start:
                                            WalFlushCallbacks::updateKvsDeltaStats,
                                            &flush_items);
 
+            bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
             if (wr != FDB_RESULT_SUCCESS) {
-                handle->bhandle->clearDirtyUpdate();
-                FileMgr::dirtyUpdateCloseNode(prev_node);
-                handle->file->dirtyUpdateRemoveNode(new_node);
+                if (!is_btree_v2) {
+                    handle->bhandle->clearDirtyUpdate();
+                    FileMgr::dirtyUpdateCloseNode(prev_node);
+                    handle->file->dirtyUpdateRemoveNode(new_node);
+                }
                 file->mutexUnlock();
                 END_HANDLE_BUSY(handle);
                 return wr;
@@ -3735,7 +3747,9 @@ fdb_set_start:
             file->getWal()->releaseFlushedItems_Wal(&flush_items);
 
             wal_flushed = true;
-            handle->bhandle->resetSubblockInfo();
+            if (!is_btree_v2) {
+                handle->bhandle->resetSubblockInfo();
+            }
         }
     }
 
@@ -3914,9 +3928,11 @@ fdb_commit_start:
                                                &flush_items);
 
         if (wr != FDB_RESULT_SUCCESS) {
-            handle->bhandle->clearDirtyUpdate();
-            FileMgr::dirtyUpdateCloseNode(prev_node);
-            handle->file->dirtyUpdateRemoveNode(new_node);
+            if (!btreev2) {
+                handle->bhandle->clearDirtyUpdate();
+                FileMgr::dirtyUpdateCloseNode(prev_node);
+                handle->file->dirtyUpdateRemoveNode(new_node);
+            }
             handle->file->mutexUnlock();
             END_HANDLE_BUSY(handle);
             return wr;
@@ -4015,21 +4031,27 @@ fdb_commit_start:
             decision = sb->checkBlockReuse(handle);
             if (decision == SBD_RECLAIM) {
                 // gather reusable blocks
-                handle->bhandle->discardBlocks();
+                if (!btreev2) {
+                    handle->bhandle->discardBlocks();
+                }
                 block_reclaimed = sb->reclaimReusableBlocks(handle);
                 if (block_reclaimed) {
                     sb->appendBmpDoc(handle);
                 }
             } else if (decision == SBD_RESERVE) {
                 // reserve reusable blocks
-                handle->bhandle->discardBlocks();
+                if (!btreev2) {
+                    handle->bhandle->discardBlocks();
+                }
                 block_reclaimed = sb->reserveNextReusableBlocks(handle);
                 if (block_reclaimed) {
                     sb->appendRsvBmpDoc(handle);
                 }
             } else if (decision == SBD_SWITCH) {
                 // switch reserved reusable blocks
-                handle->bhandle->discardBlocks();
+                if (!btreev2) {
+                    handle->bhandle->discardBlocks();
+                }
                 sb->switchReservedBlocks();
             }
             // header should be updated one more time
@@ -4201,20 +4223,22 @@ fdb_snapshot_open_start:
             !handle_in->shandle) {
             handle->max_seqnum = handle_in->seqnum;
 
-            // synchronize dirty root nodes if exist
-            bid_t dirty_idtree_root = BLK_NOT_FOUND;
-            bid_t dirty_seqtree_root = BLK_NOT_FOUND;
-            struct filemgr_dirty_update_node *dirty_update;
+            if (!ver_btreev2_format(handle->file->getVersion())) {
+                // synchronize dirty root nodes if exist
+                bid_t dirty_idtree_root = BLK_NOT_FOUND;
+                bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+                struct filemgr_dirty_update_node *dirty_update;
 
-            dirty_update = handle->file->dirtyUpdateGetLatest();
-            handle->bhandle->setDirtyUpdate(dirty_update);
+                dirty_update = handle->file->dirtyUpdateGetLatest();
+                handle->bhandle->setDirtyUpdate(dirty_update);
 
-            if (dirty_update) {
-                FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
-                                            &dirty_seqtree_root);
-                _fdb_import_dirty_root(handle, dirty_idtree_root,
-                                       dirty_seqtree_root);
-                handle->bhandle->discardBlocks();
+                if (dirty_update) {
+                    FileMgr::dirtyUpdateGetRoot(dirty_update, &dirty_idtree_root,
+                                                &dirty_seqtree_root);
+                    _fdb_import_dirty_root(handle, dirty_idtree_root,
+                                           dirty_seqtree_root);
+                    handle->bhandle->discardBlocks();
+                }
             }
             // Having synced the dirty root, make an in-memory WAL snapshot
 #ifdef _MVCC_WAL_ENABLE
@@ -4239,21 +4263,37 @@ fdb_snapshot_open_start:
                 // in-memory snapshot
                 // Clone dirty root nodes from the source snapshot by incrementing
                 // their ref counters
-                handle->trie->setRootBid(handle_in->trie->getRootBid());
+                bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
+                if (is_btree_v2) {
+                    handle->trie->setRootAddr(handle_in->trie->getRootAddr());
+                } else {
+                    handle->trie->setRootBid(handle_in->trie->getRootBid());
+                }
                 if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                     if (handle->kvs) {
-                        handle->seqtrie->setRootBid(handle_in->seqtrie->getRootBid());
+                        if (is_btree_v2) {
+                            handle->seqtrie->setRootAddr(handle_in->seqtrie->getRootAddr());
+                        } else {
+                            handle->seqtrie->setRootBid(handle_in->seqtrie->getRootBid());
+                        }
                     } else {
-                        handle->seqtree->setRootBid(handle_in->seqtree->getRootBid());
+                        if (is_btree_v2) {
+                            handle->seqtreeV2->initFromAddr(
+                                handle_in->seqtreeV2->getRootAddr());
+                        } else {
+                            handle->seqtree->setRootBid(handle_in->seqtree->getRootBid());
+                        }
                     }
                 }
-                handle->bhandle->discardBlocks();
+                if (!is_btree_v2) {
+                    handle->bhandle->discardBlocks();
 
-                // increase ref count for dirty update
-                struct filemgr_dirty_update_node *dirty_update;
-                dirty_update = handle_in->bhandle->getDirtyUpdate();
-                FileMgr::dirtyUpdateIncRefCount(dirty_update);
-                handle->bhandle->setDirtyUpdate(dirty_update);
+                    // increase ref count for dirty update
+                    struct filemgr_dirty_update_node *dirty_update;
+                    dirty_update = handle_in->bhandle->getDirtyUpdate();
+                    FileMgr::dirtyUpdateIncRefCount(dirty_update);
+                    handle->bhandle->setDirtyUpdate(dirty_update);
+                }
             }
         }
         *ptr_handle = handle;
@@ -5302,8 +5342,10 @@ fdb_status FdbEngine::closeKVHandle(FdbKvsHandle *handle)
 
     if (handle->shandle) { // must close wal_snapshot before file
         handle->file->getWal()->snapshotClose_Wal(handle->shandle);
-        FileMgr::dirtyUpdateCloseNode(handle->bhandle->getDirtyUpdate());
-        handle->bhandle->clearDirtyUpdate();
+        if (!is_btree_v2) {
+            FileMgr::dirtyUpdateCloseNode(handle->bhandle->getDirtyUpdate());
+            handle->bhandle->clearDirtyUpdate();
+        }
     }
 
     fs = FileMgr::close(handle->file, handle->config.cleanup_cache_onclose,
@@ -5742,12 +5784,21 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
             }
 
             // Update index size to new size after the remove operation
-            delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+            if (ver_btreev2_format(handle->file->getVersion())) {
+                delta = handle->bnodeMgr->getNLiveNodes() - nlivenodes;
+            } else {
+                delta = handle->bhandle->getNLiveNodes() - nlivenodes;
+            }
             kvs_delta_stat->nlivenodes += delta;
 
             // ndeltanodes measures number of new index nodes created due to
             // this hbtrie_remove() operation
-            delta = (int)handle->bhandle->getNDeltaNodes() - ndeltanodes;
+            if (ver_btreev2_format(handle->file->getVersion())) {
+                delta = handle->bnodeMgr->getNDeltaNodes() - ndeltanodes;
+            } else {
+                delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;
+            }
+            // TODO: delta size should be estimated differently for a new btree format.
             delta *= handle->config.blocksize;
             kvs_delta_stat->deltasize += delta;
         }
@@ -5981,12 +6032,18 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
            h->dhandle->isDocBodyCompressed()? "compress" : "don't compress");
     fprintf(stderr, "new_dhandle %p\n", (void *)h->dhandle);
 
-    fprintf(stderr, "btreeblk_handle bhanlde %p\n", (void *)h->bhandle);
-    fprintf(stderr, "bhandle: nodesize %d\n", h->bhandle->getNodeSize());
-    fprintf(stderr, "bhandle: nnodeperblock %d\n", h->bhandle->getNNodePerBlock());
-    fprintf(stderr, "bhandle: nlivenodes %" _F64 "\n", h->bhandle->getNLiveNodes());
-    fprintf(stderr, "bhandle: file %s\n", h->bhandle->getFile()->getFileName());
-    fprintf(stderr, "bhandle: nsb %d\n", h->bhandle->getNSubblocks());
+    if (ver_btreev2_format(h->file->getVersion())) {
+        fprintf(stderr, "BnodeMgr %p\n", (void *)h->bnodeMgr);
+        fprintf(stderr, "BnodeMgr: nlivenodes %" _F64 "\n", h->bnodeMgr->getNLiveNodes());
+        fprintf(stderr, "BnodeMgr: file %s\n", h->bnodeMgr->getFile()->getFileName());
+    } else {
+        fprintf(stderr, "btreeblk_handle bhanlde %p\n", (void *)h->bhandle);
+        fprintf(stderr, "bhandle: nodesize %d\n", h->bhandle->getNodeSize());
+        fprintf(stderr, "bhandle: nnodeperblock %d\n", h->bhandle->getNNodePerBlock());
+        fprintf(stderr, "bhandle: nlivenodes %" _F64 "\n", h->bhandle->getNLiveNodes());
+        fprintf(stderr, "bhandle: file %s\n", h->bhandle->getFile()->getFileName());
+        fprintf(stderr, "bhandle: nsb %d\n", h->bhandle->getNSubblocks());
+    }
 
     fprintf(stderr, "multi_kv_instances: %d\n", h->config.multi_kv_instances);
     fprintf(stderr, "prefetch_duration: %" _F64"\n",

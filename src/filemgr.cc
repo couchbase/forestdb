@@ -3629,6 +3629,10 @@ void FileMgr::removeDirtyNode(struct filemgr_dirty_update_node *node) {
 }
 
 void FileMgr::dirtyUpdateRemoveNode(struct filemgr_dirty_update_node *node) {
+    if (!node) {
+        return;
+    }
+
     spin_lock(&dirtyUpdateLock);
     avl_remove(&dirtyUpdateIdx, &node->avl);
     spin_unlock(&dirtyUpdateLock);

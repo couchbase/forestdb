@@ -284,8 +284,10 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
         return fs;
     }
 
-    // (8) Reset the sub-block and update the superblock in the current file
-    handle->bhandle->resetSubblockInfo();
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        // (8) Reset the sub-block and update the superblock in the current file
+        handle->bhandle->resetSubblockInfo();
+    }
     if (sb) {
         // sync superblock
         sb->updateHeader(handle);

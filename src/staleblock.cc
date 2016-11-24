@@ -129,12 +129,17 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
     // should grab mutex to avoid race with other writer
     file->mutexLock();
 
+    bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
     bit = new BTreeIterator(handle->staletree, NULL);
     do {
         br = bit->next((void*)&_revnum, (void*)&_offset);
-        handle->bhandle->flushBuffer();
-        if (br != BTREE_RESULT_SUCCESS) {
-            break;
+        if (is_btree_v2) {
+            handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            handle->bhandle->flushBuffer();
+            if (br != BTREE_RESULT_SUCCESS) {
+                break;
+            }
         }
 
         revnum = _endian_decode(_revnum);
@@ -582,9 +587,15 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
     revnum_upto = stale_header.revnum;
 
     r = handle->file->getKvsStatOps()->statGet(0, &stat);
-    handle->bhandle->setNLiveNodes(stat.nlivenodes);
-    handle->bhandle->setNDeltaNodes(stat.nlivenodes);
     (void)r;
+    bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
+    if (is_btree_v2) {
+        handle->bnodeMgr->setNLiveNodes(stat.nlivenodes);
+        handle->bnodeMgr->setNDeltaNodes(stat.nlivenodes);
+    } else {
+        handle->bhandle->setNLiveNodes(stat.nlivenodes);
+        handle->bhandle->setNDeltaNodes(stat.nlivenodes);
+    }
 
     revnum_array = (filemgr_header_revnum_t *)
                    calloc(max_revnum_array, sizeof(filemgr_header_revnum_t));
@@ -708,7 +719,11 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
         bit = new BTreeIterator(handle->staletree, NULL);
         do {
             br = bit->next((void*)&_revnum, (void*)&_offset);
-            handle->bhandle->flushBuffer();
+            if (is_btree_v2) {
+                handle->bnodeMgr->releaseCleanNodes();
+            } else {
+                handle->bhandle->flushBuffer();
+            }
             if (br != BTREE_RESULT_SUCCESS) {
                 break;
             }
@@ -769,12 +784,25 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
     for (i=0; i<n_revnums; ++i) {
         _revnum = _endian_encode(revnum_array[i]);
         handle->staletree->remove((void*)&_revnum);
-        handle->bhandle->flushBuffer();
+        if (is_btree_v2) {
+            handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            handle->bhandle->flushBuffer();
+        }
     }
 
-    delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
+    if (is_btree_v2) {
+        delta = handle->bnodeMgr->getNLiveNodes() - stat.nlivenodes;
+    } else {
+        delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
+    }
     handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_NLIVENODES, delta);
-    delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
+    if (is_btree_v2) {
+        delta = handle->bnodeMgr->getNDeltaNodes() - stat.nlivenodes;
+    } else {
+        delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
+    }
+    // TODO: Delta size should be estimated differently for a new btree format
     delta *= handle->config.blocksize;
     handle->file->getKvsStatOps()->statUpdateAttr(0, KVS_STAT_DELTASIZE, delta);
 
@@ -920,13 +948,18 @@ void StaleDataManager::rollbackStaleBlocks(FdbKvsHandle *handle,
         return;
     }
 
+    bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
     // remove from on-disk stale-tree
     for (i = handle->rollback_revnum; i < cur_revnum; ++i) {
         _revnum = _endian_encode(i);
         br = handle->staletree->remove((void*)&_revnum);
         // don't care the result
         (void)br;
-        handle->bhandle->flushBuffer();
+        if (is_btree_v2) {
+            handle->bnodeMgr->releaseCleanNodes();
+        } else {
+            handle->bhandle->flushBuffer();
+        }
     }
 
     // also remove from in-memory stale-tree
