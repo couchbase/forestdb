@@ -115,8 +115,11 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
     int64_t ret;
     bid_t offset, _offset, prev_offset;
     filemgr_header_revnum_t revnum, _revnum;
-    BTreeIterator *bit;
-    btree_result br;
+    // For old btree iteration
+    BTreeIterator *bit = nullptr;
+    // For new btree iteration
+    BtreeIteratorV2 *bit_v2 = nullptr;
+
     struct docio_object doc;
     bool expected = false;
 
@@ -130,12 +133,23 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
     file->mutexLock();
 
     bool is_btree_v2 = ver_btreev2_format(handle->file->getVersion());
-    bit = new BTreeIterator(handle->staletree, NULL);
+    if (is_btree_v2) {
+        bit_v2 = new BtreeIteratorV2(handle->staletreeV2);
+    } else {
+        bit = new BTreeIterator(handle->staletree, nullptr);
+    }
+
     do {
-        br = bit->next((void*)&_revnum, (void*)&_offset);
         if (is_btree_v2) {
+            BtreeKvPair kv_pair = bit_v2->getKvBT();
             handle->bnodeMgr->releaseCleanNodes();
+            if (!kv_pair.key) {
+                break;
+            }
+            _revnum = *(static_cast<filemgr_header_revnum_t *>(kv_pair.key));
+            _offset = *(static_cast<bid_t *>(kv_pair.value));
         } else {
+            btree_result br = bit->next((void*)&_revnum, (void*)&_offset);
             handle->bhandle->flushBuffer();
             if (br != BTREE_RESULT_SUCCESS) {
                 break;
@@ -173,9 +187,16 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
 
             offset = prev_offset;
         }
+        if (is_btree_v2 && bit_v2->nextBT() != BnodeIteratorResult::SUCCESS) {
+            break;
+        }
     } while (true);
 
-    delete bit;
+    if (is_btree_v2) {
+        delete bit_v2;
+    } else {
+        delete bit;
+    }
 
     file->mutexUnlock();
 }
@@ -568,8 +589,11 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
     uint32_t item_len;
     uint32_t n_revnums, max_revnum_array = 256;
     uint64_t item_pos;
-    BTreeIterator *bit;
-    btree_result br;
+    // For old btree iteration
+    BTreeIterator *bit = nullptr;
+    // For new btree iteration
+    BtreeIteratorV2 *bit_v2 = nullptr;
+
     filemgr_header_revnum_t revnum_upto, prev_revnum = 0;
     filemgr_header_revnum_t revnum = 0, _revnum;
     filemgr_header_revnum_t *revnum_array;
@@ -716,16 +740,27 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
         // scan stale-block tree and get all stale regions
         // corresponding to commit headers whose seq number is
         // equal to or smaller than 'revnum_upto'
-        bit = new BTreeIterator(handle->staletree, NULL);
+        if (is_btree_v2) {
+            bit_v2 = new BtreeIteratorV2(handle->staletreeV2);
+        } else {
+            bit = new BTreeIterator(handle->staletree, nullptr);
+        }
+
         do {
-            br = bit->next((void*)&_revnum, (void*)&_offset);
             if (is_btree_v2) {
+                BtreeKvPair kv_pair = bit_v2->getKvBT();
                 handle->bnodeMgr->releaseCleanNodes();
+                if (!kv_pair.key) {
+                    break;
+                }
+                _revnum = *(static_cast<filemgr_header_revnum_t *>(kv_pair.key));
+                _offset = *(static_cast<bid_t *>(kv_pair.value));
             } else {
+                btree_result br = bit->next((void*)&_revnum, (void*)&_offset);
                 handle->bhandle->flushBuffer();
-            }
-            if (br != BTREE_RESULT_SUCCESS) {
-                break;
+                if (br != BTREE_RESULT_SUCCESS) {
+                    break;
+                }
             }
 
             prev_revnum = revnum;
@@ -776,8 +811,17 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
 
                 offset = prev_offset;
             }
+
+            if (is_btree_v2 && bit_v2->nextBT() != BnodeIteratorResult::SUCCESS) {
+                break;
+            }
         } while (true);
-        delete bit;
+
+        if (is_btree_v2) {
+            delete bit_v2;
+        } else {
+            delete bit;
+        }
     }
 
     // remove merged commit headers
