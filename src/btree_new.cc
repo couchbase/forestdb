@@ -705,8 +705,13 @@ BtreeV2Result BtreeV2::_find( BtreeKvPair& kv,
     if ( node->getLevel() > 1 ) {
         // intermediate node
         kvp = node->findKvSmallerOrEqual(kv.key, kv.keylen);
-        if ( kvp.isEmpty() ) {
-            // not found
+        if (kvp.isEmpty() && opt == FindOption::GREATER_OR_EQUAL) {
+            // if not found (smaller than smallest key) and greater option,
+            // we can tolerate it and try once again.
+            kvp = node->findKvGreaterOrEqual(kv.key, kv.keylen);
+        }
+
+        if (kvp.isEmpty()) {
             return BtreeV2Result::KEY_NOT_FOUND;
         }
         // recursive call

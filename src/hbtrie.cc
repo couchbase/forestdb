@@ -727,7 +727,7 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
     if (cur_chunk_no > args.prevChunkNo + 1) {
         // compare with prefix in the meta section
         void *prefix_from_rawkey = static_cast<uint8_t*>(rawkey) +
-                                   (args.prevChunkNo * chunksize);
+                                   ((args.prevChunkNo+1) * chunksize);
         if (memcmp(prefix_from_rawkey, hbmeta.prefix, hbmeta.prefix_len)) {
             // prefix mismatch, return fail
             return HBTRIE_RESULT_FAIL;

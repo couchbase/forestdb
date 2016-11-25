@@ -4067,6 +4067,13 @@ fdb_commit_start:
                 }
                 sb->switchReservedBlocks();
             }
+
+            if (btreev2 && decision != SBD_NONE) {
+                handle->staletreeV2->writeDirtyNodes();
+                handle->bnodeMgr->moveDirtyNodesToBcache();
+                handle->bnodeMgr->markEndOfIndexBlocks();
+            }
+
             // header should be updated one more time
             // since block reclaiming or stale block gathering changes root nodes
             // of each tree. but at this time we don't increase header revision number.
@@ -5720,7 +5727,6 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                     --kvs_delta_stat->ndeletes;
                 } // else no change (prev doc was deleted, now re-deleted)
             }
-
             delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
             kvs_delta_stat->datasize += delta;
             bid_t last_hdr = handle->last_hdr_bid.load(std::memory_order_relaxed);

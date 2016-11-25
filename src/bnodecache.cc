@@ -216,6 +216,17 @@ int BnodeCacheMgr::read(FileMgr* file,
     // for the first time.
     FileBnodeCache* fcache = file->getBnodeCache();
 
+    if (fcache == nullptr) {
+        spin_lock(&bnodeCacheLock);
+        // Check again within bnodeCacheLock
+        fcache = file->getBnodeCache();
+        if (fcache == nullptr) {
+            // A file bnode cache doesn not exist, creating it
+            fcache = createFileBnodeCache_UNLOCKED(file);
+        }
+        spin_unlock(&bnodeCacheLock);
+    }
+
     if (fcache) {
         // file exists, update the access timestamp (in ms)
         fcache->setAccessTimestamp(gethrtime() / 1000000);
