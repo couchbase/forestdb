@@ -1272,34 +1272,29 @@ BnodeIteratorResult BtreeIteratorV2::prevBT()
     if (lastResult != BnodeIteratorResult::SUCCESS) {
         return lastResult;
     }
-    lastResult = bnodeItrs[0].prev();
-    if (lastResult != BnodeIteratorResult::SUCCESS) {
-        // As current leaf node does not have any more entries, recursively
-        // search its parent node.
-        lastResult = prevRecursiveBT(1);
-    }
+
+    lastResult = prevRecursiveBT(0);
     return lastResult;
 }
 
 BnodeIteratorResult BtreeIteratorV2::prevRecursiveBT(uint16_t level)
 {
-    if (level > 0) {
-        BnodeIteratorResult ret = bnodeItrs[level].prev();
-        if (ret != BnodeIteratorResult::SUCCESS) {
-            if (level == btree->height - 1) {
-                // reached up to root and no more entries to go
-                return ret;
-            }
-            // Intermediate node but not the root, recurse up higher
-            return prevRecursiveBT(level + 1);
+    BnodeIteratorResult ret = bnodeItrs[level].prev();
+    if (ret != BnodeIteratorResult::SUCCESS) {
+        if (level == btree->height - 1) {
+            // reached up to root and no more entries to go
+            return ret;
         }
+        // Intermediate node but not the root, recurse up higher
+        return prevRecursiveBT(level + 1);
+    }
+    if (level > 0) {
         // Intermediate node in the Btree has an entry => read that bnode
         BsaItem kvp = bnodeItrs[level].getKv();
         uint64_t child_offset = BtreeV2::value2offset(kvp);
         return endRecursiveBT(child_offset); //Reverse iteration => Fetch end
-    }
-    // Leaf node level simply return the previous entry
-    return bnodeItrs[level].prev();
+    } // else leaf node level => simply return
+    return ret;
 }
 
 BnodeIteratorResult BtreeIteratorV2::nextBT()
@@ -1307,32 +1302,26 @@ BnodeIteratorResult BtreeIteratorV2::nextBT()
     if (lastResult != BnodeIteratorResult::SUCCESS) {
         return lastResult;
     }
-    lastResult = bnodeItrs[0].next();
-    if (lastResult != BnodeIteratorResult::SUCCESS) {
-        // As current leaf node does not have any more entries, recursively
-        // search its parent node.
-        lastResult = nextRecursiveBT(1);
-    }
+    lastResult = nextRecursiveBT(0);
     return lastResult;
 }
 
 BnodeIteratorResult BtreeIteratorV2::nextRecursiveBT(uint16_t level)
 {
-    if (level > 0) {
-        BnodeIteratorResult ret = bnodeItrs[level].next();
-        if (ret != BnodeIteratorResult::SUCCESS) {
-            if (level == btree->height - 1) {
-                // reached up to root and no more entries to go
-                return ret;
-            }
-            // Intermediate node but not the root, recurse up higher
-            return nextRecursiveBT(level + 1);
+    BnodeIteratorResult ret = bnodeItrs[level].next();
+    if (ret != BnodeIteratorResult::SUCCESS) {
+        if (level == btree->height - 1) {
+            // reached up to root and no more entries to go
+            return ret;
         }
+        // Intermediate node but not the root, recurse up higher
+        return nextRecursiveBT(level + 1);
+    }
+    if (level > 0) {
         // Intermediate node in the Btree has an entry => read that bnode
         BsaItem kvp = bnodeItrs[level].getKv();
         uint64_t child_offset = BtreeV2::value2offset(kvp);
         return beginRecursiveBT(child_offset);//Forward iteration => Fetch start
-    }
-    // Leaf node level simply return the next entry
-    return bnodeItrs[level].next();
+    } // else leaf node level => simply return
+    return ret;
 }
