@@ -290,7 +290,7 @@ private:
 
     inline void addStaleBlock(uint64_t pos, uint32_t len)
     {
-        file->addStaleBlock(pos, len);
+        file->addStaleRegion(pos, len);
     }
 
     void setSBNo(bid_t bid, int sb_no);

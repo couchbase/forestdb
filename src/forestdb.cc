@@ -1666,7 +1666,7 @@ static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
     // commit, thus will be reclaimed when the corresponding commit header
     // becomes unreachable. After that, those commit markers becomes unnecessary
     // for both crash recovery and WAL restore.
-    handle->file->markStale(marker_offset, DOCIO_COMMIT_MARK_SIZE);
+    handle->file->markDocStale(marker_offset, DOCIO_COMMIT_MARK_SIZE);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -5706,7 +5706,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             free(_doc.meta);
-            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
+            file->markDocStale(old_offset, _fdb_get_docsize(_doc.length));
 
             if (!(_doc.length.flag & DOCIO_DELETED)) {//prev doc was not deleted
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
@@ -5767,7 +5767,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             free(_doc.meta);
-            file->markStale(old_offset, _fdb_get_docsize(_doc.length));
+            file->markDocStale(old_offset, _fdb_get_docsize(_doc.length));
 
             // Reduce the total number of docs by one
             --kvs_delta_stat->ndocs;

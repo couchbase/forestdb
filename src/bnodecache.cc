@@ -660,14 +660,19 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
     bid_t cur_bid = offset / blocksize;
     IndexBlkMeta blk_meta;
 
+    Bnode* bnode_out = new Bnode();
+
     if (offset_of_block + length <= blocksize_avail) {
         // Entire node is stored in a single block
         ret = file->readBuf(buf, length, offset);
         if (ret != static_cast<ssize_t>(length)) {
             status = ret < 0 ? (fdb_status)ret : FDB_RESULT_READ_FAIL;
             free(buf);
+            delete bnode_out;
             return status;
         }
+        // add BID info into the bnode
+        bnode_out->addBidList(cur_bid);
     } else {
         size_t cur_slice_size;
         while (remaining_size) {
@@ -683,8 +688,11 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
             if (ret != static_cast<ssize_t>(cur_slice_size)) {
                 status = ret < 0 ? (fdb_status)ret : FDB_RESULT_READ_FAIL;
                 free(buf);
+                delete bnode_out;
                 return status;
             }
+            // add BID info into the bnode
+            bnode_out->addBidList(cur_bid);
 
             remaining_size -= cur_slice_size;
             offset_of_buffer += cur_slice_size;
@@ -697,6 +705,7 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
                 if (ret != static_cast<ssize_t>(sizeof(IndexBlkMeta))) {
                     status = ret < 0 ? (fdb_status)ret : FDB_RESULT_READ_FAIL;
                     free(buf);
+                    delete bnode_out;
                     return status;
                 }
 
@@ -707,7 +716,6 @@ fdb_status BnodeCacheMgr::fetchFromFile(FileMgr* file,
         }
     }
 
-    Bnode* bnode_out = new Bnode();
     bnode_out->importRaw(buf, length + BNODE_BUFFER_HEADROOM);
     bnode_out->setCurOffset(offset);
     // 'buf' to be freed by client

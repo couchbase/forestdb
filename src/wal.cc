@@ -664,7 +664,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 if (item->action == WAL_ACT_INSERT ||
                     item->action == WAL_ACT_LOGICAL_REMOVE) {
                     // insert or logical remove
-                    file->markStale(stale_offset, stale_len);
+                    file->markDocStale(stale_offset, stale_len);
                 }
 
                 if (doc->deleted) {
@@ -682,7 +682,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                             // immediately mark as stale if offset is given
                             // (which means that a deletion mark was appended into
                             //  the file before calling wal_insert()).
-                            file->markStale(offset, doc_size_ondisk);
+                            file->markDocStale(offset, doc_size_ondisk);
                         }
                         doc_size_ondisk = 0;
                     }
@@ -740,7 +740,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                         // immediately mark as stale if offset is given
                         // (which means that a deletion mark was appended into
                         //  the file before calling insert_Wal()).
-                        file->markStale(offset, doc->size_ondisk);
+                        file->markDocStale(offset, doc->size_ondisk);
                     }
                 }
             } else {
@@ -836,7 +836,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                     // immediately mark as stale if offset is given
                     // (which means that an empty doc was appended before
                     //  calling insert_Wal()).
-                    file->markStale(offset, doc->size_ondisk);
+                    file->markDocStale(offset, doc->size_ondisk);
                 }
             }
         } else {
@@ -1434,7 +1434,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                     if (_item->action == WAL_ACT_INSERT ||
                         _item->action == WAL_ACT_LOGICAL_REMOVE) {
                         // insert or logical remove
-                        file->markStale(stale_offset, stale_len);
+                        file->markDocStale(stale_offset, stale_len);
                     }
 
                     size--;
@@ -2970,7 +2970,7 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
         if (item->action != WAL_ACT_REMOVE) {
             datasize.fetch_sub(item->doc_size, std::memory_order_relaxed);
             // mark as stale if the item is not an immediate remove
-            file->markStale(item->offset, item->doc_size);
+            file->markDocStale(item->offset, item->doc_size);
         }
 
         // free
@@ -3083,7 +3083,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                         list_remove(item->txn->items, &item->list_elem_txn);
                         if (item->action != WAL_ACT_REMOVE) {
                             // mark as stale if item is not committed and not an immediate remove
-                            file->markStale(item->offset, item->doc_size);
+                            file->markDocStale(item->offset, item->doc_size);
                         }
                     } else {
                         // committed item exists and will be removed

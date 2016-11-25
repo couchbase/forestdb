@@ -810,7 +810,7 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
         if (handle->dhandle->readDocLength_Docio(&doc_len, prev_offset)
             == FDB_RESULT_SUCCESS) {
             // mark stale
-            handle->file->markStale(prev_offset,
+            handle->file->markDocStale(prev_offset,
                                     _fdb_get_docsize(doc_len));
         }
     }

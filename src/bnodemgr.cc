@@ -68,8 +68,8 @@ Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
     Bnode* bnode_out;
     fdb_status ret = BnodeCacheMgr::get()->invalidateBnode(file, clean_bnode);
 
-    uint64_t prev_offset = clean_bnode->getCurOffset();
-    size_t prev_length = clean_bnode->getNodeSize();
+    // make the region of previous clean node as stale.
+    markBnodeStale(clean_bnode);
 
     if (ret == FDB_RESULT_SUCCESS) {
         // clean node is ejected from cache.
@@ -85,10 +85,76 @@ Bnode* BnodeMgr::getMutableNodeFromClean(Bnode* clean_bnode)
     }
     addDirtyNode(bnode_out);
 
-    // make the region of previous clean node as stale.
-    file->markStale(prev_offset, prev_length);
-
     return bnode_out;
+}
+
+void BnodeMgr::markBnodeStale(Bnode *bnode)
+{
+    size_t arr_size = bnode->getBidListSize();
+    size_t i;
+    size_t blocksize = file->getBlockSize();
+    uint64_t node_offset = bnode->getCurOffset();
+    size_t node_size = bnode->getNodeSize();
+
+    if (arr_size == 1) {
+        // the node is written in a single block
+        if (node_offset + node_size + sizeof(IndexBlkMeta) == blocksize) {
+            // there is no more data but index meta in the block
+            //  => include index meta area.
+            file->addStaleRegion(node_offset, node_size + sizeof(IndexBlkMeta));
+        } else {
+            file->addStaleRegion(node_offset, node_size);
+        }
+        return;
+    }
+
+    // if an index node is written over multiple blocks
+    // its stale region can be as follows:
+    // (this is exactly the same with that for document blocks).
+
+    // (M: index block meta, 16 bytes)
+    //          +----------------+
+    // block 0: |         //////M|
+    //          +----------------+
+    //          +----------------+
+    // block 1: |///////////////M|
+    //          +----------------+
+    //          +----------------+
+    // block 2: |//////         M|
+    //          +----------------+
+    //
+    // block 0 (first block)       : (blocksize - offset) becomes stale.
+    // block 1 (intermediate block): the entire block becomes stale.
+    // block 2 (last block)        : rest space becomes stale.
+    //  * rest space: bnode length - (stale region size of block 0~1) +
+    //                block meta size * (# blocks - 1).
+    //    => due to index block meta at the end of each block,
+    //       we should add the sum of block meta size.
+    //
+    // example) blocksize = 100, block meta size = 10,
+    //          bnode offset = 50, bnode length = 200
+    //
+    // block 0: 50 ~ 100 becomes stale (bnode data: 40, stale size: 50 (including meta)).
+    // block 1: 0 ~ 100 becomes stale (bnode data: 90, stale size: 100 (including meta)).
+    // block 2: 0 ~ 70 becomes stale (bnode data: 70, stale size: 70).
+    //          where 70 = 200 - (50 + 100) + (10 * 2);
+
+    for (i=0; i<arr_size; ++i) {
+        if (i==0) {
+            // the first block
+            file->addStaleRegion(node_offset, blocksize - (node_offset % blocksize));
+        } else if (i < arr_size - 1) {
+            // intermediate block => entire block
+            file->addStaleRegion(bnode->getBidFromList(i) * blocksize, blocksize);
+        } else {
+            // the last block
+            size_t rest_size = node_size;
+            rest_size += sizeof(IndexBlkMeta) * (arr_size - 1); // meta size
+            rest_size -= (blocksize - (node_offset % blocksize)); // first block
+            rest_size -= (blocksize * (arr_size - 2)); // intermediate blocks
+            file->addStaleRegion(bnode->getBidFromList(i) * blocksize, rest_size);
+        }
+    }
 }
 
 Bnode* BnodeMgr::readNode(uint64_t offset)
@@ -174,7 +240,7 @@ void BnodeMgr::markEndOfIndexBlocks()
 {
     // mark the rest of space of the current block as stale
     size_t blocksize = file->getBlockSize();
-    file->addStaleBlock(curBid * blocksize + curOffset, blocksize - curOffset);
+    file->addStaleRegion(curBid * blocksize + curOffset, blocksize - curOffset);
 
     // add block marker
     BnodeCacheMgr::get()->addLastBlockMeta(file, curBid);

@@ -137,6 +137,16 @@ public:
     void releaseCleanNodes();
 
 private:
+    /**
+     * Mark the region (offset, length) of given Bnode as stale.
+     * This function automatically calculates the additional space used for
+     * block markers or block matadata.
+     *
+     * @param bnode Bnode instance.
+     * @return void.
+     */
+    void markBnodeStale(Bnode *bnode);
+
     // FileMgr instance.
     FileMgr *file;
     // Set of clean nodes that are currently accessed by the B+tree.

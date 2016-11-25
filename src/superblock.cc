@@ -559,7 +559,7 @@ bool Superblock::switchReservedBlocks()
     // mark stale previous system docs
     if (bmpDocOffset) {
         for (i=0; i<numBmpDocs; ++i) {
-            file->markStale(bmpDocOffset[i],
+            file->markDocStale(bmpDocOffset[i],
                             _fdb_get_docsize(bmpDocs[i].length));
         }
 
@@ -974,7 +974,7 @@ void Superblock::appendBmpDoc(FdbKvsHandle *handle)
     // mark stale if previous doc offset exists
     if (bmpDocOffset) {
         for (i=0; i<numBmpDocs; ++i) {
-            file->markStale(bmpDocOffset[i], _fdb_get_docsize(bmpDocs[i].length));
+            file->markDocStale(bmpDocOffset[i], _fdb_get_docsize(bmpDocs[i].length));
         }
 
         free(bmpDocOffset);
@@ -1396,7 +1396,7 @@ void Superblock::returnReusableBlocks(FdbKvsHandle *handle)
     uint64_t sb_bmp_size = bmpSize.load();
     for (cur = curAllocBid.load(); cur < sb_bmp_size; ++cur) {
         if (isBmpSet(bmp, cur)) {
-            file->addStaleBlock(cur, 1);
+            file->addStaleRegion(cur, 1);
         }
 
         if ((cur % 256) == 0 && cur > 0) {
@@ -1441,7 +1441,7 @@ void Superblock::returnReusableBlocks(FdbKvsHandle *handle)
 
         for (cur = rsv->curAllocBid; cur < rsv->bmpSize; ++cur) {
             if (isBmpSet(rsv->bmp, cur)) {
-                file->addStaleBlock(cur, 1);
+                file->addStaleRegion(cur, 1);
             }
 
             if ((cur % 256) == 0 && cur > 0) {

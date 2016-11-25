@@ -942,7 +942,7 @@ public:
      * @param len Length of the stale region.
      * @return void.
      */
-    void addStaleBlock(bid_t offset, size_t len);
+    void addStaleRegion(bid_t offset, size_t len);
 
     /**
      * Mark the given region (offset, length) as stale.
@@ -954,7 +954,7 @@ public:
      * @param length Length of the data.
      * @return void.
      */
-    void markStale(bid_t offset, size_t length);
+    void markDocStale(bid_t offset, size_t length);
 
     FileMgr* searchStaleLinks();
 

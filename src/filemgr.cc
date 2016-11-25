@@ -2688,7 +2688,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
 
         if (prev_bid) {
             // mark prev DB header as stale
-            addStaleBlock(prev_bid * blockSize, blockSize);
+            addStaleRegion(prev_bid * blockSize, blockSize);
         }
 
         fMgrHeader.bid = bid;
@@ -3269,12 +3269,12 @@ uint32_t FileMgr::getThrottlingDelay() const {
     return throttlingDelay.load(std::memory_order_relaxed);
 }
 
-void FileMgr::addStaleBlock(bid_t offset,
+void FileMgr::addStaleRegion(bid_t offset,
                             size_t len) {
     staleData->addStaleRegion(offset, len);
 }
 
-void FileMgr::markStale(bid_t offset,
+void FileMgr::markDocStale(bid_t offset,
                         size_t length) {
     staleData->markDocStale(offset, length);
 }

@@ -126,7 +126,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
         // mark remaining space in old block as stale
         if (curpos < real_blocksize) {
             // this function will calculate block marker size automatically.
-            file_Docio->markStale(real_blocksize * curblock + curpos,
+            file_Docio->markDocStale(real_blocksize * curblock + curpos,
                                   blocksize - curpos);
         }
         // allocate new block
@@ -322,7 +322,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 // mark remaining space in the current block as stale
                 if (curblock != BLK_NOT_FOUND &&
                     curpos < real_blocksize) {
-                    file_Docio->markStale(real_blocksize * curblock + curpos,
+                    file_Docio->markDocStale(real_blocksize * curblock + curpos,
                                           blocksize - curpos);
                 }
                 offset = 0;
@@ -375,7 +375,7 @@ bid_t DocioHandle::appendDocRaw_Docio(uint64_t size, void *buf)
                 // mark remaining space in the old block as stale
                 if (curblock != BLK_NOT_FOUND &&
                     curpos < real_blocksize) {
-                    file_Docio->markStale(real_blocksize * curblock + curpos,
+                    file_Docio->markDocStale(real_blocksize * curblock + curpos,
                                           blocksize - curpos);
                 }
                 // allocate new multiple blocks
