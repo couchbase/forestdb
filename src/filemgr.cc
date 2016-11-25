@@ -2176,7 +2176,8 @@ fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
         return FDB_RESULT_READ_FAIL;
     }
 
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.getNcacheBlock() > 0 &&
+        !ver_btreev2_format(getVersion())) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
@@ -2392,7 +2393,8 @@ fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
         }
     }
 
-    if (global_config.getNcacheBlock() > 0) {
+    if (global_config.getNcacheBlock() > 0 &&
+        !ver_btreev2_format(getVersion())) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
