@@ -2461,6 +2461,123 @@ void hbtriev2_custom_cmp_test()
     TEST_RESULT("hb+trie V2 custom compare function test");
 }
 
+void hbtriev2_variable_length_value_test()
+{
+    TEST_INIT();
+
+    HBTrie *hbtrie;
+    hbtrie_result hr;
+    BnodeMgr *b_mgr;
+    FileMgrConfig config(4096, 3906, 1048576, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+    filemgr_open_result fr;
+    std::string fname("./hbtrie_new_testfile");
+
+    int r = system(SHELL_DEL" hbtrie_new_testfile");
+    (void)r;
+
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
+    // set file version to 003
+    fr.file->setVersion(FILEMGR_MAGIC_003);
+
+    size_t i;
+    size_t n = 10;
+    char keybuf[64], valuebuf[64], valuebuf_chk[64];
+    char oldvaluebuf[64];
+
+    BnodeCacheMgr::init(16000000, 16000000);
+    BnodeCacheMgr::get()->createFileBnodeCache(fr.file);
+    b_mgr = new BnodeMgr();
+    b_mgr->setFile(fr.file);
+
+    BtreeNodeAddr init_root;
+    hbtrie = new HBTrie(8, 4096, init_root, b_mgr, fr.file);
+
+    memset(keybuf, '_', sizeof(keybuf));
+    memset(valuebuf, 'x', 32);
+    for (i=0; i<n; ++i) {
+        // key structure:
+        // ________k00000000
+        // ________k00000005
+        // ________k00000010
+        // ________k00000015
+        // ^       ^       ^
+        // chunk0  chunk1  chunk2
+
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "V%07d", (int)i);
+        hr = hbtrie->insert_vlen(keybuf, 17, valuebuf, 32, nullptr, nullptr);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+    }
+
+    // retrieval check
+    size_t valuelen;
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "V%07d", (int)i);
+        hr = hbtrie->find_vlen(keybuf, 17, valuebuf_chk, &valuelen);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        TEST_CMP(valuebuf_chk, valuebuf, valuelen);
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "V%07d", (int)i);
+        hr = hbtrie->find_vlen(keybuf, 17, valuebuf_chk, &valuelen);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        TEST_CHK(valuelen == 32);
+        TEST_CMP(valuebuf_chk, valuebuf, valuelen);
+    }
+
+    b_mgr->releaseCleanNodes();
+
+    // old value check
+    size_t oldvalue_size;
+    memset(valuebuf_chk, 'x', 32);
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "Z%07d", (int)i);
+        sprintf(valuebuf_chk+24, "V%07d", (int)i);
+        hr = hbtrie->insert_vlen(keybuf, 17, valuebuf, 32, oldvaluebuf, &oldvalue_size);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        TEST_CHK(oldvalue_size == 32);
+        TEST_CMP(oldvaluebuf, valuebuf_chk, oldvalue_size);
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "Z%07d", (int)i);
+        hr = hbtrie->find_vlen(keybuf, 17, valuebuf_chk, &valuelen);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        TEST_CHK(valuelen == 32);
+        TEST_CMP(valuebuf_chk, valuebuf, valuelen);
+    }
+
+    b_mgr->releaseCleanNodes();
+
+    delete hbtrie;
+    delete b_mgr;
+
+    FileMgr::close(fr.file, true, NULL, NULL);
+
+    BnodeCacheMgr::destroyInstance();
+
+    FileMgr::shutdown();
+
+    TEST_RESULT("hb+trie V2 variable length value test");
+}
+
 int main()
 {
     bnode_basic_test();
@@ -2492,6 +2609,7 @@ int main()
     hbtriev2_insertion_case3_test();
     hbtriev2_partial_update_test();
     hbtriev2_custom_cmp_test();
+    hbtriev2_variable_length_value_test();
     return 0;
 }
 

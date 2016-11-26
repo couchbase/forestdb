@@ -74,6 +74,7 @@ struct btreeit_item {
 #define HBTRIE_MEMPOOL_MIN_BINS 4
 
 const size_t HBTrie::HV_SIZE(9);
+const size_t HBTrie::HV_BUF_MAX_SIZE(256);
 MemoryPool* HBTrie::hbtrieMP(nullptr);
 
 int HBTrie::reformKey(void *rawkey, int rawkeylen, void *keyout)
@@ -255,7 +256,6 @@ void HBTrie::fetchMeta(int metasize, struct hbtrie_meta *hbmeta, void *buf)
 {
     // read hbmeta from buf
     int offset = 0;
-    uint32_t vlen = 0;
 
     if (!hbmeta || !buf) {
         if (hbmeta) {
@@ -268,12 +268,12 @@ void HBTrie::fetchMeta(int metasize, struct hbtrie_meta *hbmeta, void *buf)
     hbmeta->chunkno = _endian_decode(hbmeta->chunkno);
     offset += sizeof(hbmeta->chunkno);
 
-    memcpy(&vlen, (uint8_t*)buf+offset, sizeof(valuelen));
-    offset += sizeof(valuelen);
+    memcpy(&hbmeta->value_len, (uint8_t*)buf+offset, sizeof(hbmeta->value_len));
+    offset += sizeof(hbmeta->value_len);
 
-    if (vlen > 0) {
+    if (hbmeta->value_len > 0) {
         hbmeta->value = (uint8_t*)buf + offset;
-        offset += valuelen;
+        offset += hbmeta->value_len;
     } else {
         hbmeta->value = NULL;
     }
@@ -288,7 +288,9 @@ void HBTrie::fetchMeta(int metasize, struct hbtrie_meta *hbmeta, void *buf)
     }
 }
 
-metasize_t HBTrie::estMetaSize(void *value, uint16_t prefixlen)
+metasize_t HBTrie::estMetaSize(void *value,
+                               uint8_t value_len,
+                               uint16_t prefix_len)
 {
     metasize_t metasize_out = 0;
 
@@ -296,17 +298,17 @@ metasize_t HBTrie::estMetaSize(void *value, uint16_t prefixlen)
     metasize_out += sizeof(chunkno_t);
 
     // value length
-    metasize_out += sizeof(valuelen);
+    metasize_out += sizeof(value_len);
     if (value) {
         // meta section includes value
         // (there is a key which is exactly the same with the
         //  prefix of this tree).
         // => add value length.
-        metasize_out += HV_SIZE;
+        metasize_out += value_len;
     }
 
     // prefix length
-    metasize_out += prefixlen;
+    metasize_out += prefix_len;
 
     return metasize_out;
 }
@@ -317,6 +319,7 @@ void HBTrie::storeMeta(metasize_t& metasize_out,
                        void *prefix,
                        int prefixlen,
                        void *value,
+                       uint8_t value_length,
                        void *buf)
 {
     chunkno_t _chunkno;
@@ -334,14 +337,14 @@ void HBTrie::storeMeta(metasize_t& metasize_out,
 
     if (value) {
         memcpy((uint8_t*)buf + metasize_out,
-               &valuelen, sizeof(valuelen));
-        metasize_out += sizeof(valuelen);
+               &value_length, sizeof(value_length));
+        metasize_out += sizeof(value_length);
         memcpy((uint8_t*)buf + metasize_out,
-               value, valuelen);
-        metasize_out += valuelen;
+               value, value_length);
+        metasize_out += value_length;
     } else {
-        memset((uint8_t*)buf + metasize_out, 0x0, sizeof(valuelen));
-        metasize_out += sizeof(valuelen);
+        memset((uint8_t*)buf + metasize_out, 0x0, sizeof(value_length));
+        metasize_out += sizeof(value_length);
     }
 
     if (prefixlen > 0) {
@@ -685,12 +688,13 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
 hbtrie_result HBTrie::_findV2(void *rawkey,
                               size_t rawkeylen,
                               void *given_valuebuf,
+                              size_t *value_len_out,
                               HBTrieV2Args args,
                               HBTrieV2Rets& rets,
                               bool remove_key)
 {
     size_t cur_chunk_no = 0;
-    uint8_t hv_buf[HV_SIZE];
+    uint8_t hv_buf[HV_BUF_MAX_SIZE];
 
     BtreeV2 cur_btree;
     BtreeV2Meta bmeta;
@@ -738,20 +742,23 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
         // given key is exactly same as the current b+tree's prefix
         if (remove_key) {
             // remove the value in the meta section
-            metasize_t metasize = estMetaSize(nullptr, hbmeta.prefix_len);
+            metasize_t metasize = 0;
             MPWrapper new_meta_buffer;
             new_meta_buffer.allocate();
 
             storeMeta( metasize, cur_chunk_no, HBMETA_NORMAL,
                        hbmeta.prefix, hbmeta.prefix_len,
-                       nullptr, new_meta_buffer.getAddr() );
+                       nullptr, 0, new_meta_buffer.getAddr() );
             cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
             rets.rootAddr = cur_btree.getRootAddr();
         } else {
             // return the value in meta section
             if (hbmeta.value) {
-                HBTrieValue hv_meta(hbmeta.value);
-                hv_meta.toBinaryOffsetOnly(given_valuebuf);
+                HBTrieValue hv_meta(hbmeta.value, hbmeta.value_len);
+                hv_meta.toBinaryWithoutFlags(given_valuebuf);
+                if (value_len_out) {
+                    *value_len_out = hv_meta.sizeWithoutFlags();
+                }
             } else {
                 // value is NULL, which implies key not found.
                 return HBTRIE_RESULT_FAIL;
@@ -800,7 +807,8 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
         return HBTRIE_RESULT_FAIL;
     }
 
-    HBTrieValue hv_from_btree(kv_from_btree.value);
+    HBTrieValue hv_from_btree(kv_from_btree.value, kv_from_btree.valuelen);
+
     // if the length of key from btree is chunksize,
     // check if it points to sub-tree.
     if (hv_from_btree.isSubtree()) {
@@ -815,7 +823,8 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
 
         HBTrieV2Args next_args(cur_chunk_no, next_root);
         HBTrieV2Rets local_rets;
-        hr = _findV2(rawkey, rawkeylen, given_valuebuf,
+        hr = _findV2(rawkey, rawkeylen,
+                     given_valuebuf, value_len_out,
                      next_args, local_rets, remove_key);
 
         if (hr == HBTRIE_RESULT_SUCCESS && remove_key) {
@@ -828,7 +837,7 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
                     // otherwise => update {key, ptr} pair
                     HBTrieValue hv_new_ptr(local_rets.rootAddr);
                     kv_from_btree = BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
-                                                hv_new_ptr.toBinary(hv_buf), HV_SIZE);
+                                                hv_new_ptr.toBinary(hv_buf), hv_new_ptr.size());
                     br = cur_btree.insert(kv_from_btree);
                 }
                 hr = convertBtreeResult(br);
@@ -842,7 +851,7 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
     if (kv_from_btree.keylen == suffix_len &&
         !memcmp(chunk, kv_from_btree.key, suffix_len)) {
         // same key
-        HBTrieValue hv_from_btree(kv_from_btree.value);
+        HBTrieValue hv_from_btree(kv_from_btree.value, kv_from_btree.valuelen);
 
         if (remove_key) {
             // remove the key
@@ -850,7 +859,10 @@ hbtrie_result HBTrie::_findV2(void *rawkey,
             rets.rootAddr = cur_btree.getRootAddr();
             return convertBtreeResult(br);
         } else {
-            hv_from_btree.toBinaryOffsetOnly(given_valuebuf);
+            hv_from_btree.toBinaryWithoutFlags(given_valuebuf);
+            if (value_len_out) {
+                *value_len_out = hv_from_btree.sizeWithoutFlags();
+            }
             return HBTRIE_RESULT_SUCCESS;
         }
     }
@@ -863,13 +875,8 @@ hbtrie_result HBTrie::find(void *rawkey, int rawkeylen, void *valuebuf)
 {
     if (ver_btreev2_format(fileHB->getVersion())) {
         // V2 format
-        if (rootAddr.isEmpty) {
-            // empty HB+trie, fail
-            return HBTRIE_RESULT_FAIL;
-        }
-        HBTrieV2Args args(0, rootAddr);
-        HBTrieV2Rets rets;
-        return _findV2(rawkey, rawkeylen, valuebuf, args, rets, false);
+        return find_vlen(rawkey, rawkeylen,
+                         valuebuf, nullptr);
     }
 
     int nchunk = getNchunkRaw(rawkey, rawkeylen);
@@ -878,6 +885,25 @@ hbtrie_result HBTrie::find(void *rawkey, int rawkeylen, void *valuebuf)
 
     keylen = reformKey(rawkey, rawkeylen, key);
     return _find(key, keylen, valuebuf, NULL, 0x0);
+}
+
+hbtrie_result HBTrie::find_vlen(void *rawkey, int rawkeylen,
+                                void *valuebuf, size_t *value_len_out)
+{
+    // V2 format is a must for this API
+    if (!ver_btreev2_format(fileHB->getVersion())) {
+        return HBTRIE_RESULT_FAIL;
+    }
+
+    if (rootAddr.isEmpty) {
+        // empty HB+trie, fail
+        return HBTRIE_RESULT_FAIL;
+    }
+    HBTrieV2Args args(0, rootAddr);
+    HBTrieV2Rets rets;
+    return _findV2(rawkey, rawkeylen,
+                   valuebuf, value_len_out,
+                   args, rets, false);
 }
 
 hbtrie_result HBTrie::findOffset(void *rawkey, int rawkeylen, void *valuebuf)
@@ -939,7 +965,7 @@ hbtrie_result HBTrie::_remove(void *rawkey, int rawkeylen, uint8_t flag)
 
             // remove value from metasection
             storeMeta(meta.size, _get_chunkno(hbmeta.chunkno), opt,
-                      hbmeta.prefix, hbmeta.prefix_len, NULL, buf);
+                      hbmeta.prefix, hbmeta.prefix_len, NULL, 0, buf);
             btreeitem->btree.updateMeta(&meta);
         } else {
             if (btreeitem && btreeitem->leaf) {
@@ -978,7 +1004,7 @@ hbtrie_result HBTrie::remove(void *rawkey, int rawkeylen)
         }
         HBTrieV2Args args(0, rootAddr);
         HBTrieV2Rets rets;
-        hbtrie_result hr = _findV2(rawkey, rawkeylen, nullptr, args, rets, true);
+        hbtrie_result hr = _findV2(rawkey, rawkeylen, nullptr, nullptr, args, rets, true);
         if (hr == HBTRIE_RESULT_SUCCESS) {
             rootAddr = rets.rootAddr;
         }
@@ -1094,7 +1120,7 @@ void HBTrie::extendLeafTree(struct list *btreelist,
         }
     }
     storeMeta(meta.size, _get_chunkno(hbmeta.chunkno) + minchunkno,
-              HBMETA_NORMAL, prefix, minchunkno * chunksize, meta_value, buf);
+              HBMETA_NORMAL, prefix, minchunkno * chunksize, meta_value, valuelen, buf);
 
     // reset BTREEITEM
     btreeitem->btree.init(btreeblk_handle, btree_kv_ops, btree_nodesize,
@@ -1185,7 +1211,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
     if (root_bid == BLK_NOT_FOUND) {
         // create root b-tree
         storeMeta(meta.size, 0, HBMETA_NORMAL,
-                  NULL, 0, NULL, buf);
+                  NULL, 0, NULL, 0, buf);
         r = btreeitem->btree.init(btreeblk_handle, btree_kv_ops, btree_nodesize,
                                   chunksize, valuelen, 0x0, &meta);
         if (r != BTREE_RESULT_SUCCESS) {
@@ -1261,11 +1287,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                            new_prefixlen);
                     storeMeta(meta.size, curchunkno,
                               HBMETA_NORMAL, new_prefix,
-                              new_prefixlen, hbmeta.value, buf);
+                              new_prefixlen, hbmeta.value, hbmeta.value_len, buf);
                 } else {
                     storeMeta(meta.size, curchunkno,
                               HBMETA_NORMAL, NULL, 0,
-                              hbmeta.value, buf);
+                              hbmeta.value, hbmeta.value_len, buf);
                 }
                 // update metadata for old b-tree
                 btreeitem->btree.updateMeta(&meta);
@@ -1273,7 +1299,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 // split prefix and create new sub-tree
                 storeMeta(meta.size, prevchunkno + diffchunkno + 1,
                           HBMETA_NORMAL, old_prefix,
-                          diffchunkno * chunksize, NULL, buf);
+                          diffchunkno * chunksize, NULL, 0, buf);
 
                 // create new b-tree
                 btreeitem_new = (struct btreelist_item *)
@@ -1331,7 +1357,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                       (cpt_node)?(HBMETA_LEAF):(HBMETA_NORMAL),
                       hbmeta.prefix,
                       (curchunkno-prevchunkno - 1) * chunksize,
-                      value, buf);
+                      value, valuelen, buf);
             btreeitem->btree.updateMeta(&meta);
             break;
         } else {
@@ -1533,7 +1559,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             midchunkno = curchunkno +
                         (btree_nodesize - HBTRIE_HEADROOM) / chunksize;
             storeMeta(meta.size, midchunkno, opt, key + chunksize * (curchunkno+1),
-                      (midchunkno - (curchunkno+1)) * chunksize, NULL, buf);
+                      (midchunkno - (curchunkno+1)) * chunksize, NULL, 0, buf);
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
@@ -1606,7 +1632,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             (void)nchunk_long;
 
             storeMeta(meta.size, newchunkno, opt, key + chunksize * (curchunkno+1),
-                      (newchunkno - (curchunkno+1)) * chunksize, value_short, buf);
+                      (newchunkno - (curchunkno+1)) * chunksize, value_short, valuelen, buf);
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
@@ -1642,7 +1668,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             //3 2-2. create sub-tree
             // and insert two docs into it
             storeMeta(meta.size, newchunkno, opt, key + chunksize * (curchunkno+1),
-                      (newchunkno - (curchunkno+1)) * chunksize, NULL, buf);
+                      (newchunkno - (curchunkno+1)) * chunksize, NULL, 0, buf);
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
@@ -1753,11 +1779,12 @@ btree_new_cmp_func* HBTrie::getCmpFuncForGivenKey(void *rawkey)
 }
 
 // Recursive function.
-hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
-                                 void *given_value, void *oldvalue_out,
-                                 HBTrieV2Args args,
-                                 HBTrieV2Rets& rets,
-                                 uint8_t flag )
+hbtrie_result HBTrie::_insertV2(void *rawkey, size_t rawkeylen,
+                                void *given_value, size_t given_value_len,
+                                void *oldvalue_out, size_t *oldvalue_len_out,
+                                HBTrieV2Args args,
+                                HBTrieV2Rets& rets,
+                                uint8_t flag )
 {
     // < insertion cases in HB+trie >
     //
@@ -1793,7 +1820,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     //
 
     size_t cur_chunk_no = 0;
-    uint8_t hv_buf[HV_SIZE];
+    uint8_t hv_buf[HV_BUF_MAX_SIZE];
     BtreeV2 cur_btree;
     BtreeV2Meta bmeta;
     BtreeV2Result br;
@@ -1837,7 +1864,9 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
 
             // prefix mismatch, CASE 3.
             HBTrieInsV2Args ins_args(args, cur_btree, hbmeta, cur_chunk_no);
-            return _insertV2Case3(rawkey, rawkeylen, given_value, oldvalue_out,
+            return _insertV2Case3(rawkey, rawkeylen,
+                                  given_value, given_value_len,
+                                  oldvalue_out, oldvalue_len_out,
                                   ins_args, rets, flag);
         }
     }
@@ -1845,16 +1874,25 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     if (rawkeylen == cur_chunk_no * chunksize) {
         // given key is exactly same as the current b+tree's prefix
         // insert the value into the meta section.
-        uint16_t prefix_len = (cur_chunk_no - args.prevChunkNo - 1) * chunksize;
-        metasize_t metasize = estMetaSize( given_value, prefix_len );
+        metasize_t metasize;
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
 
-        HBTrieValue hb_value_meta(HV_DOC, given_value);
+        HBTrieValue hb_value_meta;
+        if (given_value_len != sizeof(uint64_t)) {
+            // document meta
+            hb_value_meta = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                        given_value, given_value_len);
+        } else {
+            // document offset
+            hb_value_meta = HBTrieValue(HV_DOC, given_value);
+        }
 
         storeMeta( metasize, cur_chunk_no, HBMETA_NORMAL,
                    hbmeta.prefix, hbmeta.prefix_len,
-                   hb_value_meta.toBinary(hv_buf), new_meta_buffer.getAddr() );
+                   hb_value_meta.toBinary(hv_buf),
+                   hb_value_meta.size(),
+                   new_meta_buffer.getAddr() );
         cur_btree.updateMeta(BtreeV2Meta(metasize, new_meta_buffer.getAddr()));
         hr = HBTRIE_RESULT_SUCCESS;
         return setLocalReturnValue(hr, cur_btree, rets);
@@ -1907,25 +1945,38 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     if (br != BtreeV2Result::SUCCESS) {
         // CASE 1: normal insert
         // insert rest suffix into the b+tree
-        HBTrieValue hb_value(HV_DOC, given_value); // document offset
+        HBTrieValue hb_value; // document offset
+        if (given_value_len != sizeof(uint64_t)) {
+            // document meta
+            hb_value = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                   given_value, given_value_len);
+        } else {
+            // document offset
+            hb_value = HBTrieValue(HV_DOC, given_value);
+        }
+
         BtreeKvPair kv_insert =
-            BtreeKvPair(chunk, suffix_len, hb_value.toBinary(hv_buf), HV_SIZE);
+            BtreeKvPair(chunk, suffix_len, hb_value.toBinary(hv_buf), hb_value.size());
         br = cur_btree.insert(kv_insert);
         return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
     // otherwise, same chunk already exists.
 
-    HBTrieValue hv_from_btree(hv_buf);
+    HBTrieValue hv_from_btree(kv_from_btree.value, kv_from_btree.valuelen);
+
     if (flag & HBTRIE_PARTIAL_UPDATE) {
         // partial update mode: just replace the value
         if (oldvalue_out) {
-            hv_from_btree.toBinaryOffsetOnly(oldvalue_out);
+            hv_from_btree.toBinaryWithoutFlags(oldvalue_out);
+        }
+        if (oldvalue_len_out) {
+            *oldvalue_len_out = hv_from_btree.sizeWithoutFlags();
         }
 
         HBTrieValue hv_new(HV_SUB_TREE, given_value);
         BtreeKvPair kv_insert =
             BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
-            hv_new.toBinary(hv_buf), HV_SIZE);
+            hv_new.toBinary(hv_buf), hv_new.size());
         br = cur_btree.insert(kv_insert);
         return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
@@ -1944,7 +1995,9 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
 
         HBTrieV2Args next_args(cur_chunk_no, next_root);
         HBTrieV2Rets local_rets;
-        hr = _insertV2(rawkey, rawkeylen, given_value, oldvalue_out,
+        hr = _insertV2(rawkey, rawkeylen,
+                       given_value, given_value_len,
+                       oldvalue_out, oldvalue_len_out,
                        next_args, local_rets, flag);
 
         if (hr == HBTRIE_RESULT_SUCCESS &&
@@ -1953,7 +2006,7 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
             //  => update {key, ptr} pair
             HBTrieValue hv_new_ptr(local_rets.rootAddr);
             kv_from_btree = BtreeKvPair(kv_from_btree.key, kv_from_btree.keylen,
-                                        hv_new_ptr.toBinary(hv_buf), HV_SIZE);
+                                        hv_new_ptr.toBinary(hv_buf), hv_new_ptr.size());
             br = cur_btree.insert(kv_from_btree);
             hr = convertBtreeResult(br);
         }
@@ -1965,12 +2018,23 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
          !memcmp(kv_from_btree.key, chunk, suffix_len) ) {
         // exactly same key => update B+tree entry
         if (oldvalue_out) {
-            hv_from_btree.toBinaryOffsetOnly(oldvalue_out);
+            hv_from_btree.toBinaryWithoutFlags(oldvalue_out);
+        }
+        if (oldvalue_len_out) {
+            *oldvalue_len_out = hv_from_btree.sizeWithoutFlags();
         }
 
-        HBTrieValue hv_new(HV_DOC, given_value);
+        HBTrieValue hv_new;
+        if (given_value_len != sizeof(uint64_t)) {
+            // document meta
+            hv_new = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                 given_value, given_value_len);
+        } else {
+            // document offset
+            hv_new = HBTrieValue(HV_DOC, given_value);
+        }
         BtreeKvPair kv_insert(kv_from_btree.key, kv_from_btree.keylen,
-                              hv_new.toBinary(hv_buf), HV_SIZE);
+                              hv_new.toBinary(hv_buf), hv_new.size());
         br = cur_btree.insert(kv_insert);
         return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
     }
@@ -1979,12 +2043,15 @@ hbtrie_result HBTrie::_insertV2( void *rawkey, size_t rawkeylen,
     //  => CASE 2.
     HBTrieInsV2Args ins_args(args, cur_btree, hbmeta, cur_chunk_no,
                              suffix_len, kv_from_btree);
-    return _insertV2Case2(rawkey, rawkeylen, given_value, oldvalue_out,
+    return _insertV2Case2(rawkey, rawkeylen,
+                          given_value, given_value_len,
+                          oldvalue_out, oldvalue_len_out,
                           ins_args, rets, flag);
 }
 
 hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
-                                     void *given_value, void *oldvalue_out,
+                                     void *given_value, size_t given_value_len,
+                                     void *oldvalue_out, size_t *oldvalue_len_out,
                                      HBTrieInsV2Args& ins_args,
                                      HBTrieV2Rets& rets,
                                      uint8_t flag)
@@ -2005,7 +2072,7 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
     size_t suffix_len = ins_args.suffixLen;
     BtreeKvPair kv_from_btree = ins_args.kvFromBtree;
     BtreeV2Result br;
-    uint8_t hv_buf[HV_SIZE];
+    uint8_t hv_buf[HV_BUF_MAX_SIZE];
 
     void *chunk = static_cast<uint8_t*>(rawkey) + (cur_chunk_no * chunksize);
 
@@ -2035,32 +2102,48 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
         BtreeKvPair long_key;
         HBTrieValue hv_metasection;
         // since 'hv_buf' will be used for 'long_key' we need one more buffer.
-        uint8_t hv_buf_meta[HV_SIZE];
+        uint8_t hv_buf_meta[HV_BUF_MAX_SIZE];
         // calculate meta size using temporary buffer.
         // (contents of buffer doesn't matter for size)
-        metasize = estMetaSize(hv_buf_meta, prefix_len);
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
 
         // insert short key into meta section
         if (kv_from_btree.keylen > suffix_len) {
             // short: given key, long: existing key
-            hv_metasection = HBTrieValue(HV_DOC, given_value);
+            if (given_value_len != sizeof(uint64_t)) {
+                // document meta
+                hv_metasection = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                             given_value, given_value_len);
+            } else {
+                // document offset
+                hv_metasection = HBTrieValue(HV_DOC, given_value);
+            }
             long_key = BtreeKvPair(static_cast<uint8_t*>(kv_from_btree.key) +
                                        (prefix_len + chunksize),
                                    kv_from_btree.keylen - (prefix_len + chunksize),
                                    kv_from_btree.value, kv_from_btree.valuelen);
         } else {
             // short: existing key, long: given key
-            hv_metasection = HBTrieValue(kv_from_btree.value);
-            HBTrieValue hv_new(HV_DOC, given_value);
+            hv_metasection = HBTrieValue(kv_from_btree.value, kv_from_btree.valuelen);
+
+            HBTrieValue hv_new;
+            if (given_value_len != sizeof(uint64_t)) {
+                // document meta
+                hv_new = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                     given_value, given_value_len);
+            } else {
+                // document offset
+                hv_new = HBTrieValue(HV_DOC, given_value);
+            }
             long_key = BtreeKvPair(static_cast<uint8_t*>(rawkey) + next_chunk_pos,
                                    rawkeylen - next_chunk_pos,
-                                   hv_new.toBinary(hv_buf), HV_SIZE);
+                                   hv_new.toBinary(hv_buf), hv_new.size());
         }
         storeMeta( metasize, next_chunk_no, HBMETA_NORMAL,
                    static_cast<uint8_t*>(chunk) + chunksize,
                    prefix_len, hv_metasection.toBinary(hv_buf_meta),
+                   hv_metasection.size(),
                    new_meta_buffer.getAddr() );
 
         next_btree.init();
@@ -2083,12 +2166,11 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
 
         // check if custom cmp function exists
         btree_new_cmp_func *cmp_func = getCmpFuncForGivenKey(rawkey);
-        metasize = estMetaSize(given_value, prefix_len);
         MPWrapper new_meta_buffer;
         new_meta_buffer.allocate();
         storeMeta( metasize, next_chunk_no, HBMETA_NORMAL,
                    static_cast<uint8_t*>(chunk) + chunksize,
-                   prefix_len, nullptr, new_meta_buffer.getAddr() );
+                   prefix_len, nullptr, 0, new_meta_buffer.getAddr() );
 
         next_btree.init();
         next_btree.setBMgr(bnodeMgr);
@@ -2111,10 +2193,18 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
         }
 
         // 2) rawkey (given by caller)
-        HBTrieValue hv_new(HV_DOC, given_value);
+        HBTrieValue hv_new;
+        if (given_value_len != sizeof(uint64_t)) {
+            // document meta
+            hv_new = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                 given_value, given_value_len);
+        } else {
+            // document offset
+            hv_new = HBTrieValue(HV_DOC, given_value);
+        }
         BtreeKvPair given_kv(static_cast<uint8_t*>(rawkey) + next_chunk_pos,
                              rawkeylen - next_chunk_pos,
-                             hv_new.toBinary(hv_buf), HV_SIZE);
+                             hv_new.toBinary(hv_buf), hv_new.size());
         br = next_btree.insert(given_kv);
         if (br != BtreeV2Result::SUCCESS) {
             return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
@@ -2125,7 +2215,7 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
     // into the current btree
     BtreeNodeAddr new_addr = next_btree.getRootAddr();
     HBTrieValue new_tree_hv(new_addr);
-    BtreeKvPair new_tree_kv(chunk, chunksize, new_tree_hv.toBinary(hv_buf), HV_SIZE);
+    BtreeKvPair new_tree_kv(chunk, chunksize, new_tree_hv.toBinary(hv_buf), new_tree_hv.size());
     br = cur_btree.insert(new_tree_kv);
     if (br != BtreeV2Result::SUCCESS) {
         return setLocalReturnValue(convertBtreeResult(br), cur_btree, rets);
@@ -2148,7 +2238,8 @@ hbtrie_result HBTrie::_insertV2Case2(void *rawkey, size_t rawkeylen,
 }
 
 hbtrie_result HBTrie::_insertV2Case3(void *rawkey, size_t rawkeylen,
-                                     void *given_value, void *oldvalue_out,
+                                     void *given_value, size_t given_value_len,
+                                     void *oldvalue_out, size_t *oldvalue_len_out,
                                      HBTrieInsV2Args& ins_args,
                                      HBTrieV2Rets& rets,
                                      uint8_t flag)
@@ -2192,18 +2283,28 @@ hbtrie_result HBTrie::_insertV2Case3(void *rawkey, size_t rawkeylen,
     if (hbmeta.prefix_len + prefix_start_pos == rawkeylen) {
         // given key is exactly same as the new tree's prefix
         //  => store value in the meta section
-        HBTrieValue meta_value_new_tree(HV_DOC, given_value);
-        uint8_t meta_value_buf_new_tree[HV_SIZE];
+        HBTrieValue meta_value_new_tree;
+        if (given_value_len != sizeof(uint64_t)) {
+            // document meta
+            meta_value_new_tree = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                                              given_value, given_value_len);
+        } else {
+            // document offset
+            meta_value_new_tree = HBTrieValue(HV_DOC, given_value);
+        }
+
+        uint8_t meta_value_buf_new_tree[HV_BUF_MAX_SIZE];
         storeMeta( new_metasize, diff_chunk, HBMETA_NORMAL,
                    static_cast<uint8_t*>(hbmeta.prefix),
                    prefix_len_new_tree,
                    meta_value_new_tree.toBinary(meta_value_buf_new_tree),
+                   meta_value_new_tree.size(),
                    new_meta_buffer.getAddr() );
     } else {
         // otherwise => empty value
         storeMeta( new_metasize, diff_chunk, HBMETA_NORMAL,
                    static_cast<uint8_t*>(hbmeta.prefix),
-                   prefix_len_new_tree, nullptr,
+                   prefix_len_new_tree, nullptr, 0,
                    new_meta_buffer.getAddr() );
     }
 
@@ -2223,16 +2324,19 @@ hbtrie_result HBTrie::_insertV2Case3(void *rawkey, size_t rawkeylen,
                    prefix_len_new_tree + chunksize,
                prefix_len_cur_tree,
                hbmeta.value,
+               hbmeta.value_len,
                new_meta_buffer.getAddr() );
+    cur_btree.updateMeta(BtreeV2Meta(new_metasize,
+                                     new_meta_buffer.getAddr()));
 
     // 4) insert old child tree (cur_tree) into the new tree.
     void *chunk_old_tree = static_cast<uint8_t*>(hbmeta.prefix) +
                            prefix_len_new_tree;
     BtreeKvPair new_kv;
     HBTrieValue new_hv(cur_btree.getRootAddr());
-    uint8_t new_hv_buf[HV_SIZE];
+    uint8_t new_hv_buf[HV_BUF_MAX_SIZE];
     new_kv = BtreeKvPair(static_cast<uint8_t*>(chunk_old_tree), chunksize,
-                         new_hv.toBinary(new_hv_buf), HV_SIZE);
+                         new_hv.toBinary(new_hv_buf), new_hv.size());
     br = new_tree.insert(new_kv);
     if (br != BtreeV2Result::SUCCESS) {
         return setLocalReturnValue(convertBtreeResult(br), new_tree, rets);
@@ -2241,9 +2345,17 @@ hbtrie_result HBTrie::_insertV2Case3(void *rawkey, size_t rawkeylen,
     // 5) insert suffix of rawkey into the new tree.
     void *chunk_rawkey = static_cast<uint8_t*>(rawkey) + diff_chunk * chunksize;
     size_t suffix_len = rawkeylen - diff_chunk * chunksize;
-    new_hv = HBTrieValue(HV_DOC, given_value);
+    if (given_value_len != sizeof(uint64_t)) {
+        // document meta
+        new_hv = HBTrieValue(HV_DOC | HV_VLEN_DATA,
+                             given_value, given_value_len);
+    } else {
+        // document offset
+        new_hv = HBTrieValue(HV_DOC, given_value);
+    }
+
     new_kv = BtreeKvPair(static_cast<uint8_t*>(chunk_rawkey), suffix_len,
-                         new_hv.toBinary(new_hv_buf), HV_SIZE);
+                         new_hv.toBinary(new_hv_buf), new_hv.size());
     br = new_tree.insert(new_kv);
     return setLocalReturnValue(convertBtreeResult(br), new_tree, rets);
 }
@@ -2253,37 +2365,56 @@ hbtrie_result HBTrie::insert(void *rawkey, int rawkeylen,
 {
     if (ver_btreev2_format(fileHB->getVersion())) {
         // V2 format
-        if (rootAddr.isEmpty) {
-            // create root b-tree
-            BtreeV2 cur_btree;
-            BtreeV2Result br;
+        size_t oldvalue_len_out_local;
+        return insert_vlen(rawkey, rawkeylen,
+                           value, sizeof(uint64_t),
+                           oldvalue_out, &oldvalue_len_out_local);
+    }
+    return _insert(rawkey, rawkeylen, value, oldvalue_out, 0x0);
+}
 
-            metasize_t metasize = estMetaSize(nullptr, 0);
-            MPWrapper meta_buffer;
-            meta_buffer.allocate();
-            storeMeta( metasize, 0, HBMETA_NORMAL,
-                       nullptr, 0, nullptr, meta_buffer.getAddr() );
-
-            cur_btree.init();
-            cur_btree.setBMgr(bnodeMgr);
-
-            br = cur_btree.updateMeta(BtreeV2Meta(metasize, meta_buffer.getAddr()));
-            if ( br != BtreeV2Result::SUCCESS ) {
-                return HBTRIE_RESULT_FAIL;
-            }
-            rootAddr = cur_btree.getRootAddr();
-        }
-        HBTrieV2Args args(0, rootAddr);
-        HBTrieV2Rets rets;
-        hbtrie_result hr = _insertV2(rawkey, rawkeylen, value, oldvalue_out,
-                                     args, rets, 0x0);
-        if (hr == HBTRIE_RESULT_SUCCESS) {
-            rootAddr = rets.rootAddr;
-        }
-        return hr;
+hbtrie_result HBTrie::insert_vlen(void *rawkey,
+                                  size_t rawkeylen,
+                                  void *value,
+                                  size_t value_len,
+                                  void *oldvalue_out,
+                                  size_t *oldvalue_len_out)
+{
+    // V2 format is a must for this API
+    if (!ver_btreev2_format(fileHB->getVersion())) {
+        return HBTRIE_RESULT_FAIL;
     }
 
-    return _insert(rawkey, rawkeylen, value, oldvalue_out, 0x0);
+    if (rootAddr.isEmpty) {
+        // create root b-tree
+        BtreeV2 cur_btree;
+        BtreeV2Result br;
+
+        metasize_t metasize = 0;
+        MPWrapper meta_buffer;
+        meta_buffer.allocate();
+        storeMeta( metasize, 0, HBMETA_NORMAL,
+                   nullptr, 0, nullptr, 0, meta_buffer.getAddr() );
+
+        cur_btree.init();
+        cur_btree.setBMgr(bnodeMgr);
+
+        br = cur_btree.updateMeta(BtreeV2Meta(metasize, meta_buffer.getAddr()));
+        if ( br != BtreeV2Result::SUCCESS ) {
+            return HBTRIE_RESULT_FAIL;
+        }
+        rootAddr = cur_btree.getRootAddr();
+    }
+    HBTrieV2Args args(0, rootAddr);
+    HBTrieV2Rets rets;
+    hbtrie_result hr = _insertV2(rawkey, rawkeylen,
+                                 value, value_len,
+                                 oldvalue_out, oldvalue_len_out,
+                                 args, rets, 0x0);
+    if (hr == HBTRIE_RESULT_SUCCESS) {
+        rootAddr = rets.rootAddr;
+    }
+    return hr;
 }
 
 hbtrie_result HBTrie::insertPartial(void *rawkey, int rawkeylen,

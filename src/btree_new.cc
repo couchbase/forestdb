@@ -947,11 +947,10 @@ BtreeV2Result BtreeV2::_writeDirtyNodes(Bnode *cur_node,
 
         BsArray& kvArr = cur_node->getKvArr();
         BsaItem kvp = kvArr.first(BsaItrType::DIRTY_CHILD_TREE_ONLY);
-        size_t hv_size = HBTrie::getHvSize();
 
         while (!kvp.isEmpty()) {
             uint8_t hv_buf[16];
-            HBTrieValue hv(kvp.value);
+            HBTrieValue hv(kvp.value, kvp.valuelen);
             Bnode *child_node = hv.getChildPtr();
             br = _writeDirtyNodes(child_node, visit_child_tree);
             if (br != BtreeV2Result::SUCCESS) {
@@ -962,7 +961,7 @@ BtreeV2Result BtreeV2::_writeDirtyNodes(Bnode *cur_node,
 
             // replace dirty root info (addr) to clean root info (offset)
             BsaItem item = BsaItem(kvp.key, kvp.keylen,
-                                   hv.toBinary(hv_buf), hv_size);
+                                   hv.toBinary(hv_buf), hv.size());
             kvArr.insert(item);
 
             kvp = kvArr.next(kvp, BsaItrType::DIRTY_CHILD_TREE_ONLY);
