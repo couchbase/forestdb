@@ -3171,10 +3171,13 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
 
+        // as 'offset' is located at the beginning of doc_meta,
+        // we can use it for legacy code as well.
+        DocMetaForIndex doc_meta;
         if (handle->kvs) {
-            hr = handle->trie->find(doc_kv.key, doc_kv.keylen, (void *)&offset);
+            hr = handle->trie->find(doc_kv.key, doc_kv.keylen, &doc_meta);
         } else {
-            hr = handle->trie->find(doc->key, doc->keylen, (void *)&offset);
+            hr = handle->trie->find(doc->key, doc->keylen, &doc_meta);
         }
 
         if (ver_btreev2_format(handle->file->getVersion())) {
@@ -3182,7 +3185,8 @@ fdb_status FdbEngine::get(FdbKvsHandle *handle, fdb_doc *doc,
         } else {
             handle->bhandle->flushBuffer();
         }
-        offset = _endian_decode(offset);
+        doc_meta.decode();
+        offset = doc_meta.offset;
 
         _fdb_release_dirty_root(handle);
     }
@@ -5636,19 +5640,32 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
     if (item->action == WAL_ACT_INSERT ||
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
+        DocMetaForIndex old_meta;
 
-        old_offset = BLK_NOT_FOUND;
-        handle->trie->insert(item->header->key, item->header->keylen,
-                             (void *)&_offset, (void *)&old_offset);
-        if (ver_btreev2_format(handle->file->getVersion())) {
+        if (btreev2) {
+            uint8_t meta_flag = (item->action == WAL_ACT_REMOVE)?
+                                FDB_DOC_META_DELETED : 0x0;
+            DocMetaForIndex doc_meta(item->offset,
+                                     item->seqnum,
+                                     item->doc_size,
+                                     meta_flag);
+            doc_meta.encode();
+            handle->trie->insert_vlen(item->header->key, item->header->keylen,
+                                 &doc_meta, doc_meta.size(),
+                                 &old_meta, nullptr);
             handle->bnodeMgr->releaseCleanNodes();
+            old_meta.decode();
+            old_offset = old_meta.offset;
         } else {
+            old_offset = BLK_NOT_FOUND;
+            handle->trie->insert(item->header->key, item->header->keylen,
+                                 (void *)&_offset, (void *)&old_offset);
             fs = handle->bhandle->flushBuffer();
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
+            old_offset = _endian_decode(old_offset);
         }
-        old_offset = _endian_decode(old_offset);
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             _seqnum = _endian_encode(item->seqnum);
@@ -5667,7 +5684,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                 handle->seqtree->insert((void *)&_seqnum, (void *)&_offset);
             }
 
-            if (ver_btreev2_format(handle->file->getVersion())) {
+            if (btreev2) {
                 handle->bnodeMgr->releaseCleanNodes();
             } else {
                 fs = handle->bhandle->flushBuffer();
@@ -5699,24 +5716,42 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
             kvs_delta_stat->datasize += item->doc_size;
             kvs_delta_stat->deltasize += item->doc_size;
         } else { // update or logical delete
-            // This block is already cached when we call HBTRIE_INSERT.
-            // No additional block access.
-            char dummy_key[FDB_MAX_KEYLEN];
-            _doc.meta = _doc.body = NULL;
-            _doc.key = &dummy_key;
-            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
-                                              &_doc, true);
-            if (_offset < 0) {
-                return (fdb_status) _offset;
-            } else if (_offset == 0) {
-                // Note that this is not an error as old_offset is pointing to
-                // the zero-filled region in a document block.
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            free(_doc.meta);
-            file->markDocStale(old_offset, _fdb_get_docsize(_doc.length));
 
-            if (!(_doc.length.flag & DOCIO_DELETED)) {//prev doc was not deleted
+            uint64_t old_seqnum = SEQNUM_NOT_USED;
+            uint32_t old_doc_size = 0;
+            bool is_old_doc_deleted = false;
+
+            // B-tree V2: read doc meta from hb+trie directly.
+            // otherwise: read doc meta from doc block.
+            if (btreev2) {
+                old_seqnum = old_meta.seqnum;
+                old_doc_size = old_meta.onDiskSize;
+                is_old_doc_deleted = old_meta.isDeleted();
+            } else {
+                // This block is already cached when we call HBTRIE_INSERT.
+                // No additional block access.
+                char dummy_key[FDB_MAX_KEYLEN];
+                _doc.meta = _doc.body = NULL;
+                _doc.key = &dummy_key;
+                _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
+                                                  &_doc, true);
+                if (_offset < 0) {
+                    return (fdb_status) _offset;
+                } else if (_offset == 0) {
+                    // Note that this is not an error as old_offset is pointing to
+                    // the zero-filled region in a document block.
+                    return FDB_RESULT_KEY_NOT_FOUND;
+                }
+                free(_doc.meta);
+
+                old_seqnum = _doc.seqnum;
+                old_doc_size = _fdb_get_docsize(_doc.length);
+                is_old_doc_deleted = _doc.length.flag & DOCIO_DELETED;
+            }
+
+            file->markDocStale(old_offset, old_doc_size);
+
+            if (!is_old_doc_deleted) {//prev doc was not deleted
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
                     --kvs_delta_stat->ndocs;
                     ++kvs_delta_stat->ndeletes;
@@ -5727,7 +5762,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                     --kvs_delta_stat->ndeletes;
                 } // else no change (prev doc was deleted, now re-deleted)
             }
-            delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
+            delta = (int)item->doc_size - (int)old_doc_size;
             kvs_delta_stat->datasize += delta;
             bid_t last_hdr = handle->last_hdr_bid.load(std::memory_order_relaxed);
             if (last_hdr * handle->config.blocksize < old_offset) {
@@ -5741,17 +5776,18 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                 struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
                     calloc(1, sizeof(struct wal_stale_seq_entry));
                 entry->kv_id = kv_id;
-                entry->seqnum = _doc.seqnum;
+                entry->seqnum = old_seqnum;
                 avl_insert(stale_seqnum_list, &entry->avl_entry,
                            _fdb_seq_entry_cmp);
             }
+
         }
     } else {
         // Immediate remove
         old_offset = item->old_offset;
         hr = handle->trie->remove(item->header->key, item->header->keylen);
 
-        if (ver_btreev2_format(handle->file->getVersion())) {
+        if (btreev2) {
             handle->bnodeMgr->releaseCleanNodes();
         } else {
             fs = handle->bhandle->flushBuffer();
@@ -5804,7 +5840,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
             }
 
             // Update index size to new size after the remove operation
-            if (ver_btreev2_format(handle->file->getVersion())) {
+            if (btreev2) {
                 delta = handle->bnodeMgr->getNLiveNodes() - nlivenodes;
             } else {
                 delta = handle->bhandle->getNLiveNodes() - nlivenodes;
@@ -5813,7 +5849,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
 
             // ndeltanodes measures number of new index nodes created due to
             // this hbtrie_remove() operation
-            if (ver_btreev2_format(handle->file->getVersion())) {
+            if (btreev2) {
                 delta = handle->bnodeMgr->getNDeltaNodes() - ndeltanodes;
             } else {
                 delta = handle->bhandle->getNDeltaNodes() - ndeltanodes;

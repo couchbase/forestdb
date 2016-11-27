@@ -497,6 +497,65 @@ struct stale_regions {
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)
 #define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
 
+
+#define FDB_DOC_META_DELETED (0x1)
+
+/**
+ * Document meta data that will be stored as a value in HB+trie.
+ */
+struct DocMetaForIndex
+{
+    DocMetaForIndex() :
+        offset(BLK_NOT_FOUND), seqnum(SEQNUM_NOT_USED),
+        onDiskSize(0), flags(0)
+    {
+        reserved[0] = reserved[1] = reserved[2] = 0;
+    }
+
+    DocMetaForIndex(uint64_t _offset,
+        uint64_t _seqnum,
+        uint32_t _on_disk_size,
+        uint8_t _flags) :
+        offset(_offset),
+        seqnum(_seqnum),
+        onDiskSize(_on_disk_size),
+        flags(_flags)
+    {
+        reserved[0] = reserved[1] = reserved[2] = 0;
+    }
+
+    void encode() {
+        offset = _endian_encode(offset);
+        seqnum = _endian_encode(seqnum);
+        onDiskSize = _endian_encode(onDiskSize);
+    }
+
+    void decode() {
+        offset = _endian_decode(offset);
+        seqnum = _endian_decode(seqnum);
+        onDiskSize = _endian_decode(onDiskSize);
+    }
+
+    bool isDeleted() {
+        return flags & FDB_DOC_META_DELETED;
+    }
+
+    size_t size() {
+        return sizeof(DocMetaForIndex);
+    }
+
+    // Document disk offset.
+    uint64_t offset;
+    // Document sequence number.
+    uint64_t seqnum;
+    // Document on-disk size (compressed size if compression is enabled).
+    uint32_t onDiskSize;
+    // Additional flags.
+    uint8_t flags;
+    // Reserved bytes.
+    uint8_t reserved[3];
+};
+
 #ifdef __cplusplus
 }
 #endif
