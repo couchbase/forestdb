@@ -338,7 +338,7 @@ int BnodeCacheMgr::write(FileMgr* file,
 }
 
 int BnodeCacheMgr::writeMulti(FileMgr* file,
-                              std::vector<bnode_offset_t> nodes) {
+                              std::vector<bnode_offset_t> &nodes) {
 
     if (!file) {
         return FDB_RESULT_INVALID_ARGS;

@@ -251,7 +251,7 @@ public:
      *
      * @returns the number of bytes written into the cache
      */
-    int writeMulti(FileMgr* file, std::vector<bnode_offset_t> nodes);
+    int writeMulti(FileMgr* file, std::vector<bnode_offset_t> &nodes);
 
     /**
      * Flushes all dirty nodes in the bnodecache, typically upon commit.
