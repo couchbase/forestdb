@@ -743,17 +743,24 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
     std::vector<std::pair<size_t, Bnode*>> dirty_nodes;
     std::map<cs_off_t, Bnode*>* shard_dirty_tree;
     uint64_t flushed = 0;
+    size_t count = 0;
 
     while (true) {
-        if (dirty_nodes.empty()) {
+        if (count == 0) {
             for (size_t i = 0; i < fcache->getNumShards(); ++i) {
                 spin_lock(&fcache->shards[i]->lock);
-
-                auto entry = fcache->shards[i]->dirtyIndexNodes.begin();
-                if (entry != fcache->shards[i]->dirtyIndexNodes.end()) {
-                    dirty_nodes.push_back(std::make_pair(i, entry->second));
+                if (flush_all) {
+                    // In case of flush_all, push all the dirty items to
+                    // the temporary vector to sort those items with their offsets.
+                    for (auto &entry : fcache->shards[i]->dirtyIndexNodes) {
+                        dirty_nodes.push_back(std::make_pair(i, entry.second));
+                    }
+                } else {
+                    auto entry = fcache->shards[i]->dirtyIndexNodes.begin();
+                    if (entry != fcache->shards[i]->dirtyIndexNodes.end()) {
+                        dirty_nodes.push_back(std::make_pair(i, entry->second));
+                    }
                 }
-
                 spin_unlock(&fcache->shards[i]->lock);
             }
 
@@ -768,9 +775,9 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
         }
 
 
-        auto dirty_entry = dirty_nodes.begin();
-        size_t shard_num = dirty_entry->first;
-        Bnode* dirty_bnode = dirty_entry->second;
+        auto dirty_entry = dirty_nodes[count++];
+        size_t shard_num = dirty_entry.first;
+        Bnode* dirty_bnode = dirty_entry.second;
 
         spin_lock(&fcache->shards[shard_num]->lock);
 
@@ -784,12 +791,14 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             }
         }
 
-        // Remove from cross-shard dirty node list
-        dirty_nodes.erase(dirty_entry);
         if (!item_exist) {
             // The original item in the shard dirty index node map was removed.
             // Moving on to the next one in the cross-shard dirty node list
             spin_unlock(&fcache->shards[shard_num]->lock);
+            if (count == dirty_nodes.size()) {
+                count = 0;
+                dirty_nodes.clear();
+            }
             continue;
         }
 
@@ -884,6 +893,10 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
 
         spin_unlock(&fcache->shards[shard_num]->lock);
 
+        if (count == dirty_nodes.size()) {
+            count = 0;
+            dirty_nodes.clear();
+        }
         if (sync) {
             if (flush_all || flushed < flushLimit) {
                 continue;
