@@ -1193,10 +1193,7 @@ BsaItem BsArray::addToArray(BsaItem item, uint32_t idx, bool overwrite) {
 
 void BsArray::adjustArrayCapacity(int gap) {
     if (arrayBaseOffset + kvDataSize + gap > arrayCapacity) {
-        do {
-            // double the capacity
-            arrayCapacity *= 2;
-        } while (arrayBaseOffset + kvDataSize + gap > arrayCapacity);
+        arrayCapacity = arrayBaseOffset + kvDataSize + gap;
         dataArray = realloc(dataArray, arrayCapacity);
     }
 }
