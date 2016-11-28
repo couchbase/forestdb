@@ -876,6 +876,8 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             fcache->numItemsWritten--;
             // Decrement memory usage
             bnodeCacheCurrentUsage.fetch_sub(dirty_bnode->getNodeSize());
+            // Free the dirty node as it can be simply discarded
+            delete dirty_bnode;
         }
 
         flushed += dirty_bnode->getNodeSize();
