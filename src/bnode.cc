@@ -525,6 +525,12 @@ size_t Bnode::readNodeSize(void *buf)
     return _endian_decode(enc32);
 }
 
+void Bnode::fitMemSpaceToNodeSize()
+{
+    kvArr.fitArrayAndKvMetaCapacity();
+    bidList.shrink_to_fit();
+}
+
 void Bnode::DBG_printNode(size_t start_idx, size_t num_to_print)
 {
     size_t i = 0;
@@ -685,10 +691,8 @@ INLINE int BsaCmp(BsaItem& aa, BsaItem& bb, void *aux)
 BsArray::BsArray() :
     aux(nullptr), kvDataSize(0), arrayBaseOffset(0)
 {
-    arrayCapacity = 128;
+    arrayCapacity = 32; // minimum blob size for malloc
     dataArray = malloc(arrayCapacity);
-    // to avoid realloc overhead, reserve some space.
-    kvMeta.reserve(64);
 }
 
 BsArray::~BsArray() {
@@ -1197,4 +1201,14 @@ void BsArray::adjustArrayCapacity(int gap) {
         dataArray = realloc(dataArray, arrayCapacity);
     }
 }
+
+void BsArray::fitArrayAndKvMetaCapacity()
+{
+    if (arrayCapacity > arrayBaseOffset + kvDataSize) {
+        arrayCapacity = arrayBaseOffset + kvDataSize;
+        dataArray = realloc(dataArray, arrayCapacity);
+    }
+    kvMeta.shrink_to_fit();
+}
+
 

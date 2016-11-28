@@ -250,6 +250,7 @@ void BnodeMgr::moveDirtyNodesToBcache()
 {
     int ret;
     for (auto &entry: dirtyNodes) {
+        entry->fitMemSpaceToNodeSize();
         ret = BnodeCacheMgr::get()->write(file, entry, entry->getCurOffset());
         if (ret <= 0) {
             fdb_log(logCallback, static_cast<fdb_status>(ret),

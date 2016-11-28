@@ -173,6 +173,10 @@ public:
         return kvMeta;
     }
 
+    uint32_t getArrayCapacity() const {
+        return arrayCapacity;
+    }
+
     uint32_t getArraySize() const {
         return kvDataSize;
     }
@@ -331,6 +335,12 @@ public:
     void constructKvMetaArray(uint32_t kv_data_size,
                               uint32_t num_elems,
                               bool reset_isptr);
+
+    /**
+     * Lessen the allocated memory space for 'dataArray' and 'kvMeta'
+     * to fit into the actual array size.
+     */
+    void fitArrayAndKvMetaCapacity();
 
 private:
 
@@ -708,6 +718,11 @@ public:
      */
     BnodeResult importRaw( void *buf,
                            uint32_t buf_size );
+
+    /**
+     * Lessen allocated memory space to fit into the actual node size.
+     */
+    void fitMemSpaceToNodeSize();
 
     /**
      * For debugging-purpose, print out a list of key-value pairs in the node.
