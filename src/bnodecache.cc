@@ -270,7 +270,7 @@ int BnodeCacheMgr::read(FileMgr* file,
                 // Add to back of clean node list
                 list_push_back(&fcache->shards[shard_num]->cleanNodes,
                                &((*node)->list_elem));
-                bnodeCacheCurrentUsage.fetch_add((*node)->getNodeSize());
+                bnodeCacheCurrentUsage.fetch_add((*node)->getMemConsumption());
                 fcache->numItems++;
                 (*node)->incRefCount();
                 spin_unlock(&fcache->shards[shard_num]->lock);
@@ -329,7 +329,7 @@ int BnodeCacheMgr::write(FileMgr* file,
             spin_unlock(&fcache->shards[shard_num]->lock);
             return FDB_RESULT_EEXIST;
         }
-        bnodeCacheCurrentUsage.fetch_add(node->getNodeSize());
+        bnodeCacheCurrentUsage.fetch_add(node->getMemConsumption());
         fcache->numItems++;
         fcache->numItemsWritten++;
     } else {
@@ -443,7 +443,7 @@ fdb_status BnodeCacheMgr::invalidateBnode(FileMgr* file, Bnode* node) {
             fcache->numItems--;
             fcache->numItemsWritten--;
             // Decrement memory usage
-            bnodeCacheCurrentUsage.fetch_sub(node->getNodeSize());
+            bnodeCacheCurrentUsage.fetch_sub(node->getMemConsumption());
             spin_unlock(&fcache->shards[shard_num]->lock);
         } else {
             spin_unlock(&fcache->shards[shard_num]->lock);
@@ -511,7 +511,7 @@ void BnodeCacheMgr::removeCleanBnodes(FileMgr* file) {
                 fcache->shards[i]->allNodes.erase(item->getCurOffset());
                 fcache->numItems--;
                 // Decrement memory usage
-                bnodeCacheCurrentUsage.fetch_sub(item->getNodeSize());
+                bnodeCacheCurrentUsage.fetch_sub(item->getMemConsumption());
                 // Free the item
                 delete item;
             }
@@ -895,7 +895,7 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             fcache->numItems--;
             fcache->numItemsWritten--;
             // Decrement memory usage
-            bnodeCacheCurrentUsage.fetch_sub(dirty_bnode->getNodeSize());
+            bnodeCacheCurrentUsage.fetch_sub(dirty_bnode->getMemConsumption());
             // Free the dirty node as it can be simply discarded
             delete dirty_bnode;
         }
@@ -1049,7 +1049,7 @@ void BnodeCacheMgr::performEviction() {
                     // Remove from the shard nodes list
                     bshard->allNodes.erase(item->getCurOffset());
                     // Decrement mem usage stat
-                    bnodeCacheCurrentUsage.fetch_sub(item->getNodeSize());
+                    bnodeCacheCurrentUsage.fetch_sub(item->getMemConsumption());
 
                     // Free bnode instance
                     delete item;
@@ -1168,7 +1168,7 @@ void BnodeCacheMgr::removeSelectBnodes(FileMgr* file,
             fcache->numItems--;
             fcache->numItemsWritten--;
             // Decrement memory usage
-            bnodeCacheCurrentUsage.fetch_sub(node->getNodeSize());
+            bnodeCacheCurrentUsage.fetch_sub(node->getMemConsumption());
         }
 
         spin_unlock(&fcache->shards[shard_num]->lock);

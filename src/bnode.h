@@ -177,6 +177,11 @@ public:
         return arrayCapacity;
     }
 
+    size_t getKvMetaMemConsumption() {
+        size_t capacity = kvMeta.capacity();
+        return capacity * sizeof(BsaKvMeta);
+    }
+
     uint32_t getArraySize() const {
         return kvDataSize;
     }
@@ -471,6 +476,18 @@ public:
     }
     void setNodeSize(uint32_t _node_size) {
         nodeSize = _node_size;
+    }
+
+    size_t getMemConsumption() {
+        size_t ret = 0;
+        ret += sizeof(*this);
+        // space for kvArr.dataArray
+        ret += kvArr.getArrayCapacity();
+        // spcae for kvArr.kvMeta
+        ret += kvArr.getKvMetaMemConsumption();
+        // space for bidList
+        ret += bidList.capacity() * sizeof(bid_t);
+        return ret;
     }
 
     size_t getLevel() const {
