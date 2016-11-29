@@ -741,6 +741,48 @@ bool dirtyNodesCustomSort(std::pair<size_t, Bnode*> entry1,
     return (entry1.second->getCurOffset() < entry2.second->getCurOffset());
 }
 
+fdb_status BnodeCacheMgr::writeCachedData(WriteCachedDataArgs& args)
+{
+    ssize_t ret = 0;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    if (args.flush_all) {
+        // 'Flush all' option
+        // => use temp_buf to write as large as data sequentially.
+        if (args.temp_buf_pos + args.size_to_append > defaultFlushLimit ||
+            args.batch_write_offset + args.temp_buf_pos != args.cur_offset) {
+            // 1) The remaining space in the temp buf is not enough, OR
+            // 2) Last written data in the buffer and incoming data are not
+            //    consecutive,
+            // => flush current buffer and reset.
+            ret = args.fcache->getFileManager()->writeBuf(args.temp_buf.get(),
+                                                          args.temp_buf_pos,
+                                                          args.batch_write_offset);
+            if (ret != static_cast<ssize_t>(args.temp_buf_pos)) {
+                status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
+                return status;
+            }
+            args.temp_buf_pos = 0;
+            args.batch_write_offset = args.cur_offset;
+        }
+        memcpy(args.temp_buf.get() + args.temp_buf_pos,
+               args.data_to_append,
+               args.size_to_append);
+        args.temp_buf_pos += args.size_to_append;
+    } else {
+        // Otherwise => directly invoke writeBuf().
+        ret = args.fcache->getFileManager()->writeBuf(args.data_to_append,
+                                                      args.size_to_append,
+                                                      args.cur_offset);
+        if (ret != static_cast<ssize_t>(args.size_to_append)) {
+            status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
+            return status;
+        }
+    }
+
+    return FDB_RESULT_SUCCESS;
+}
+
 fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                                                bool sync,
                                                bool flush_all) {
@@ -755,6 +797,10 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
     std::map<cs_off_t, Bnode*>* shard_dirty_tree;
     uint64_t flushed = 0;
     size_t count = 0;
+
+    // Allocate the temporary buffer (1MB) to write multiple dirty index nodes at once
+    WriteCachedDataArgs temp_buf_args(fcache, defaultFlushLimit,
+                                      flush_all);
 
     while (true) {
         if (count == 0) {
@@ -830,13 +876,53 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                 assert(false);
             }
 
+            uint64_t dirty_bnode_offset = dirty_bnode->getCurOffset();
+            if (flush_all && count == 1) {
+                temp_buf_args.batch_write_offset = dirty_bnode_offset;
+            }
+
+            if (flush_all &&
+                temp_buf_args.batch_write_offset + temp_buf_args.temp_buf_pos <
+                                                            dirty_bnode_offset) {
+                // To avoid 'node size' field (4 bytes) being written over multiple
+                // blocks, a few bytes can be skipped and we need to calibrate it.
+
+                // before calibration, we should append block meta if necessary.
+                bid_t prev_bid = (temp_buf_args.batch_write_offset +
+                                  temp_buf_args.temp_buf_pos) / blocksize;
+                bid_t cur_bid = dirty_bnode_offset / blocksize;
+                size_t prev_blk_offset = (temp_buf_args.batch_write_offset +
+                                          temp_buf_args.temp_buf_pos) % blocksize;
+
+                // skipped length should be smaller than 4 bytes.
+                if (prev_bid + 1 == cur_bid &&
+                    prev_blk_offset + sizeof(uint32_t) > blocksize_avail) {
+                    // adjust temp_buf_pos to point to the IndexBlkMeta location
+                    // (i.e., the last 16 bytes in the block).
+                    temp_buf_args.temp_buf_pos += (blocksize_avail - prev_blk_offset);
+
+                    IndexBlkMeta blk_meta;
+                    blk_meta.set(cur_bid, fcache->getFileManager()->getSbBmpRevnum());
+
+                    temp_buf_args.data_to_append = &blk_meta;
+                    temp_buf_args.size_to_append = sizeof(IndexBlkMeta);
+                    temp_buf_args.cur_offset = prev_bid * blocksize + blocksize_avail;
+                    status = writeCachedData(temp_buf_args);
+                    if (status != FDB_RESULT_SUCCESS) {
+                        spin_unlock(&fcache->shards[shard_num]->lock);
+                        return status;
+                    }
+                }
+            }
+
             if (remaining_size <= blocksize_avail - offset_of_block) {
                 // entire node can be written in a block .. just write it.
-                ret = fcache->getFileManager()->writeBuf(buf, remaining_size,
-                                                         dirty_bnode->getCurOffset());
-                if (ret != static_cast<ssize_t>(remaining_size)) {
+                temp_buf_args.data_to_append = buf;
+                temp_buf_args.size_to_append = remaining_size;
+                temp_buf_args.cur_offset = dirty_bnode->getCurOffset();
+                status = writeCachedData(temp_buf_args);
+                if (status != FDB_RESULT_SUCCESS) {
                     spin_unlock(&fcache->shards[shard_num]->lock);
-                    status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
                     return status;
                 }
             } else {
@@ -853,13 +939,12 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                     }
 
                     // write data for the block
-                    ret = fcache->getFileManager()->writeBuf(
-                                        (uint8_t*)buf + offset_of_buf,
-                                        cur_slice_size,
-                                        cur_bid * blocksize + offset_of_block);
-                    if (ret != static_cast<ssize_t>(cur_slice_size)) {
+                    temp_buf_args.data_to_append = static_cast<uint8_t*>(buf) + offset_of_buf;
+                    temp_buf_args.size_to_append = cur_slice_size;
+                    temp_buf_args.cur_offset = cur_bid * blocksize + offset_of_block;
+                    status = writeCachedData(temp_buf_args);
+                    if (status != FDB_RESULT_SUCCESS) {
                         spin_unlock(&fcache->shards[shard_num]->lock);
-                        status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
                         return status;
                     }
 
@@ -871,15 +956,15 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
                         blk_meta.set(dirty_bnode->getBidFromList(i+1),
                                      fcache->getFileManager()->getSbBmpRevnum());
 
-                        ret = fcache->getFileManager()->writeBuf(
-                                            &blk_meta,
-                                            sizeof(IndexBlkMeta),
-                                            cur_bid * blocksize + blocksize_avail);
-                        if (ret != static_cast<ssize_t>(sizeof(IndexBlkMeta))) {
+                        temp_buf_args.data_to_append = &blk_meta;
+                        temp_buf_args.size_to_append = sizeof(IndexBlkMeta);
+                        temp_buf_args.cur_offset = cur_bid * blocksize + blocksize_avail;
+                        status = writeCachedData(temp_buf_args);
+                        if (status != FDB_RESULT_SUCCESS) {
                             spin_unlock(&fcache->shards[shard_num]->lock);
-                            status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
                             return status;
                         }
+
                         // new block .. reset block offset
                         offset_of_block = 0;
                     }
@@ -915,6 +1000,16 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             } else {
                 break;
             }
+        }
+    }
+
+    if (flush_all && temp_buf_args.temp_buf_pos) {
+        ret = fcache->getFileManager()->writeBuf(temp_buf_args.temp_buf.get(),
+                                                 temp_buf_args.temp_buf_pos,
+                                                 temp_buf_args.batch_write_offset);
+        if (ret != static_cast<ssize_t>(temp_buf_args.temp_buf_pos)) {
+            status = ret < 0 ? (fdb_status)ret : FDB_RESULT_WRITE_FAIL;
+            return status;
         }
     }
 

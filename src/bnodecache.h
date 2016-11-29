@@ -444,6 +444,30 @@ private:
     void removeSelectBnodes(FileMgr* file, std::vector<Bnode*> &nodes);
 
 private:
+    struct WriteCachedDataArgs {
+        WriteCachedDataArgs(FileBnodeCache* _fcache,
+                            size_t temp_buf_size,
+                            bool _flush_all) :
+            fcache(_fcache),
+            temp_buf(std::move(new uint8_t[temp_buf_size])),
+            batch_write_offset(0),
+            temp_buf_pos(0),
+            size_to_append(0), cur_offset(0),
+            data_to_append(nullptr),
+            flush_all(_flush_all) { }
+
+        FileBnodeCache* fcache;
+        std::unique_ptr<uint8_t[]> temp_buf;
+        uint64_t batch_write_offset;
+        size_t temp_buf_pos;
+        size_t size_to_append;
+        size_t cur_offset;
+        void* data_to_append;
+        bool flush_all;
+    };
+
+    fdb_status writeCachedData(WriteCachedDataArgs& args);
+
     // BnodeCache size limit (in bytes), obtained from config (buffercache_size)
     std::atomic<uint64_t> bnodeCacheLimit;
 
