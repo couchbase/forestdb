@@ -889,18 +889,17 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             // Move to the shard clean node list
             list_push_back(&fcache->shards[shard_num]->cleanNodes,
                            &dirty_bnode->list_elem);
-
+            flushed += dirty_bnode->getNodeSize();
         } else {
             // Not synced, just discarded
             fcache->numItems--;
             fcache->numItemsWritten--;
             // Decrement memory usage
             bnodeCacheCurrentUsage.fetch_sub(dirty_bnode->getMemConsumption());
+            flushed += dirty_bnode->getNodeSize();
             // Free the dirty node as it can be simply discarded
             delete dirty_bnode;
         }
-
-        flushed += dirty_bnode->getNodeSize();
 
         spin_unlock(&fcache->shards[shard_num]->lock);
 
