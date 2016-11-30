@@ -127,8 +127,8 @@ void basic_read_write_test() {
                                                &config, nullptr);
     file = result.file;
     TEST_CHK(file != nullptr);
-
-    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(file);
+    // set file version to 003
+    file->setVersion(FILEMGR_MAGIC_003);
 
     std::vector<Bnode*> bnodes;
     BnodeResult ret;
@@ -185,10 +185,8 @@ void basic_read_write_test() {
     TEST_CHK(file->getBCacheItems() < static_cast<uint64_t>(n));
     TEST_CHK(file->getBCacheVictims() > 0);
 
-    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
-    BnodeCacheMgr::destroyInstance();
-
     FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     sa->aggregateAndPrintStats("SINGLE_THREADED_READ_WRITE_TEST", samples, "µs");
     // Delete StatAggregator
@@ -289,8 +287,8 @@ void multi_threaded_read_write_test(int readers,
                                                &config, nullptr);
     file = result.file;
     TEST_CHK(file != nullptr);
-
-    FileBnodeCache* fcache = BnodeCacheMgr::get()->createFileBnodeCache(file);
+    // set file version to 003
+    file->setVersion(FILEMGR_MAGIC_003);
 
     int initial_count = 10000;
     std::vector<Bnode*> bnodes;
@@ -383,10 +381,8 @@ void multi_threaded_read_write_test(int readers,
                                                             additional_count));
     TEST_CHK(file->getBCacheVictims() > 0);
 
-    BnodeCacheMgr::get()->freeFileBnodeCache(fcache, true);
-    BnodeCacheMgr::destroyInstance();
-
     FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     sa->aggregateAndPrintStats("MULTI_THREADED_READ_WRITE_TEST", samples, "µs");
     // Delete StatAggregator

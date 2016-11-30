@@ -422,8 +422,10 @@ private:
 
     /**
      * Perform cache eviction
+     *
+     * @param node_to_protect Bnode that should not be evicted during this call.
      */
-    void performEviction();
+    void performEviction(Bnode *node_to_protect);
 
     /**
      * Choose a file bnode cache that is going to be a victim for eviction

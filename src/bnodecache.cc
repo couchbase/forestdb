@@ -278,7 +278,7 @@ int BnodeCacheMgr::read(FileMgr* file,
                 // Do Eviction if necessary
                 // TODO: Implement an eviction daemon perhaps rather than having
                 //       the reader do it ..
-                performEviction();
+                performEviction(*node);
 
                 return (*node)->getNodeSize();
             }
@@ -343,7 +343,7 @@ int BnodeCacheMgr::write(FileMgr* file,
     fcache->shards[shard_num]->dirtyIndexNodes[offset] = node;
     spin_unlock(&fcache->shards[shard_num]->lock);
 
-    performEviction();
+    performEviction(node);
 
     return node->getNodeSize();
 }
@@ -894,6 +894,8 @@ fdb_status BnodeCacheMgr::flushDirtyIndexNodes(FileBnodeCache* fcache,
             // Not synced, just discarded
             fcache->numItems--;
             fcache->numItemsWritten--;
+            // Remove from the all node list
+            fcache->shards[shard_num]->allNodes.erase(dirty_bnode->getCurOffset());
             // Decrement memory usage
             bnodeCacheCurrentUsage.fetch_sub(dirty_bnode->getMemConsumption());
             flushed += dirty_bnode->getNodeSize();
@@ -973,7 +975,7 @@ void BnodeCacheMgr::cleanUpInvalidFileBnodeCaches() {
     }
 }
 
-void BnodeCacheMgr::performEviction() {
+void BnodeCacheMgr::performEviction(Bnode *node_to_protect) {
     // The global bnode cache lock need not be acquired here because the
     // file's bnode cache instance (FileBnodeCache) can be freed only if
     // there are no database handles opened for the file.
@@ -1041,7 +1043,7 @@ void BnodeCacheMgr::performEviction() {
             elem = list_pop_front(&bshard->cleanNodes);
             if (elem) {
                 item = reinterpret_cast<Bnode*>(elem);
-                if (item->getRefCount() == 0) {
+                if (item != node_to_protect && item->getRefCount() == 0) {
                     victim->numVictims++;
 
                     victim->numItems--;
