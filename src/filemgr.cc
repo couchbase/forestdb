@@ -395,7 +395,8 @@ void FileMgr::init(FileMgrConfig *config)
             // version supported.
             if (global_config.getNcacheBlock() > 0) {
                 if (ver_btreev2_format(ver_get_latest_magic())) {
-                    BnodeCacheMgr::init(global_config.getNcacheBlock() *
+                    BnodeCacheMgr::init(static_cast<uint64_t>(
+                                            global_config.getNcacheBlock()) *
                                         global_config.getBlockSize(),
                                         global_config.getFlushLimit());
                 } else {
