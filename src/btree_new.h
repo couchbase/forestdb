@@ -624,4 +624,14 @@ private:
      * @return BnodeIteratorResult::SUCCESS or appropriate error on failure
      */
     BnodeIteratorResult nextRecursiveBT(uint16_t level);
+
+    /**
+     * Read a B+Tree node if and only if it wasn't already read before
+     * If reading an unseen Bnode, release reference on the old bnode
+     * Cache the newly read bnode into the btreeItrs at its level.
+     * @param node - Node at given node_offset, may be cached or read afresh
+     * @param node_offset - Disk offset to read the bnode from
+     * @return BnodeIteratorResult::SUCCESS or BnodeIteratorResult::INVALID_NODE
+     */
+    BnodeIteratorResult fetchBnode(Bnode * &node, uint64_t node_offset);
 };
