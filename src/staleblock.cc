@@ -142,7 +142,6 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
     do {
         if (is_btree_v2) {
             BtreeKvPair kv_pair = bit_v2->getKvBT();
-            handle->bnodeMgr->releaseCleanNodes();
             if (!kv_pair.key) {
                 break;
             }
@@ -749,7 +748,6 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
         do {
             if (is_btree_v2) {
                 BtreeKvPair kv_pair = bit_v2->getKvBT();
-                handle->bnodeMgr->releaseCleanNodes();
                 if (!kv_pair.key) {
                     break;
                 }
