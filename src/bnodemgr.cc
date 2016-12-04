@@ -207,6 +207,7 @@ uint64_t BnodeMgr::assignDirtyNodeOffset( Bnode *bnode )
     offset = curBid * blocksize + curOffset;
     size_t room = blocksize_avail - curOffset;
 
+    bnode->clearBidList();
     if ( room >= nodesize ) {
         // we don't need to allocate more blocks
         curOffset += nodesize;
@@ -231,7 +232,15 @@ uint64_t BnodeMgr::assignDirtyNodeOffset( Bnode *bnode )
         curBid = file->alloc_FileMgr(nullptr);
         bnode->addBidList(curBid);
     }
-    curOffset = remaining_size % blocksize_avail;
+
+    if (remaining_size == blocksize_avail) {
+        // no available space in the current block.
+        // we should allocate a new block in the next turn.
+        curOffset = remaining_size;
+        curBid = BLK_NOT_FOUND;
+    } else {
+        curOffset = remaining_size % blocksize_avail;
+    }
 
     return offset;
 }
