@@ -1735,6 +1735,31 @@ INLINE void _wal_restore_root_info(void *voidhandle,
     }
 }
 
+static int _wal_flush_cmp_v2(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct wal_item *aa, *bb;
+    struct wal_item_header *aa_hdr, *bb_hdr;
+    aa = _get_entry(a, struct wal_item, avl_flush);
+    bb = _get_entry(b, struct wal_item, avl_flush);
+    aa_hdr = aa->header;
+    bb_hdr = bb->header;
+
+    // compare by key
+    if (aa_hdr->keylen == bb_hdr->keylen) {
+        return memcmp(aa_hdr->key, bb_hdr->key, aa_hdr->keylen);
+    } else {
+        size_t len = MIN(aa_hdr->keylen, bb_hdr->keylen);
+        int cmp = memcmp(aa_hdr->key, bb_hdr->key, len);
+        if (cmp != 0) {
+            return cmp;
+        } else {
+            return static_cast<int>( static_cast<int>(aa_hdr->keylen) -
+                                     static_cast<int>(bb_hdr->keylen) );
+        }
+    }
+
+}
+
 fdb_status Wal::_flush_Wal(void *dbhandle,
                            wal_flush_func *flush_func,
                            wal_get_old_offset_func *get_old_offset,
@@ -1756,9 +1781,9 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
     bool do_sort = !file->isFullyResident();
 
     if (btreev2) {
-        // With new B+tree, we don't need to get old offset,
-        // so sorting is not necessary.
-        do_sort = false;
+        // With new B+tree, we don't need to get old offset.
+        // Sort them by key.
+        do_sort = true;
     }
 
     if (do_sort) {
@@ -1800,7 +1825,11 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                         // are all new insertions into new file's hbtrie index.
                         item->old_offset = 0;
                         if (do_sort) {
-                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                            if (btreev2) {
+                                avl_insert(tree, &item->avl_flush, _wal_flush_cmp_v2);
+                            } else {
+                                avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                            }
                         } else {
                             list_push_back(list_head, &item->list_elem_flush);
                         }
@@ -1828,7 +1857,11 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                             item->flag |= WAL_ITEM_FLUSHED_OUT;
                         }
                         if (do_sort) {
-                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                            if (btreev2) {
+                                avl_insert(tree, &item->avl_flush, _wal_flush_cmp_v2);
+                            } else {
+                                avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                            }
                         } else {
                             list_push_back(list_head, &item->list_elem_flush);
                         }
