@@ -3996,6 +3996,7 @@ fdb_commit_start:
             }
             handle->staletreeV2->writeDirtyNodes();
             handle->bnodeMgr->moveDirtyNodesToBcache();
+            BnodeCacheMgr::get()->flush(handle->file);
             handle->bnodeMgr->markEndOfIndexBlocks();
         }
     }
@@ -4075,6 +4076,7 @@ fdb_commit_start:
             if (btreev2 && decision != SBD_NONE) {
                 handle->staletreeV2->writeDirtyNodes();
                 handle->bnodeMgr->moveDirtyNodesToBcache();
+                BnodeCacheMgr::get()->flush(handle->file);
                 handle->bnodeMgr->markEndOfIndexBlocks();
             }
 
