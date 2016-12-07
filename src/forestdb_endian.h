@@ -54,6 +54,19 @@
         #error "not supported endian"
     #endif
 
+#elif __FreeBSD__
+    #include <machine/endian.h>
+    #if _BYTE_ORDER == _LITTLE_ENDIAN
+        #ifdef _BIG_ENDIAN
+        #undef _BIG_ENDIAN
+        #endif
+    #elif _BYTE_ORDER == _BIG_ENDIAN
+        #ifdef _LITTLE_ENDIAN
+        #undef _LITTLE_ENDIAN
+        #endif
+    #else
+        #error "not supported endian"
+    #endif
 #endif
 
 #ifndef bitswap64
