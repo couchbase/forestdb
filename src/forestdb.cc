@@ -5784,12 +5784,18 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
         }
     } else {
         // Immediate remove
-        old_offset = item->old_offset;
-        hr = handle->trie->remove(item->header->key, item->header->keylen);
-
+        DocMetaForIndex old_meta;
+        size_t old_meta_size;
         if (btreev2) {
+            hr = handle->trie->remove_vlen(item->header->key, item->header->keylen,
+                                           &old_meta, &old_meta_size);
             handle->bnodeMgr->releaseCleanNodes();
+
+            old_meta.decode();
+            old_offset = old_meta.offset;
         } else {
+            old_offset = item->old_offset;
+            hr = handle->trie->remove(item->header->key, item->header->keylen);
             fs = handle->bhandle->flushBuffer();
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
@@ -5797,29 +5803,48 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
         }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            // This block is already cached when we call _fdb_wal_get_old_offset
-            // No additional block access should be done.
-            char dummy_key[FDB_MAX_KEYLEN];
-            _doc.meta = _doc.body = NULL;
-            _doc.key = &dummy_key;
-            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
-                                              &_doc, true);
-            if (_offset < 0) {
-                return (fdb_status) _offset;
-            } else if (_offset == 0) {
-                return FDB_RESULT_KEY_NOT_FOUND;
+            uint64_t old_seqnum = SEQNUM_NOT_USED;
+            uint32_t old_doc_size = 0;
+            bool is_old_doc_deleted = false;
+
+            // B-tree V2: read doc meta from hb+trie directly.
+            // otherwise: read doc meta from doc block.
+            if (btreev2) {
+                old_seqnum = old_meta.seqnum;
+                old_doc_size = old_meta.onDiskSize;
+                is_old_doc_deleted = old_meta.isDeleted();
+            } else {
+                // This block is already cached when we call HBTRIE_INSERT.
+                // No additional block access.
+                char dummy_key[FDB_MAX_KEYLEN];
+                _doc.meta = _doc.body = NULL;
+                _doc.key = &dummy_key;
+                _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
+                                                  &_doc, true);
+                if (_offset < 0) {
+                    return (fdb_status) _offset;
+                } else if (_offset == 0) {
+                    // Note that this is not an error as old_offset is pointing to
+                    // the zero-filled region in a document block.
+                    return FDB_RESULT_KEY_NOT_FOUND;
+                }
+                free(_doc.meta);
+
+                old_seqnum = _doc.seqnum;
+                old_doc_size = _fdb_get_docsize(_doc.length);
+                is_old_doc_deleted = _doc.length.flag & DOCIO_DELETED;
             }
-            free(_doc.meta);
-            file->markDocStale(old_offset, _fdb_get_docsize(_doc.length));
+
+            file->markDocStale(old_offset, old_doc_size);
 
             // Reduce the total number of docs by one
             --kvs_delta_stat->ndocs;
-            if (_doc.length.flag & DOCIO_DELETED) {//prev deleted doc is dropped
+            if (is_old_doc_deleted) {//prev deleted doc is dropped
                 --kvs_delta_stat->ndeletes;
             }
 
             // Reduce the total datasize by size of previously present doc
-            delta = -(int)_fdb_get_docsize(_doc.length);
+            delta = -(int)old_doc_size;
             kvs_delta_stat->datasize += delta;
             // if multiple wal flushes happen before commit, then it's possible
             // that this doc deleted was inserted & flushed after last commit
@@ -5835,7 +5860,7 @@ fdb_status WalFlushCallbacks::flushItem(void *dbhandle,
                 struct wal_stale_seq_entry *entry = (struct wal_stale_seq_entry *)
                     calloc(1, sizeof(struct wal_stale_seq_entry));
                 entry->kv_id = kv_id;
-                entry->seqnum = _doc.seqnum;
+                entry->seqnum = old_seqnum;
                 avl_insert(stale_seqnum_list, &entry->avl_entry, _fdb_seq_entry_cmp);
             }
 

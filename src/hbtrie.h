@@ -498,6 +498,8 @@ public:
 
     hbtrie_result remove(void *rawkey, int rawkeylen);
     hbtrie_result removePartial(void *rawkey, int rawkeylen);
+    hbtrie_result remove_vlen(void *rawkey, int rawkeylen,
+                              void *valuebuf, size_t *value_len_out);
 
     hbtrie_result insert(void *rawkey, int rawkeylen,
                          void *value, void *oldvalue_out);

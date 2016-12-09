@@ -1806,10 +1806,9 @@ fdb_status Wal::_flush_Wal(void *dbhandle,
                         }
                     } else {
                         spin_unlock(&key_shards[i].lock);
-                        if (btreev2 && item->action != WAL_ACT_REMOVE) {
-                            // With new B+tree, and the action is not REMOVE,
-                            // we don't need to read old offset.
-                            item->old_offset = 0;
+                        if (btreev2) {
+                            // With new B+tree, we don't need to read old offset.
+                            item->old_offset = BLK_NOT_FOUND;
                         } else {
                             item->old_offset = get_old_offset(dbhandle, item);
                         }

@@ -2564,6 +2564,34 @@ void hbtriev2_variable_length_value_test()
         TEST_CMP(valuebuf_chk, valuebuf, valuelen);
     }
 
+    // remove check
+    for (i=0; i<n; i+=2) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "Z%07d", (int)i);
+        hr = hbtrie->remove_vlen(keybuf, 17, oldvaluebuf, &oldvalue_size);
+        TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+        TEST_CHK(oldvalue_size == 32);
+        TEST_CMP(oldvaluebuf, valuebuf, oldvalue_size);
+    }
+
+    hbtrie->writeDirtyNodes();
+    b_mgr->moveDirtyNodesToBcache();
+    BnodeCacheMgr::get()->flush(fr.file);
+
+    // retrieval check (clean nodes)
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf+8, "k%08d", (int)i*5);
+        sprintf(valuebuf+24, "Z%07d", (int)i);
+        hr = hbtrie->find_vlen(keybuf, 17, valuebuf_chk, &valuelen);
+        if (i%2 == 0) {
+            TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
+            TEST_CHK(valuelen == 32);
+            TEST_CMP(valuebuf_chk, valuebuf, valuelen);
+        }
+    }
+
     b_mgr->releaseCleanNodes();
 
     delete hbtrie;
