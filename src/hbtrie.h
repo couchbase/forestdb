@@ -144,7 +144,7 @@ public:
     HBTrieValue(uint8_t _flags,
                 void *_value,
                 size_t _value_len) :
-        flags(_flags), valueLen(sizeof(offset)), binary(nullptr)
+        flags(_flags), valueLen(sizeof(offset)), offset(0), binary(nullptr)
     {
         if (flags & HV_VLEN_DATA) {
             // variable-length binary data
