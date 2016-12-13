@@ -7262,7 +7262,11 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // 2) set remove pending flag of the old file
     // 3) close the old file
     // Note that both old_file's lock and new_file's lock are still acquired.
-    return _fdb_commit_and_remove_pending(handle, old_file, new_file);
+    fs = _fdb_commit_and_remove_pending(handle, old_file, new_file);
+    if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_set_compaction_state(old_file, NULL, FILE_NORMAL);
+    }
+    return fs;
 }
 
 static fdb_status _fdb_compact(fdb_file_handle *fhandle,
