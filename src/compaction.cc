@@ -546,6 +546,9 @@ fdb_status Compaction::compactFile(FdbFileHandle *fhandle,
     // 3) close the old file
     // Note that both old_file's lock and new_file's lock are still acquired.
     status = compaction.commitAndRemovePending(handle, old_file);
+    if (status != FDB_RESULT_SUCCESS) {
+        FileMgr::setCompactionState(old_file, NULL, FILE_NORMAL);
+    }
 
     LATENCY_STAT_END(fhandle->getRootHandle()->file, FDB_LATENCY_COMPACTS);
     return status;
