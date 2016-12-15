@@ -2296,20 +2296,18 @@ fdb_status FdbEngine::removeKvs(FdbFileHandle *fhandle,
     }
 
 fdb_kvs_remove_start:
-    if (!rollback_recreate) {
-        fs = fdb_check_file_reopen(root_handle, NULL);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-        root_handle->file->mutexLock();
-        fdb_sync_db_header(root_handle);
+    fs = fdb_check_file_reopen(root_handle, NULL);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+    root_handle->file->mutexLock();
+    fdb_sync_db_header(root_handle);
 
+    if (!rollback_recreate) {
         if (root_handle->file->isRollbackOn()) {
             root_handle->file->mutexUnlock();
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
-    } else {
-        root_handle->file->mutexLock();
     }
 
     file = root_handle->file;
