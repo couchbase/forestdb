@@ -1908,17 +1908,15 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     }
 
 fdb_kvs_remove_start:
-    if (!rollback_recreate) {
-        fdb_check_file_reopen(root_handle, NULL);
-        filemgr_mutex_lock(root_handle->file);
-        fdb_sync_db_header(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
+    filemgr_mutex_lock(root_handle->file);
+    fdb_sync_db_header(root_handle);
 
+    if (!rollback_recreate) {
         if (filemgr_is_rollback_on(root_handle->file)) {
             filemgr_mutex_unlock(root_handle->file);
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
-    } else {
-        filemgr_mutex_lock(root_handle->file);
     }
 
     file = root_handle->file;
