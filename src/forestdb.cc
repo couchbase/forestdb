@@ -1022,7 +1022,8 @@ fdb_snapshot_open_start:
     // to its last DB header and point its avl tree to existing snapshot's tree
     bool clone_snapshot = false;
     if (handle_in->shandle) {
-        handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
+        atomic_store_uint64_t(&handle->last_hdr_bid,  // do fast rewind
+                              atomic_get_uint64_t(&handle_in->last_hdr_bid));
         fs = wal_snapshot_clone(handle_in->shandle, &handle->shandle, seqnum);
         if (fs == FDB_RESULT_SUCCESS) {
             clone_snapshot = true;
@@ -1280,10 +1281,14 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                 handle->txn = handle_in->txn;
                 handle_in->txn = NULL;
             }
-            handle_in->fhandle->root = handle;
-            _fdb_close_root(handle_in);
+            // Close, unlink and free the caller's rollback handle.
+            _fdb_kvs_close(handle_in);
+            free(handle_in);
+            // Link the newly opened handle into the file handle's list
+            _fdb_kvs_createNLinkKVHandle(handle->fhandle, handle);
             handle->max_seqnum = 0;
             handle->seqnum = seqnum;
+            // Set the newly opened rolled-back handle as caller's handle
             *handle_ptr = handle;
         } else {
             // cancel the rolling-back of the sequence number
@@ -1381,7 +1386,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     memset(&shandle, 0, sizeof(struct snap_handle));
     handle->log_callback = log_callback;
     handle->fhandle = fhandle;
-    handle->last_hdr_bid = (bid_t)marker; // Fast rewind on open
+    // Fast rewind on open...
+    atomic_store_uint64_t(&handle->last_hdr_bid, (bid_t)marker);
     handle->max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
     handle->shandle = &shandle; // a dummy handle to prevent WAL restore
     if (kvs) {
@@ -1716,8 +1722,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     // If cloning from a snapshot handle, fdb_snapshot_open would have already
     // set handle->last_hdr_bid to the block id of required header, so rewind..
-    if (handle->shandle && handle->last_hdr_bid) {
-        status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
+    bid_t last_hdr_bid = atomic_get_uint64_t(&handle->last_hdr_bid);
+    if (handle->shandle && last_hdr_bid) {
+        status = filemgr_fetch_header(handle->file, last_hdr_bid,
                                       header_buf, &header_len, &seqnum,
                                       &latest_header_revnum, &deltasize, &version,
                                       NULL, &handle->log_callback);
@@ -1730,7 +1737,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     } else { // Normal open
         filemgr_get_header(handle->file, header_buf, &header_len,
-                           &handle->last_hdr_bid, &seqnum, &latest_header_revnum);
+                           &last_hdr_bid, &seqnum, &latest_header_revnum);
+        atomic_store_uint64_t(&handle->last_hdr_bid, last_hdr_bid);
         version = handle->file->version;
     }
 
@@ -1818,7 +1826,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             // Reload DB header as other thread may append the first header at the
             // same time.
             filemgr_get_header(handle->file, header_buf, &header_len,
-                               &handle->last_hdr_bid, &seqnum, &latest_header_revnum);
+                               &last_hdr_bid, &seqnum, &latest_header_revnum);
+            atomic_store_uint64_t(&handle->last_hdr_bid, last_hdr_bid);
             if (header_len) {
                 // header creation racing .. unlock and re-fetch it
                 locked = false;
@@ -1860,7 +1869,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             }
         } else {
             hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
-            dirty_data_exists = (hdr_bid > handle->last_hdr_bid);
+            dirty_data_exists = (hdr_bid >
+                        atomic_get_uint64_t(&handle->last_hdr_bid));
         }
 
         if (hdr_bid == BLK_NOT_FOUND ||
@@ -1910,7 +1920,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                  &datasize, &last_wal_flush_hdr_bid,
                                  &kv_info_offset, &header_flags,
                                  &compacted_filename, NULL);
-                handle->last_hdr_bid = hdr_bid;
+                atomic_store_uint64_t(&handle->last_hdr_bid, hdr_bid);
 
                 if (!handle->kvs || handle->kvs->id == 0) {
                     // single KVS mode OR default KVS
@@ -2753,7 +2763,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
 
             delta = (int)item->doc_size - (int)_fdb_get_docsize(_doc.length);
             kvs_delta_stat->datasize += delta;
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+            bid_t last_hdr_bid = atomic_get_uint64_t(&handle->last_hdr_bid);
+            if (last_hdr_bid * handle->config.blocksize < old_offset) {
                 kvs_delta_stat->deltasize += delta;
             } else {
                 kvs_delta_stat->deltasize += (int)item->doc_size;
@@ -2808,7 +2819,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
             // that this doc deleted was inserted & flushed after last commit
             // In this case we need to update the deltasize too which tracks
             // the amount of new data inserted between commits.
-            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+            bid_t last_hdr_bid = atomic_get_uint64_t(&handle->last_hdr_bid);
+            if (last_hdr_bid * handle->config.blocksize < old_offset) {
                 kvs_delta_stat->deltasize += delta;
             }
 
@@ -2855,7 +2867,7 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
             char *prev_filename = NULL;
 
             version = handle->file->version;
-            handle->last_hdr_bid = hdr_bid;
+            atomic_store_uint64_t(&handle->last_hdr_bid, hdr_bid);
             handle->cur_header_revnum = revnum;
 
             fdb_fetch_header(version, header_buf, &idtree_root,
@@ -2913,11 +2925,22 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
                 handle->seqnum = filemgr_get_seqnum(handle->file);
             }
         } else {
-            handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
+            atomic_store_uint64_t(&handle->last_hdr_bid,
+                                  filemgr_get_header_bid(handle->file));
         }
 
         if (header_buf) {
             free(header_buf);
+        }
+    } else {
+        if (handle == handle->fhandle->root) {
+            // MB-20091: Commits use root handle that points to default kv store
+            // The same default KV Store can have a different user-level handle.
+            // To ensure that the root handle which will do the commit always
+            // remains updated with the latest sequence number generated by the
+            // user KVS Handle, we must always update the root handle's seqnum
+            // even if there are no new commit headers to sync up in the file.
+            handle->seqnum = filemgr_get_seqnum(handle->file);
         }
     }
 }
@@ -4382,7 +4405,7 @@ fdb_commit_start:
     if (wal_flushed) {
         fdb_gather_stale_blocks(handle,
                                 next_revnum,
-                                handle->last_hdr_bid,
+                                atomic_get_uint64_t(&handle->last_hdr_bid),
                                 handle->kv_info_offset,
                                 filemgr_get_seqnum(handle->file),
                                 NULL, false);
@@ -4392,7 +4415,8 @@ fdb_commit_start:
     //       all other data are written into the file!!
     //       Or, header BID inconsistency will occur (it will
     //       point to wrong block).
-    handle->last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
+    bid_t last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
+    atomic_store_uint64_t(&handle->last_hdr_bid, last_hdr_bid);
     cur_bmp_revnum = sb_get_bmp_revnum(handle->file);
 
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
@@ -4407,7 +4431,7 @@ fdb_commit_start:
             }
         } else {
             // there is no other transaction .. now WAL is empty
-            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+            handle->last_wal_flush_hdr_bid = last_hdr_bid;
         }
     }
 
@@ -5442,7 +5466,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         // if array exceeds the threshold, OR
         // there's no next item (hr == HBTRIE_RESULT_FAIL),
         // sort and move the documents in the array
-        if (c > offset_array_max ||
+        if (c >= offset_array_max ||
             (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
             // Sort offsets to minimize random accesses.
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
@@ -7340,7 +7364,11 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // 2) set remove pending flag of the old file
     // 3) close the old file
     // Note that both old_file's lock and new_file's lock are still acquired.
-    return _fdb_commit_and_remove_pending(handle, old_file, new_file);
+    fs = _fdb_commit_and_remove_pending(handle, old_file, new_file);
+    if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_set_compaction_state(old_file, NULL, FILE_NORMAL);
+    }
+    return fs;
 }
 
 static fdb_status _fdb_compact(fdb_file_handle *fhandle,
@@ -8359,7 +8387,8 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
             h->config.prefetch_duration);
     fprintf(stderr, "cur_header_revnum: %" _F64 "\n",
             atomic_get_uint64_t(&h->cur_header_revnum));
-    fprintf(stderr, "last_hdr_bid: %" _F64 "\n", h->last_hdr_bid);
+    fprintf(stderr, "last_hdr_bid: %" _F64 "\n",
+                         atomic_get_uint64_t(&h->last_hdr_bid));
     fprintf(stderr, "last_wal_flush_hdr_bid: %" _F64 "\n",
            h->last_wal_flush_hdr_bid);
     fprintf(stderr, "kv_info_offset: %" _F64 "\n", h->kv_info_offset);

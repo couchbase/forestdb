@@ -333,7 +333,6 @@ struct shared_data {
 void *bad_thread(void *voidargs) {
     struct shared_data *data = (struct shared_data *)voidargs;
     fdb_kvs_handle *db = data->db;
-    fdb_file_handle *dbfile = data->dbfile;
     fdb_iterator *itr = data->iterator;
     fdb_status s;
     fdb_doc doc;
@@ -363,12 +362,6 @@ void *bad_thread(void *voidargs) {
         doc.offset = 5000; // some random non-zero value
         s = fdb_get_byoffset(db, &doc);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
-        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
-        s = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
-        TEST_CHK(s == FDB_RESULT_TRANSACTION_FAIL);
     } else {
         s = fdb_iterator_next(itr);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
@@ -892,6 +885,111 @@ void corrupted_header_correct_superblock_test()
     TEST_RESULT("corrupted DB header from correct superblock test");
 }
 
+int fsync_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
+                     int fd) {
+    fail_ctx_t *wctx = (fail_ctx_t *)ctx;
+    wctx->num_ops++;
+    if (wctx->num_ops > wctx->start_failing_after) {
+        wctx->num_fails++;
+        errno = -2;
+        return (ssize_t)FDB_RESULT_FSYNC_FAIL;
+    }
+
+    return normal_ops->fsync(fd);
+}
+
+void compaction_failure_hangs_rollback_test()
+{
+    TEST_INIT();
+
+    int i, r;
+    int n=300; // n: # prefixes, m: # postfixes
+    fdb_file_handle *dbfile, *dbfile_comp;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+
+    char keybuf[32], metabuf[32], bodybuf[128];
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *commit_fail_cb = get_default_anon_cbs();
+    fail_ctx_t fail_ctx;
+    memset(&fail_ctx, 0, sizeof(fail_ctx_t));
+    // Modify the fsync callback to redirect to test-specific function
+    commit_fail_cb->fsync_cb = &fsync_failure_cb;
+
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    // Reset anomalous behavior stats..
+    filemgr_ops_anomalous_init(commit_fail_cb, &fail_ctx);
+
+    // The number indicates the count after which all commits begin to fail
+    // This number is unique to this test suite and can cause a hang
+    // if the underlying fixed issue resurfaces
+    fail_ctx.start_failing_after = 3;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+
+    // open db
+    fdb_open(&dbfile, "anomaly_test2", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf)+1,
+                       (void*)metabuf, strlen(metabuf)+1,
+                       (void*)bodybuf, strlen(bodybuf)+1);
+        status = fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i == n / 2) {
+            status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile_comp, "anomaly_test2", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Due to anomalous ops this compaction should fail after new file
+    // is created and a final commit is attempted..
+    status = fdb_compact(dbfile_comp, "anomaly_test3");
+    TEST_CHK(status == FDB_RESULT_FSYNC_FAIL);
+    fail_ctx.start_failing_after = 99999; // reset this so rollback can proceed
+
+    status = fdb_close(dbfile_comp);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // The above compaction failure should not result in rollback hanging..
+    // MB-21953: Rollback hangs infinitely in decaying_usleep due to compaction
+    // failure above which does not reset the file status to NORMAL
+    status = fdb_rollback(&db, n/2 + 1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    sprintf(bodybuf, "compaction failure hangs rollback test :%d "
+                     "failures out of %d commits",
+                     fail_ctx.num_fails, fail_ctx.num_ops);
+
+    TEST_RESULT(bodybuf);
+}
+
 int main(){
 
     /**
@@ -906,6 +1004,7 @@ int main(){
     handle_busy_test();
     read_old_file();
     corrupted_header_correct_superblock_test();
+    compaction_failure_hangs_rollback_test();
 
     return 0;
 }

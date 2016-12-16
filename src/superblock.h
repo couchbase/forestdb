@@ -137,8 +137,13 @@ struct superblock {
     /**
      * Current revision number of bitmap in superblock. This value increases whenever
      * ForestDB reclaims stale blocks and accordingly bitmap is updated.
+     * Why atomic?
+     * during docio_read_through_buffer() we must invalidate docio cache if the
+     * bitmap revnum had changed which can race with
+     * sb_reclaim_reusable_blocks called during commit in writer thread if file
+     * handle is shared between the reader and writer threads
      */
-    uint64_t bmp_revnum;
+    atomic_uint64_t bmp_revnum;
     /**
      * Number of bits in the bitmap. Each bit represents a block.
      */

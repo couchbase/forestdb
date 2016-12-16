@@ -310,7 +310,8 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
     for (i=0; i<num_docs; ++i) {
         // append a system doc for bitmap chunk
         memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
-        sprintf(doc_key, "bitmap_%" _F64 "_%d", sb->bmp_revnum, (int)i);
+        sprintf(doc_key, "bitmap_%" _F64 "_%d",
+                atomic_get_uint64_t(&sb->bmp_revnum), (int)i);
         sb->bmp_docs[i].key = (void*)doc_key;
         sb->bmp_docs[i].meta = NULL;
         sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
@@ -497,14 +498,15 @@ bool sb_update_header(fdb_kvs_handle *handle)
     bool ret = false;
     struct superblock *sb = handle->file->sb;
 
-    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != handle->last_hdr_bid &&
+    bid_t last_hdr_bid = atomic_get_uint64_t(&handle->last_hdr_bid);
+    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != last_hdr_bid &&
         atomic_get_uint64_t(&sb->last_hdr_revnum) < handle->cur_header_revnum) {
 
-        atomic_store_uint64_t(&sb->last_hdr_bid, handle->last_hdr_bid);
+        atomic_store_uint64_t(&sb->last_hdr_bid, last_hdr_bid);
         atomic_store_uint64_t(&sb->last_hdr_revnum, handle->cur_header_revnum);
 
         uint64_t lw_revnum = atomic_get_uint64_t(&handle->file->last_writable_bmp_revnum);
-        if (lw_revnum == sb->bmp_revnum &&
+        if (lw_revnum == atomic_get_uint64_t(&sb->bmp_revnum) &&
             sb->bmp_prev) {
             free(sb->bmp_prev);
             sb->bmp_prev = NULL;
@@ -663,7 +665,7 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     atomic_store_uint64_t(&sb->bmp_size, num_blocks);
     sb->min_live_hdr_revnum = sheader.revnum;
     sb->min_live_hdr_bid = sheader.bid;
-    sb->bmp_revnum++;
+    atomic_incr_uint64_t(&sb->bmp_revnum);
     sb->num_init_free_blocks = sb->num_free_blocks;
     sb_bmp_change_end(sb);
     free(old_bmp);
@@ -719,7 +721,7 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
 
         rsv->min_live_hdr_revnum = sheader.revnum;
         rsv->min_live_hdr_bid = sheader.bid;
-        rsv->bmp_revnum = sb->bmp_revnum+1;
+        rsv->bmp_revnum = atomic_get_uint64_t(&sb->bmp_revnum)+1;
         sb->rsv_bmp = rsv;
     }
 
@@ -975,7 +977,7 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
     sb->bmp_prev_size = atomic_get_uint64_t(&sb->bmp_size);
 
     // copy all pointers from rsv to sb
-    sb->bmp_revnum = rsv->bmp_revnum;
+    atomic_store(&sb->bmp_revnum, rsv->bmp_revnum);
     atomic_store_uint64_t(&sb->bmp_size, rsv->bmp_size);
     sb->bmp = rsv->bmp;
     sb->bmp_idx = rsv->bmp_idx;
@@ -1101,7 +1103,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
     sb_bmp_barrier_on(sb);
 
     uint8_t *sb_bmp = sb->bmp;
-    if (sb->bmp_revnum == lw_bmp_revnum) {
+    if (atomic_get_uint64_t(&sb->bmp_revnum) == lw_bmp_revnum) {
         // Same bitmap revision number: there are 2 possible cases
         //
         // (1) normal case
@@ -1238,7 +1240,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // bitmap's revision number
-    enc_u64 = _endian_encode(file->sb->bmp_revnum);
+    enc_u64 = _endian_encode(atomic_get_uint64_t(&file->sb->bmp_revnum));
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -1423,7 +1425,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // bitmap's revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->bmp_revnum = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->bmp_revnum, _endian_decode(enc_u64));
 
     // cur_alloc_bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1566,7 +1568,7 @@ static void _sb_init(struct superblock *sb, struct sb_config sconfig)
 {
     *sb->config = sconfig;
     atomic_init_uint64_t(&sb->revnum, 0);
-    sb->bmp_revnum = 0;
+    atomic_init_uint64_t(&sb->bmp_revnum, 0);
     atomic_init_uint64_t(&sb->bmp_size, 0);
     sb->bmp = NULL;
     atomic_init_uint64_t(&sb->bmp_rcount, 0);
@@ -1595,7 +1597,7 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     // since variables in 'src' won't be freed, just copy its pointers
     dst->config = src->config;
     atomic_store_uint64_t(&dst->revnum, atomic_get_uint64_t(&src->revnum));
-    dst->bmp_revnum = src->bmp_revnum;
+    atomic_store_uint64_t(&dst->bmp_revnum, atomic_get_uint64_t(&src->bmp_revnum));
     atomic_store_uint64_t(&dst->bmp_size, atomic_get_uint64_t(&src->bmp_size));
     dst->bmp.store(src->bmp.load(std::memory_order_relaxed), std::memory_order_relaxed);
     atomic_store_uint64_t(&dst->bmp_rcount, atomic_get_uint64_t(&src->bmp_rcount));
@@ -1700,7 +1702,7 @@ fdb_status sb_read_latest(struct filemgr *file,
 uint64_t sb_get_bmp_revnum(struct filemgr *file)
 {
     if (file->sb) {
-        return file->sb->bmp_revnum;
+        return atomic_get_uint64_t(&file->sb->bmp_revnum);
     } else {
         return 0;
     }
