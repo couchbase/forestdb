@@ -344,6 +344,7 @@ FileMgr::FileMgr()
     memset(&fMgrEncryption, 0, sizeof(encryptor));
 
     dirtyUpdateInit();
+    dirtyIdtreeRoot = dirtySeqtreeRoot = BLK_NOT_FOUND;
 
     avl_init(&handleIdx, nullptr);
     spin_init(&handleIdxLock);

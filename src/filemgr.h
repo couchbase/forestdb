@@ -1177,6 +1177,32 @@ public:
     }
 
     /**
+     * Set dirty root nodes for B+tree V2.
+     *
+     * @param dirty_idtree_root BID of ID tree root node.
+     * @param dirty_seqtree_root BID of sequence tree root node.
+     * @return void.
+     */
+    void dirtyUpdateSetRootV2(bid_t dirty_idtree_root,
+                              bid_t dirty_seqtree_root) {
+        dirtyIdtreeRoot = dirty_idtree_root;
+        dirtySeqtreeRoot = dirty_seqtree_root;
+    }
+
+    /**
+     * Get dirty root nodes for B+tree V2.
+     *
+     * @param dirty_idtree_root BID of ID tree root node.
+     * @param dirty_seqtree_root BID of sequence tree root node.
+     * @return void.
+     */
+    void dirtyUpdateGetRootV2(bid_t& dirty_idtree_root,
+                              bid_t& dirty_seqtree_root) {
+        dirty_idtree_root = dirtyIdtreeRoot;
+        dirty_seqtree_root = dirtySeqtreeRoot;
+    }
+
+    /**
      * Write a dirty block into the given dirty update entry.
      *
      * @param bid BID of the block to be written.
@@ -1400,6 +1426,11 @@ private:
     struct filemgr_dirty_update_node *latestDirtyUpdate;
     // spin lock for dirty_update_idx
     spin_t dirtyUpdateLock;
+
+    // In Btree V2, only root node info is necessary
+    // instead of above dirtyUpdateXXX.
+    std::atomic<uint64_t> dirtyIdtreeRoot;
+    std::atomic<uint64_t> dirtySeqtreeRoot;
 
     // Index for fdb_file_handle belonging to the same filemgr handle
     struct avl_tree handleIdx;

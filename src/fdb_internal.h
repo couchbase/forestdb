@@ -209,21 +209,39 @@ INLINE void _fdb_import_dirty_root(FdbKvsHandle *handle,
                                    bid_t dirty_seqtree_root)
 {
     if (ver_btreev2_format(handle->file->getVersion())) {
-        return;
-    }
+        // B+tree V2
+        if (dirty_idtree_root != BLK_NOT_FOUND) {
+            BtreeNodeAddr root_addr(dirty_idtree_root);
+            handle->trie->setRootAddr(root_addr);
+        }
 
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->setRootBid(dirty_idtree_root);
-    }
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (dirty_seqtree_root != BLK_NOT_FOUND) {
-            if (handle->kvs) {
-                handle->seqtrie->setRootBid(dirty_seqtree_root);
-            } else {
-                handle->seqtree->initFromBid(handle->seqtree->getBhandle(),
-                                             handle->seqtree->getKVOps(),
-                                             handle->seqtree->getBlkSize(),
-                                             dirty_seqtree_root);
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+            dirty_seqtree_root != BLK_NOT_FOUND) {
+            if (dirty_seqtree_root != handle->seqtree->getRootBid()) {
+                if (handle->config.multi_kv_instances) {
+                    BtreeNodeAddr root_addr(dirty_seqtree_root);
+                    handle->seqtrie->setRootAddr(root_addr);
+                } else {
+                    BtreeNodeAddr root_addr(dirty_seqtree_root);
+                    handle->seqtreeV2->initFromAddr(root_addr);
+                }
+            }
+        }
+    } else {
+        // old B+tree
+        if (dirty_idtree_root != BLK_NOT_FOUND) {
+            handle->trie->setRootBid(dirty_idtree_root);
+        }
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                if (handle->kvs) {
+                    handle->seqtrie->setRootBid(dirty_seqtree_root);
+                } else {
+                    handle->seqtree->initFromBid(handle->seqtree->getBhandle(),
+                                                 handle->seqtree->getKVOps(),
+                                                 handle->seqtree->getBlkSize(),
+                                                 dirty_seqtree_root);
+                }
             }
         }
     }
@@ -234,15 +252,24 @@ INLINE void _fdb_export_dirty_root(FdbKvsHandle *handle,
                                    bid_t *dirty_seqtree_root)
 {
     if (ver_btreev2_format(handle->file->getVersion())) {
-        return;
-    }
-
-    *dirty_idtree_root = handle->trie->getRootBid();
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (handle->kvs) {
-            *dirty_seqtree_root = handle->seqtrie->getRootBid();
-        } else {
-            *dirty_seqtree_root = handle->seqtree->getRootBid();
+        // B+tree V2
+        *dirty_idtree_root = handle->trie->getRootAddr().offset;
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->config.multi_kv_instances) {
+                *dirty_seqtree_root = handle->seqtrie->getRootAddr().offset;
+            } else {
+                *dirty_seqtree_root = handle->seqtreeV2->getRootAddr().offset;
+            }
+        }
+    } else {
+        // old B+tree
+        *dirty_idtree_root = handle->trie->getRootBid();
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->kvs) {
+                *dirty_seqtree_root = handle->seqtrie->getRootBid();
+            } else {
+                *dirty_seqtree_root = handle->seqtree->getRootBid();
+            }
         }
     }
 }
@@ -259,7 +286,15 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
     // Note: in B+tree V2 mode, BnodeMgr instance keeps and manages all
     // dirty nodes so we don't need to use FileMgr's dirty node
     // related APIs anymore.
-    if (!ver_btreev2_format(handle->file->getVersion())) {
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        // B+tree V2: sync dirty root info.
+        uint64_t local_idtree_root;
+        uint64_t local_seqtree_root;
+        handle->file->dirtyUpdateGetRootV2(local_idtree_root,
+                                           local_seqtree_root);
+        _fdb_import_dirty_root(handle, local_idtree_root, local_seqtree_root);
+    } else {
+        // Otherwise (old B+tree)
         *prev_node = *new_node = NULL;
         *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
 
@@ -301,7 +336,37 @@ INLINE void _fdb_dirty_update_finalize(FdbKvsHandle *handle,
                                        bool commit)
 {
     // Note: please see the comments in _fdb_dirty_update_ready().
-    if (!ver_btreev2_format(handle->file->getVersion())) {
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        // B+tree V2
+        if (commit) {
+            // commit: set dirty root to BLK_NOT_FOUND
+            handle->file->dirtyUpdateSetRootV2(BLK_NOT_FOUND,
+                                               BLK_NOT_FOUND);
+        } else {
+            // Dirty WAL flush
+
+            // write updated index nodes
+            handle->trie->writeDirtyNodes();
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                if (handle->config.multi_kv_instances) {
+                    handle->seqtrie->writeDirtyNodes();
+                } else {
+                    handle->seqtreeV2->writeDirtyNodes();
+                }
+            }
+
+            handle->bnodeMgr->moveDirtyNodesToBcache();
+            BnodeCacheMgr::get()->flush(handle->file);
+            handle->bnodeMgr->markEndOfIndexBlocks();
+
+            // set new dirty root info
+            _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+            handle->file->dirtyUpdateSetRootV2(*dirty_idtree_root,
+                                               *dirty_seqtree_root);
+
+        }
+    } else {
+        // Old B+tree
         // read dirty root nodes from FDB handle
         _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
         // assign dirty root nodes to dirty update entry

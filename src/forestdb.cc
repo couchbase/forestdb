@@ -1333,10 +1333,20 @@ fdb_status fdb_check_file_reopen(FdbKvsHandle *handle, file_status_t *status)
 
 static void _fdb_sync_dirty_root(FdbKvsHandle *handle)
 {
-    if (!ver_btreev2_format(handle->file->getVersion()) && !handle->shandle) {
-        bid_t dirty_idtree_root = BLK_NOT_FOUND;
-        bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    if (handle->shandle) {
+        // snapshot doesn't update root info for both old and V2 B+tree
+        return;
+    }
 
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+
+    if (ver_btreev2_format(handle->file->getVersion())) {
+        // B+tree V2
+        handle->file->dirtyUpdateGetRootV2(dirty_idtree_root, dirty_seqtree_root);
+        _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+    } else {
+        // old B+tree
         struct filemgr_dirty_update_node *dirty_update;
         dirty_update = handle->file->dirtyUpdateGetLatest();
         handle->bhandle->setDirtyUpdate(dirty_update);
