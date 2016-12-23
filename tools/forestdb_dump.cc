@@ -23,6 +23,7 @@ void print_usage(void)
     "\nOptions:\n"
     "\n      --header-only         only print the header of a given ForestDB file"
     "\n      --key <key>           dump only specified document"
+    "\n      --delete <key>        delete the specified document"
     "\n      --kvs <KV store name> name of KV store to be dumped"
     "\n      --byid                sort output by document id"
     "\n      --byseq               sort output by sequence number"
@@ -32,6 +33,7 @@ void print_usage(void)
     "\n      --plain-meta          print meta data in plain text (default hex)"
     "\n      --no-body             do not retrieve document bodies"
     "\n      --no-meta             do not print meta data of documents"
+    "\n      --compact             compact the db"
     "\n");
 }
 
@@ -44,6 +46,7 @@ struct dump_option{
     char *dump_file;
     char *one_key;
     char *one_kvs;
+    char *delete_key;
     int hex_align;
     bool no_body;
     bool no_meta;
@@ -51,6 +54,8 @@ struct dump_option{
     bool print_plain_meta;
     bool print_body_in_hex;
     bool print_header_only;
+    bool compact;
+    bool edit;
     scan_mode_t scan_mode;
 };
 
@@ -179,7 +184,7 @@ void print_doc(fdb_kvs_handle *db,
     free(doc.body);
 }
 
-int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
+int scan_docs(fdb_file_handle *dbfile, fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
 {
     uint64_t offset;
     fdb_iterator *fit;
@@ -194,6 +199,20 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
            offset = fdoc->offset;
            print_doc(db, kvs_name, offset, opt);
        } else {
+           return -1;
+       }
+       fdb_doc_free(fdoc);
+       fdoc = NULL;
+    } else if (opt->delete_key) {
+       fdb_doc_create(&fdoc, opt->delete_key,
+                      strnlen(opt->delete_key,FDB_MAX_KEYLEN), NULL, 0, NULL, 0);
+       fs = fdb_get(db, fdoc);
+       if (fs == FDB_RESULT_SUCCESS) {
+           fdb_del(db, fdoc);
+           fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+           printf("\ndeleted: %s\n", opt->delete_key);
+       } else {
+           printf("\ncan't delete: %s - does not exist\n", opt->delete_key);
            return -1;
        }
        fdb_doc_free(fdoc);
@@ -244,7 +263,13 @@ int process_file(struct dump_option *opt)
 
     config = fdb_get_default_config();
     config.buffercache_size = 0;
-    config.flags = FDB_OPEN_FLAG_RDONLY;
+
+    if (opt->edit) {
+        config.flags = FDB_OPEN_FLAG_CREATE;
+    } else {
+        config.flags = FDB_OPEN_FLAG_RDONLY;
+    }
+
     fs = fdb_open(&dbfile, filename, &config);
     if (fs != FDB_RESULT_SUCCESS) {
         printf("\nUnable to open %s\n", filename);
@@ -277,7 +302,7 @@ int process_file(struct dump_option *opt)
                 continue;
             }
 
-            ret = scan_docs(db, opt, name_list.kvs_names[i]);
+            ret = scan_docs(dbfile, db, opt, name_list.kvs_names[i]);
             if (ret == -1) {
                 printf("KV store '%s': key not found\n", name_list.kvs_names[i]);
             }
@@ -293,11 +318,16 @@ int process_file(struct dump_option *opt)
         }
 
         printf("\n");
-        ret = scan_docs(db, opt, NULL);
+        ret = scan_docs(dbfile, db, opt, NULL);
         if (ret == -1) {
             printf("Key not found\n");
         }
         fdb_kvs_close(db);
+    }
+
+    if (opt->compact) {
+      printf("\nCompacting database\n");
+      fdb_compact(dbfile, NULL);
     }
 
     fs = fdb_close(dbfile);
@@ -330,6 +360,9 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
         if (argv[i][0] == '-' && argv[i][1] == '-') {
             if (strncmp(argv[i], "--key", 16) == 0) {
                 opt->one_key = argv[++i];
+            } else if (strncmp(argv[i], "--delete", 16) == 0) {
+                opt->delete_key = argv[++i];
+                opt->edit = true;
             } else if (strncmp(argv[i], "--kvs", 16) == 0) {
                 opt->one_kvs = argv[++i];
             } else if (strncmp(argv[i], "--no-body", 16) == 0) {
@@ -350,6 +383,9 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
                 opt->scan_mode = SCAN_BY_SEQ;
             } else if (strncmp(argv[i], "--header-only", 13) == 0) {
                 opt->print_header_only = true;
+            } else if (strncmp(argv[i], "--compact", 16) == 0) {
+                opt->compact = true;
+                opt->edit = true;
             } else {
                 printf("\nUnknown option %s\n", argv[i]);
                 print_usage();
