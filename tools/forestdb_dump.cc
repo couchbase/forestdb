@@ -193,8 +193,14 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
        if (fs == FDB_RESULT_SUCCESS) {
            offset = fdoc->offset;
            print_doc(db, kvs_name, offset, opt);
-       } else {
-           return -1;
+       } else { // MB-22046: Also need to be able to print deleted doc
+           fs = fdb_get_metaonly(db, fdoc);
+           if (fs == FDB_RESULT_SUCCESS) {
+               offset = fdoc->offset;
+               print_doc(db, kvs_name, offset, opt);
+           } else {
+               return -1;
+           }
        }
        fdb_doc_free(fdoc);
        fdoc = NULL;
@@ -250,9 +256,12 @@ int process_file(struct dump_option *opt)
         printf("\nUnable to open %s\n", filename);
         return -3;
     }
-    print_header(dbfile->getRootHandle());
-    if (opt->print_header_only) {
-        return 0;
+    if (!opt->one_key && !opt->one_kvs) {
+        // MB-22046: Avoid dumping header for specific kvs or specific key dump
+        print_header(dbfile->getRootHandle());
+        if (opt->print_header_only) {
+            return 0;
+        }
     }
 
     kvs_config = fdb_get_default_kvs_config();
@@ -278,7 +287,10 @@ int process_file(struct dump_option *opt)
             }
 
             ret = scan_docs(db, opt, name_list.kvs_names[i]);
-            if (ret == -1) {
+            if (ret == -1 && opt->one_kvs) {
+                // Only print key not found if a specific key is accompanied by
+                // a specific kv store.
+                // Otherwise scan all kv stores for the same key..
                 printf("KV store '%s': key not found\n", name_list.kvs_names[i]);
             }
             fdb_kvs_close(db);
