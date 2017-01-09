@@ -249,6 +249,17 @@ bool FdbKvsHandle::resumeBusy(func_name_t funcName) {
 }
 
 bool FdbKvsHandle::endBusy(func_name_t funcName) {
+    // Windows does not provide constant __FUNCTION__ (i.e., funcName)
+    // macro value, so it may have different memory address although
+    // caller function names are the same.
+    // Hence we always clear 'handle_busy' value regardless of its
+    // current value.
+#if defined(WIN32) || defined(_WIN32)
+    (void)funcName;
+    handle_busy.store(nullptr);
+    return true;
+#else
     func_name_t inverse = funcName;
     return handle_busy.compare_exchange_strong(inverse, nullptr);
+#endif
 }
