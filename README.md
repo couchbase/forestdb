@@ -28,3 +28,15 @@ See INSTALL.MD
 ## How to Use
 
 Please refer to [Public APIs](https://github.com/couchbaselabs/forestdb/wiki/Public-APIs) and tests/fdb\_functional\_test.cc in ForestDB source directory.
+
+## How to file issues
+
+Please file issues on the [Couchbase JIRA tracker](https://issues.couchbase.com) in the `Couchbase Server (MB)` project against the `forestdb` component.
+
+## How to contribute code
+
+1. Sign the [Couchbase Contributor License
+Agreement](http://review.couchbase.org/static/individual_agreement.html)
+1. Submit code changes via either a Github PR or via Gerrit (for Gerrit usage, see [Instructions](https://github.com/couchbase/couchbase-spark-connector/blob/master/CONTRIBUTING.md#preparing-for-contribution) from the couchbase-spark-connector project.)
+
+
