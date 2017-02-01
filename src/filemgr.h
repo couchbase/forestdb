@@ -194,9 +194,10 @@ struct filemgr {
     struct hash_elem e;
     atomic_uint8_t status;
     struct filemgr_config *config;
-    struct filemgr *new_file;           // Pointer to new file upon compaction
-    struct filemgr *prev_file;          // Pointer to prev file upon compaction
+
     char *old_filename;                 // Old file name before compaction
+    char *new_filename;                 // New file name after compaction
+
     std::atomic<struct fnamedic_item *> bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
@@ -336,6 +337,14 @@ INLINE void filemgr_incr_ref_count(struct filemgr *file) {
     atomic_incr_uint32_t(&file->ref_count);
 }
 
+/**
+ * Get filemgr instance corresponding to the given file name.
+ *
+ * @param filename File name to find.
+ * @return filemgr instance. NULL if not found.
+ */
+struct filemgr* filemgr_get_instance(const char* filename);
+
 filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_ops *ops,
                                  struct filemgr_config *config,
@@ -452,8 +461,18 @@ fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
                         err_log_callback *log_callback);
 
 fdb_status filemgr_shutdown();
-int filemgr_update_file_status(struct filemgr *file, file_status_t status,
-                                char *old_filename);
+void filemgr_update_file_status(struct filemgr *file, file_status_t status);
+
+/**
+ * Updates the old_filename and new_filename of the current instance,
+ * with the arguments (non-null) provided.
+ *
+ * Returns false if oldFileName has already been set.
+ */
+bool filemgr_update_file_linkage(struct filemgr *file,
+                                 const char *old_filename,
+                                 const char *new_filename);
+
 void filemgr_set_compaction_state(struct filemgr *old_file,
                                   struct filemgr *new_file,
                                   file_status_t status);
