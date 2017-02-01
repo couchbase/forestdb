@@ -2963,7 +2963,16 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
         // close the current file and newly open the new file
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
             // compaction daemon mode .. just close and then open
-            char filename[FDB_MAX_FILENAME_LEN];
+            size_t filename_len = strnlen(handle->filename, FDB_MAX_FILENAME_LEN);
+            if (filename_len >= FDB_MAX_FILENAME_LEN - 1) {
+                return FDB_RESULT_TOO_LONG_FILENAME;
+            }
+            // Don't allocate filename on stack since allocation failure won't
+            // get propogated out to user error - MB-22576
+            char *filename = (char *)malloc(filename_len);
+            if (!filename) {
+                return FDB_RESULT_ALLOC_FAIL;
+            }
             strcpy(filename, handle->filename);
 
             // We don't need to maintain fhandle list for the old file
@@ -2974,15 +2983,17 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
                 if (fhandle_ret) {
                     filemgr_fhandle_add(handle->file, handle->fhandle);
                 }
+                free(filename);
                 return fs;
             }
 
             fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
+                free(filename);
                 return fs;
             }
             filemgr_fhandle_add(handle->file, handle->fhandle);
-
+            free(filename);
         } else {
             filemgr_get_header(handle->file, buf, &header_len, NULL, NULL, NULL);
             fdb_fetch_header(handle->file->version, buf,
