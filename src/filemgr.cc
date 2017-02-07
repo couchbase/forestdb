@@ -730,6 +730,33 @@ static fdb_status _filemgr_load_sb(struct filemgr *file,
     return status;
 }
 
+static filemgr* get_instance_UNLOCKED(const char *filename)
+{
+    if (!filename) {
+        return NULL;
+    }
+
+    struct filemgr query;
+    struct hash_elem *e = NULL;
+    struct filemgr *file = NULL;
+
+    query.filename = (char*)filename;
+    e = hash_find(&hash, &query.e);
+    if (e) {
+        file = _get_entry(e, struct filemgr, e);
+    }
+    return file;
+}
+
+struct filemgr* filemgr_get_instance(const char* filename)
+{
+    spin_lock(&filemgr_openlock);
+    struct filemgr *file = get_instance_UNLOCKED(filename);
+    spin_unlock(&filemgr_openlock);
+
+    return file;
+}
+
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback)
@@ -877,9 +904,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     *file->config = *config;
     file->config->blocksize = global_config.blocksize;
     file->config->ncacheblock = global_config.ncacheblock;
-    file->new_file = NULL;
-    file->prev_file = NULL;
     file->old_filename = NULL;
+    file->new_filename = NULL;
     file->fd = fd;
 
     cs_off_t offset = file->ops->goto_eof(file->fd);
@@ -1426,25 +1452,6 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     return bid;
 }
 
-static void update_file_pointers(struct filemgr *file) {
-    // Update new_file pointers of all previously redirected downstream files
-    struct filemgr *temp = file->prev_file;
-    while (temp != NULL) {
-        spin_lock(&temp->lock);
-        if (temp->new_file == file) {
-            temp->new_file = file->new_file;
-        }
-        spin_unlock(&temp->lock);
-        temp = temp->prev_file;
-    }
-    // Update prev_file pointer of the upstream file if any
-    if (file->new_file != NULL) {
-        spin_lock(&file->new_file->lock);
-        file->new_file->prev_file = file->prev_file;
-        spin_unlock(&file->new_file->lock);
-    }
-}
-
 fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          err_log_callback *log_callback)
@@ -1490,10 +1497,11 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING) {
 
             bool foreground_deletion = false;
+            struct filemgr* new_file = get_instance_UNLOCKED(file->new_filename);
 
             // immediately remove file if background remove function is not set
             if (!lazy_file_deletion_enabled ||
-                (file->new_file && file->new_file->in_place_compaction)) {
+                (new_file && new_file->in_place_compaction)) {
                 // TODO: to avoid the scenario below, we prevent background
                 //       deletion of in-place compacted files at this time.
                 // 1) In-place compacted from 'A' to 'A.1'.
@@ -1519,7 +1527,6 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             struct hash_elem *ret = hash_remove(&hash, &file->e);
             fdb_assert(ret, 0, 0);
 
-            update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
@@ -1576,7 +1583,6 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
                 fdb_assert(ret, file, 0);
 
-                update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
 
                 filemgr_free_func(&file->e);
@@ -1657,8 +1663,10 @@ void filemgr_free_func(struct hash_elem *h)
     // free filename and header
     free(file->filename);
     if (file->header.data) free(file->header.data);
-    // free old filename if any
+
+    // free old/new filename if any
     free(file->old_filename);
+    free(file->new_filename);
 
     // destroy locks
     spin_destroy(&file->lock);
@@ -1717,8 +1725,10 @@ void filemgr_remove_file(struct filemgr *file, err_log_callback *log_callback)
     fdb_assert(ret, ret, NULL);
     spin_unlock(&filemgr_openlock);
 
+    struct filemgr *new_file = filemgr_get_instance(file->new_filename);
+
     if (!lazy_file_deletion_enabled ||
-        (file->new_file && file->new_file->in_place_compaction)) {
+        (new_file && new_file->in_place_compaction)) {
         filemgr_free_func(&file->e);
     } else {
         register_file_removal(file, log_callback);
@@ -2525,37 +2535,73 @@ fdb_status filemgr_copy_file_range(struct filemgr *src_file,
     return FDB_RESULT_SUCCESS;
 }
 
-int filemgr_update_file_status(struct filemgr *file, file_status_t status,
-                                char *old_filename)
+void filemgr_update_file_status(struct filemgr *file, file_status_t status)
 {
-    int ret = 1;
     spin_lock(&file->lock);
     atomic_store_uint8_t(&file->status, status);
+    spin_unlock(&file->lock);
+}
+
+static void assign_old_filename(struct filemgr *file, const char *old_filename)
+{
+    free(file->old_filename);
+    if (old_filename) {
+        file->old_filename = (char*)malloc(strlen(old_filename) + 1);
+        strcpy(file->old_filename, old_filename);
+    } else {
+        file->old_filename = NULL;
+    }
+}
+
+static void assign_new_filename(struct filemgr *file, const char *new_filename)
+{
+    free(file->new_filename);
+    if (new_filename) {
+        file->new_filename = (char*)malloc(strlen(new_filename) + 1);
+        strcpy(file->new_filename, new_filename);
+    } else {
+        file->new_filename = NULL;
+    }
+}
+
+bool filemgr_update_file_linkage(struct filemgr *file,
+                                 const char *old_filename,
+                                 const char *new_filename)
+{
+
+    bool ret = true;
+    spin_lock(&file->lock);
     if (old_filename) {
         if (!file->old_filename) {
-            file->old_filename = old_filename;
+            assign_old_filename(file, old_filename);
         } else {
-            ret = 0;
+            ret = false;
             fdb_assert(atomic_get_uint32_t(&file->ref_count),
                        atomic_get_uint32_t(&file->ref_count), 0);
         }
+    }
+    if (new_filename) {
+        assign_new_filename(file, new_filename);
     }
     spin_unlock(&file->lock);
     return ret;
 }
 
-void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_file,
+void filemgr_set_compaction_state(struct filemgr *old_file,
+                                  struct filemgr *new_file,
                                   file_status_t status)
 {
-    spin_lock(&old_file->lock);
-    old_file->new_file = new_file;
-    atomic_store_uint8_t(&old_file->status, status);
-    spin_unlock(&old_file->lock);
+    if (old_file) {
+        spin_lock(&old_file->lock);
+        assign_new_filename(old_file, new_file ? new_file->filename : NULL);
+        atomic_store_uint8_t(&old_file->status, status);
+        spin_unlock(&old_file->lock);
 
-    if (new_file) {
-        spin_lock(&new_file->lock);
-        new_file->prev_file = old_file;
-        spin_unlock(&new_file->lock);
+        if (new_file) {
+            spin_lock(&new_file->lock);
+            assign_old_filename(new_file, old_file->filename);
+            spin_unlock(&new_file->lock);
+        }
     }
 }
 
@@ -2595,7 +2641,7 @@ void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
     spin_lock(&file->lock);
     if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING &&
-        file->new_file == cur_file) {
+        !strcmp(file->new_filename, cur_file->filename)) {
         // Incrementing reference counter below is the same as filemgr_open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
@@ -2617,15 +2663,22 @@ struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file) {
 }
 
 char *filemgr_redirect_old_file(struct filemgr *very_old_file,
-                                     struct filemgr *new_file,
-                                     filemgr_redirect_hdr_func
-                                     redirect_header_func) {
+                                struct filemgr *new_file,
+                                filemgr_redirect_hdr_func
+                                redirect_header_func) {
+    if (!very_old_file || !new_file) {
+        return NULL;
+    }
+
     size_t old_header_len, new_header_len;
     uint16_t new_filename_len;
     char *past_filename;
     spin_lock(&very_old_file->lock);
 
-    if (very_old_file->header.size == 0 || very_old_file->new_file == NULL) {
+    struct filemgr *new_file_of_very_old_file =
+        filemgr_get_instance(very_old_file->new_filename);
+
+    if (very_old_file->header.size == 0 || !new_file_of_very_old_file) {
         spin_unlock(&very_old_file->lock);
         return NULL;
     }
@@ -2633,16 +2686,18 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     old_header_len = very_old_file->header.size;
     new_filename_len = strlen(new_file->filename);
     // Find out the new DB header length with new_file's filename
-    new_header_len = old_header_len - strlen(very_old_file->new_file->filename)
-        + new_filename_len;
+    new_header_len = old_header_len
+                     - strlen(new_file_of_very_old_file->filename)
+                     + new_filename_len;
     // As we are going to change the new_filename field in the DB header of the
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
         very_old_file->header.data = realloc(very_old_file->header.data,
-                new_file->blocksize);
+                                             new_file->blocksize);
     }
-    very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
-    // Note that the prev_file pointer of the new_file is not updated, this
+    // Re-direct very_old_file to new_file
+    assign_new_filename(very_old_file, new_file->filename);
+    // Note that the old_filename of the new_file is not updated, this
     // is so that every file in the history is reachable from the current file.
 
     past_filename = redirect_header_func(very_old_file,
@@ -2666,7 +2721,7 @@ void filemgr_remove_pending(struct filemgr *old_file,
     spin_lock(&old_file->lock);
     if (atomic_get_uint32_t(&old_file->ref_count) > 0) {
         // delay removing
-        old_file->new_file = new_file;
+        assign_new_filename(old_file, new_file->filename);
         atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
 
 #if !(defined(WIN32) || defined(_WIN32))
@@ -2678,13 +2733,21 @@ void filemgr_remove_pending(struct filemgr *old_file,
 #endif
 
         spin_unlock(&old_file->lock);
+
+        // Update new_file's old_filename
+        spin_lock(&new_file->lock);
+        assign_old_filename(new_file, old_file->filename);
+        spin_unlock(&new_file->lock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
         spin_unlock(&old_file->lock);
 
+        struct filemgr *new_file_of_old_file =
+            filemgr_get_instance(old_file->new_filename);
+
         if (!lazy_file_deletion_enabled ||
-            (old_file->new_file && old_file->new_file->in_place_compaction)) {
+            (new_file_of_old_file && new_file_of_old_file->in_place_compaction)) {
             remove(old_file->filename);
         }
         filemgr_remove_file(old_file, log_callback);

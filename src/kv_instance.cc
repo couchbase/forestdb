@@ -1400,25 +1400,32 @@ fdb_kvs_create_start:
 
     // if compaction is in-progress,
     // create a same kvs_node for the new file
-    if (file->new_file &&
-        filemgr_get_file_status(file) == FILE_COMPACT_OLD) {
-        struct kvs_node *node_new;
-        struct kvs_header *kv_header_new;
+    if (filemgr_get_file_status(file) == FILE_COMPACT_OLD) {
 
-        kv_header_new = file->new_file->kv_header;
-        node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
-        *node_new = *node;
-        node_new->kvs_name = (char*)malloc(kv_ins_name_len);
-        strcpy(node_new->kvs_name, kvs_name);
+        struct filemgr *new_file = filemgr_get_instance(file->new_filename);
 
-        // insert into new file's kv_header
-        spin_lock(&kv_header_new->lock);
-        if (node->custom_cmp) {
-            kv_header_new->custom_cmp_enabled = 1;
+        if (new_file) {
+            struct kvs_node *node_new;
+            struct kvs_header *kv_header_new;
+
+            kv_header_new = new_file->kv_header;
+            node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
+            *node_new = *node;
+            node_new->kvs_name = (char*)malloc(kv_ins_name_len);
+            strcpy(node_new->kvs_name, kvs_name);
+
+            // insert into new file's kv_header
+            spin_lock(&kv_header_new->lock);
+            if (node->custom_cmp) {
+                kv_header_new->custom_cmp_enabled = 1;
+            }
+            avl_insert(kv_header_new->idx_name, &node_new->avl_name, _kvs_cmp_name);
+            avl_insert(kv_header_new->idx_id, &node_new->avl_id, _kvs_cmp_id);
+            spin_unlock(&kv_header_new->lock);
+        } else {
+            // new_file should have been found if compaction is in progress
+            fdb_assert(new_file, new_file, NULL);
         }
-        avl_insert(kv_header_new->idx_name, &node_new->avl_name, _kvs_cmp_name);
-        avl_insert(kv_header_new->idx_id, &node_new->avl_id, _kvs_cmp_id);
-        spin_unlock(&kv_header_new->lock);
     }
 
     // since this function calls filemgr_commit() and appends a new DB header,

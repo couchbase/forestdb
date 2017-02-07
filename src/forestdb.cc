@@ -2170,14 +2170,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
+    if (compacted_filename) {
+        filemgr_update_file_linkage(handle->file, NULL, compacted_filename);
+    }
+
     if (prev_filename) {
         if (!handle->shandle && strcmp(prev_filename, handle->file->filename)) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
-            if (filemgr_update_file_status(handle->file,
-                                           filemgr_get_file_status(handle->file),
-                                           prev_filename)) {
+            if (filemgr_update_file_linkage(handle->file, prev_filename, NULL)) {
                 // Open the old file with read-only mode.
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
@@ -2195,12 +2197,12 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     filemgr_close(result.file, 0, handle->filename,
                                   &handle->log_callback);
                 }
-            } else {
-                free(prev_filename);
             }
-        } else {
-            free(prev_filename);
         }
+        // we allocated a memory region for file->old_filename and
+        // prev_filename would be copied to there,
+        // so it is OK to free it here whatever the result is.
+        free(prev_filename);
     }
 
     status = btreeblk_end(handle->bhandle);
@@ -4065,8 +4067,8 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
                sizeof(_edn_safe_64), offset);
 
     // size of newly compacted target file name
-    if (handle->file->new_file) {
-        new_filename_len = strlen(handle->file->new_file->filename) + 1;
+    if (handle->file->new_filename) {
+        new_filename_len = strlen(handle->file->new_filename) + 1;
     }
     _edn_safe_16 = _endian_encode(new_filename_len);
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(new_filename_len), offset);
@@ -4079,7 +4081,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(old_filename_len), offset);
 
     if (new_filename_len) {
-        seq_memcpy(buf + offset, handle->file->new_file->filename,
+        seq_memcpy(buf + offset, handle->file->new_filename,
                    new_filename_len, offset);
     }
 
@@ -6542,7 +6544,7 @@ fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
 
     // if the file is already compacted by other thread
     if (filemgr_get_file_status(handle->file) != FILE_NORMAL ||
-        handle->file->new_file) {
+        handle->file->new_filename) {
         // update handle and return
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
@@ -6942,8 +6944,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                              bool clone_docs)
 {
     union wal_flush_items flush_items;
-    char *old_filename = NULL;
-    size_t old_filename_len = 0;
     struct filemgr *old_file;
     struct btree *new_idtree = NULL;
     bid_t dirty_idtree_root = BLK_NOT_FOUND;
@@ -7031,7 +7031,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     bid_t last_hdr = 0;
 
     // Mark new file as newly compacted
-    filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
+    filemgr_update_file_status(new_file, FILE_COMPACT_NEW);
     filemgr_mutex_unlock(handle->file);
     filemgr_mutex_unlock(new_file);
 
@@ -7250,12 +7250,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     free(handle->staletree);
     handle->staletree = new_staletree;
 
-    old_filename_len = strlen(old_file->filename) + 1;
-    old_filename = (char *) malloc(old_filename_len);
-    strncpy(old_filename, old_file->filename, old_filename_len);
-    if(filemgr_update_file_status(new_file, FILE_NORMAL, old_filename) == 0) {
-        free(old_filename);
-    }
+    // Update new_file's links
+    filemgr_update_file_linkage(new_file, old_file->filename, NULL);
+    // Update new_file's status
+    filemgr_update_file_status(new_file, FILE_NORMAL);
+    // Update old_file's links
+    filemgr_update_file_linkage(old_file, NULL, new_file->filename);
 
     // Atomically perform
     // 1) commit new file
@@ -8246,8 +8246,12 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
            h->file->config->num_wal_shards);
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
            h->file->config->num_bcache_shards);
-    fprintf(stderr, "file: new_file %p\n", (void *)h->file->new_file);
-    fprintf(stderr, "file: old_filename %p\n", (void *)h->file->old_filename);
+    fprintf(stderr, "file: old_filename %s\n", h->file->old_filename
+                                               ? h->file->old_filename
+                                               : "nil");
+    fprintf(stderr, "file: new_filename %s\n", h->file->new_filename
+                                               ? h->file->new_filename
+                                               : "nil");
     fprintf(stderr, "file: fnamedic_item: bcache %p\n",
             (void *)h->file->bcache);
     fprintf(stderr, "file: global_txn: handle %p\n",
