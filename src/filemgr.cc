@@ -4066,7 +4066,7 @@ void LatencyStats::getHistogram(FileMgr *file,
     }
     std::stringstream ss;
     ss << "{";
-    for (auto it : file->histStats[type]) {
+    for (auto& it : file->histStats[type]) {
         if (it->count()) {
             ss << "(" << it->start() << "µs - " << it->end() << "µs) : ";
             ss << it->count() << "; ";
