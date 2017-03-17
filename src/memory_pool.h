@@ -19,7 +19,7 @@
 
 #include <stdlib.h>
 
-#include <queue>
+#include <stack>
 #include <vector>
 
 #include "common.h"
@@ -30,14 +30,14 @@ class MemoryPool {
   it contains:
   - A vector of pre-allocated heap memory (bins).
   - Each bin will be of the initially provided bin size.
-  - A queue containing the indexes of the available bins from the vector.
+  - A stack containing the indexes of the available bins from the vector.
   - A fetchBlock() operation gets an available resource and returns the index
-    to the acquired bin, removes the index entry from the queue.
-  - A returnBlock() operation requeues the provided index back into the queue,
+    to the acquired bin, removes the index entry from the stack.
+  - A returnBlock() operation requeues the provided index back into the stack,
     thereby making the bin pointed to by the index available again.
 
                         +---+---+---+---+---+---+----
-            queue:      | 0 | 1 | 2 | 3 | 4 | 5 | ...
+            stack:      | 0 | 1 | 2 | 3 | 4 | 5 | ...
                         +---+---+---+---+---+---+----
                           |        ____________
                           +-----> |    bin1    |
@@ -73,19 +73,23 @@ public:
 private:
 
     /**
-     * Pushes entry into queue.
+     * Pushes entry into stack.
      */
-    void enQueue(int index);
+    void push(int index);
 
     /**
-     * Pops entry from queue.
+     * Pops entry from stack.
      */
-    int deQueue();
+    int pop();
 
     // Spin lock for queue ops
     spin_t lock;
-    // Queue of indexes
-    std::queue<int> indexQ;
+    // Stack of free bins in the pre-allocated memory
+    std::stack<int> indexes;
     // Vector of pre-allocated memory
-    std::vector<uint8_t*> memPool;
+    std::vector<uint8_t> memPool;
+    // Number of bins inside the queue
+    const int numBins;
+    // Bin sizes
+    const size_t binSize;
 };
