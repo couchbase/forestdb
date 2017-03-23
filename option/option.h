@@ -62,7 +62,11 @@
 #define FDB_WAL_THRESHOLD (4*1024)
 #define FDB_COMP_BUF_MINSIZE (67108864) // 64 MB, 8M offsets
 #define FDB_COMP_BUF_MAXSIZE (1073741824) // 1 GB, 128M offsets
+// Minimum window size for compaction sorting window, 128K offsets.
+#define FDB_COMP_WINDOW_MINSIZE (131072)
 #define FDB_COMP_BATCHSIZE (131072) // 128K docs
+// Minimum batch size for compaction, 1024 docs.
+#define FDB_COMP_BATCHSIZE_MIN (1024)
 #define FDB_COMP_MOVE_UNIT (134217728) // 128 MB
 #define FDB_COMP_RATIO_MIN (40) // 40% (writer speed / compactor speed)
 #define FDB_COMP_RATIO_MAX (60) // 60% (writer speed / compactor speed)
