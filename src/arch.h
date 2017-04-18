@@ -106,9 +106,10 @@
     #define _ALIGN_MEM_ACCESS
     #endif
 
-    #define malloc_align(addr, align, size) \
-        {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
-         (void)__ret__;}
+    #define malloc_align(addr, align, size)                     \
+        {if ( 0 != posix_memalign(&(addr), (align), (size)) ) { \
+            (addr) = NULL;                                      \
+         } }
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -298,9 +299,10 @@
 
     #define _ARCH_O_DIRECT (O_DIRECT)
 
-    #define malloc_align(addr, align, size) \
-        {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
-         (void)__ret__;}
+    #define malloc_align(addr, align, size)                     \
+        {if ( 0 != posix_memalign(&(addr), (align), (size)) ) { \
+            (addr) = NULL;                                      \
+         } }
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -507,8 +509,10 @@
     */
     #define _ARCH_O_DIRECT (0)
 
-    #define malloc_align(addr, align, size) \
-        {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
+    #define malloc_align(addr, align, size)                     \
+        {if ( 0 != posix_memalign(&(addr), (align), (size)) ) { \
+            (addr) = NULL;                                      \
+         } }
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -573,8 +577,10 @@
 
     #define _ARCH_O_DIRECT (O_DIRECT)
 
-    #define malloc_align(addr, align, size) \
-        {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
+    #define malloc_align(addr, align, size)                     \
+        {if ( 0 != posix_memalign(&(addr), (align), (size)) ) { \
+            (addr) = NULL;                                      \
+         } }
     #define free_align(addr) free(addr)
 
     #ifndef spin_t

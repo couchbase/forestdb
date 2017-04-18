@@ -1493,11 +1493,13 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
     // is closed through filemgr_close().
     filemgr_incr_ref_count(handle_out->file);
 
+    bool filename_allocated = false;
     if (handle_out->filename) {
         handle_out->filename = (char *)realloc(handle_out->filename,
                                                strlen(handle_in->filename)+1);
     } else {
         handle_out->filename = (char*)malloc(strlen(handle_in->filename)+1);
+        filename_allocated = true;
     }
     strcpy(handle_out->filename, handle_in->filename);
 
@@ -1505,8 +1507,15 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
     handle_out->dhandle = (struct docio_handle *)
         calloc(1, sizeof(struct docio_handle));
     handle_out->dhandle->log_callback = &handle_out->log_callback;
-    docio_init(handle_out->dhandle, handle_out->file,
-               handle_out->config.compress_document_body);
+    status = docio_init(handle_out->dhandle, handle_out->file,
+                        handle_out->config.compress_document_body);
+    if (status != FDB_RESULT_SUCCESS) {
+        free(handle_out->dhandle);
+        if (filename_allocated) {
+            free(handle_out->filename);
+        }
+        return status;
+    }
 
     // initialize the btree block handle.
     handle_out->btreeblkops = btreeblk_get_ops();
@@ -1710,7 +1719,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->dhandle = (struct docio_handle *)
                       calloc(1, sizeof(struct docio_handle));
     handle->dhandle->log_callback = &handle->log_callback;
-    docio_init(handle->dhandle, handle->file, config->compress_document_body);
+    status = docio_init(handle->dhandle, handle->file,
+                        config->compress_document_body);
+    if (status != FDB_RESULT_SUCCESS) {
+        free(handle->dhandle);
+        free(handle->filename);
+        handle->filename = NULL;
+        filemgr_close(handle->file, false, handle->filename,
+                          &handle->log_callback);
+        return status;
+    }
 
     // fetch previous superblock bitmap info if exists
     // (this should be done after 'handle->dhandle' is initialized)
@@ -6650,8 +6668,15 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
     } // LCOV_EXCL_STOP
     new_dhandle->log_callback = &handle->log_callback;
 
-    docio_init(new_dhandle, handle->file,
-               handle->config.compress_document_body);
+    fdb_status s = docio_init(new_dhandle, handle->file,
+            handle->config.compress_document_body);
+    if (s != FDB_RESULT_SUCCESS) {
+        free(new_bhandle);
+        free(new_dhandle);
+        free(handle->filename);
+        return s;
+    }
+
     btreeblk_init(new_bhandle, handle->file, handle->file->blocksize);
 
     new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
@@ -6868,7 +6893,15 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     new_dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
     new_dhandle->log_callback = &handle->log_callback;
 
-    docio_init(new_dhandle, new_file, handle->config.compress_document_body);
+    status = docio_init(new_dhandle, new_file,
+                        handle->config.compress_document_body);
+    if (status != FDB_RESULT_SUCCESS) {
+        free(new_bhandle);
+        free(new_dhandle);
+        filemgr_mutex_unlock(new_file);
+        return status;
+    }
+
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
 
     new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
