@@ -634,6 +634,9 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
 
     // get reusable block list
     blist = fdb_get_reusable_block(handle, sheader);
+    if (blist.n_blocks == 0) {
+        return false;
+    }
 
     // update superblock's bitmap
     uint8_t *new_bmp = NULL, *old_bmp = NULL;
@@ -694,6 +697,9 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
 
     // get reusable block list
     blist = fdb_get_reusable_block(handle, sheader);
+    if (blist.n_blocks == 0) {
+        return false;
+    }
 
     // calculate bitmap size
     num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
