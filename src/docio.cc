@@ -29,9 +29,9 @@
 
 #include "memleak.h"
 
-void docio_init(struct docio_handle *handle,
-                struct filemgr *file,
-                bool compress_document_body)
+fdb_status docio_init(struct docio_handle *handle,
+                      struct filemgr *file,
+                      bool compress_document_body)
 {
     handle->file = file;
     handle->curblock = BLK_NOT_FOUND;
@@ -41,6 +41,14 @@ void docio_init(struct docio_handle *handle,
     handle->lastBmpRevnum = 0;
     handle->compress_document_body = compress_document_body;
     malloc_align(handle->readbuffer, FDB_SECTOR_SIZE, file->blocksize);
+    if (!handle->readbuffer) {
+        fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                "(docio_init) malloc_align failed: "
+                "database file '%s'\n",
+                handle->file->filename);
+        return FDB_RESULT_ALLOC_FAIL;
+    }
+    return FDB_RESULT_SUCCESS;
 }
 
 void docio_free(struct docio_handle *handle)

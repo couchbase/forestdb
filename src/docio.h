@@ -82,9 +82,9 @@ struct docio_object {
     void *body;
 };
 
-void docio_init(struct docio_handle *handle,
-                struct filemgr *file,
-                bool compress_document_body);
+fdb_status docio_init(struct docio_handle *handle,
+                      struct filemgr *file,
+                      bool compress_document_body);
 void docio_free(struct docio_handle *handle);
 
 bid_t docio_append_doc_raw(struct docio_handle *handle,
