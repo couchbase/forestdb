@@ -5471,10 +5471,37 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     }
 
     offset_array_max = window_size / sizeof(uint64_t);
-    offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
+    do {
+        offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
+        if (!offset_array) {
+            // Allocation failed.
+            if (offset_array_max > FDB_COMP_WINDOW_MINSIZE) {
+                // Retry with reduced array size.
+                offset_array_max /= 2;
+            } else {
+                // Cannot reduce more.
+                return FDB_RESULT_ALLOC_FAIL;
+            }
+        }
+    } while (!offset_array);
 
-    doc = (struct docio_object *)
-        calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
+    uint64_t doc_array_size = FDB_COMP_BATCHSIZE;
+    do {
+        doc = (struct docio_object *)
+              calloc(doc_array_size, sizeof(struct docio_object));
+        if (!doc) {
+            // Allocation failed.
+            if (doc_array_size > FDB_COMP_BATCHSIZE_MIN) {
+                // Retry with reduced array size.
+                doc_array_size /= 2;
+            } else {
+                // Cannot reduce more.
+                free(offset_array);
+                return FDB_RESULT_ALLOC_FAIL;
+            }
+        }
+    } while (!doc);
+
     c = count = n_moved_docs = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
@@ -5512,7 +5539,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 size_t num_batch_reads =
                     docio_batch_read_docs(handle->dhandle, &offset_array[start_idx],
                                           doc, c - start_idx,
-                                          FDB_COMP_MOVE_UNIT, FDB_COMP_BATCHSIZE,
+                                          FDB_COMP_MOVE_UNIT, doc_array_size,
                                           aio_handle_ptr, false);
                 if (num_batch_reads == (size_t) -1) {
                     fs = FDB_RESULT_COMPACTION_FAIL;
