@@ -54,6 +54,7 @@ extern "C" {
 #define FILEMGR_REMOVAL_IN_PROG 0x10
 #define FILEMGR_CREATE_CRC32 0x20 // Used in testing upgrade path
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
+#define FILEMGR_SUCCESSFULLY_COMPACTED 0x80 // Compaction is done
 
 struct filemgr_config {
 
@@ -570,6 +571,9 @@ void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel);
  * @return True if a compaction cancellation is requested.
  */
 bool filemgr_is_compaction_cancellation_requested(struct filemgr *file);
+
+void filemgr_set_successfully_compacted(struct filemgr *file);
+bool filemgr_is_successfully_compacted(struct filemgr *file);
 
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction);

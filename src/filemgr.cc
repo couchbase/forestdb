@@ -2914,6 +2914,22 @@ bool filemgr_is_compaction_cancellation_requested(struct filemgr *file)
     return rv;
 }
 
+void filemgr_set_successfully_compacted(struct filemgr *file)
+{
+    spin_lock(&file->lock);
+    file->fflags |= FILEMGR_SUCCESSFULLY_COMPACTED;
+    spin_unlock(&file->lock);
+}
+
+bool filemgr_is_successfully_compacted(struct filemgr *file)
+{
+    bool rv;
+    spin_lock(&file->lock);
+    rv = (file->fflags & FILEMGR_SUCCESSFULLY_COMPACTED);
+    spin_unlock(&file->lock);
+    return rv;
+}
+
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction) {
     spin_lock(&file->lock);
