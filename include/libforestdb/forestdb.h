@@ -1103,6 +1103,20 @@ const char* fdb_get_lib_version();
 LIBFDB_API
 const char* fdb_get_file_version(fdb_file_handle *fhandle);
 
+/**
+ * Return the index number of the last valid ForestDB file.
+ * All files should belong to the same logical DB instance.
+ *
+ * @param num_filename Size of the array below.
+ * @param filenames Array of file name strings.
+ * @return Index number of the last valid file in the array.
+ *         Return -1 no valid file is found.
+ */
+LIBFDB_API
+int fdb_validate_files(size_t num_filenames,
+                       const char** filenames);
+
+
 #ifdef __cplusplus
 }
 #endif

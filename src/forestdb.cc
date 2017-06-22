@@ -1784,6 +1784,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (header_flags & FDB_FLAG_ROOT_CUSTOM_CMP) {
             handle->fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
         }
+        if (header_flags & FDB_FLAG_SUCCESSFULLY_COMPACTED) {
+            filemgr_set_successfully_compacted(handle->file);
+        }
         // use existing setting for multi KV instance mode
         if (kv_info_offset == BLK_NOT_FOUND) {
             multi_kv_instances = false;
@@ -3978,6 +3981,10 @@ static uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
     if (handle->fhandle->flags & FHANDLE_ROOT_CUSTOM_CMP) {
         // the default KVS is based on custom key order
         rv |= FDB_FLAG_ROOT_CUSTOM_CMP;
+    }
+    if (filemgr_is_successfully_compacted(handle->file)) {
+        // this file has been compacted successfully
+        rv |= FDB_FLAG_SUCCESSFULLY_COMPACTED;
     }
     return rv;
 }
@@ -7251,6 +7258,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // (we must do this due to potential dirty WAL flush
     //  during the last loop of delta move; new index root node
     //  should be stored in the DB header).
+    filemgr_set_successfully_compacted(handle->file);
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
     if (handle->file->sb) {
         // sync superblock
@@ -8230,6 +8238,57 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle)
     }
     return ver_get_version_string(fhandle->root->file->version);
 }
+
+#include <string>
+#include <set>
+
+LIBFDB_API
+int fdb_validate_files(const size_t num_filenames,
+                       const char** filenames) {
+    fdb_status s;
+    fdb_file_handle* fhandle;
+    fdb_config config;
+
+    if (!num_filenames || !filenames) {
+        // Invalid arguments
+        return -1;
+    }
+
+    // File name should be XXX.0, XXX.1, XXX.2, ...
+    // Otherwise, it will result in undefined behavior.
+    std::set<std::string> sorted_filenames;
+    for (size_t i=0; i<num_filenames; ++i) {
+        sorted_filenames.insert(filenames[i]);
+    }
+
+    config = fdb_get_default_config();
+    config.flags = FDB_OPEN_FLAG_RDONLY;
+    int valid_file_number = 0;
+    for (auto& entry: sorted_filenames) {
+        s = fdb_open(&fhandle, entry.c_str(), &config);
+        if (s != FDB_RESULT_SUCCESS) {
+            // Broken file, previous file is the last valid one.
+            valid_file_number--;
+            break;
+        }
+        if (filemgr_is_successfully_compacted(fhandle->root->file)) {
+            valid_file_number++;
+            s = fdb_close(fhandle);
+        } else {
+            s = fdb_close(fhandle);
+            break;
+        }
+    }
+
+    if (valid_file_number >= num_filenames) {
+        // All files are valid.
+        // Return the last index number.
+        valid_file_number = num_filenames - 1;
+    }
+
+    return valid_file_number;
+}
+
 
 void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "filename: %s\n", h->filename);

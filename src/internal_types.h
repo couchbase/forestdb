@@ -218,6 +218,7 @@ struct kvs_ops_stat {
 #define FHANDLE_ROOT_OPENED (0x1)
 #define FHANDLE_ROOT_INITIALIZED (0x2)
 #define FHANDLE_ROOT_CUSTOM_CMP (0x4)
+
 /**
  * ForestDB file handle definition.
  */
@@ -737,6 +738,7 @@ struct stale_regions {
 #define FDB_FLAG_SEQTREE_USE (0x1)
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)
 #define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
+#define FDB_FLAG_SUCCESSFULLY_COMPACTED (0x8)
 
 #ifdef __cplusplus
 }
