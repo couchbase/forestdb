@@ -8240,7 +8240,7 @@ const char* fdb_get_file_version(fdb_file_handle *fhandle)
 }
 
 #include <string>
-#include <set>
+#include <map>
 
 LIBFDB_API
 int fdb_validate_files(const size_t num_filenames,
@@ -8256,16 +8256,28 @@ int fdb_validate_files(const size_t num_filenames,
 
     // File name should be XXX.0, XXX.1, XXX.2, ...
     // Otherwise, it will result in undefined behavior.
-    std::set<std::string> sorted_filenames;
+    std::map<int, std::string> sorted_filenames;
     for (size_t i=0; i<num_filenames; ++i) {
-        sorted_filenames.insert(filenames[i]);
+        std::string str(filenames[i]);
+        size_t last_dot_pos = str.rfind(".");
+        if (last_dot_pos == std::string::npos) {
+            // Invalid filename.
+            return -1;
+        }
+        std::string suffix = str.substr(last_dot_pos+1);
+        int compaction_no = atoi(suffix.c_str());
+        if (compaction_no == 0 && suffix != "0") {
+            // This means that suffix doesn't contain compaction number.
+            return -1;
+        }
+        sorted_filenames.insert( std::make_pair(compaction_no, str) );
     }
 
     config = fdb_get_default_config();
     config.flags = FDB_OPEN_FLAG_RDONLY;
     int valid_file_number = 0;
     for (auto& entry: sorted_filenames) {
-        s = fdb_open(&fhandle, entry.c_str(), &config);
+        s = fdb_open(&fhandle, entry.second.c_str(), &config);
         if (s != FDB_RESULT_SUCCESS) {
             // Broken file, previous file is the last valid one.
             valid_file_number--;
@@ -8280,7 +8292,7 @@ int fdb_validate_files(const size_t num_filenames,
         }
     }
 
-    if (valid_file_number >= num_filenames) {
+    if (valid_file_number >= (int)num_filenames) {
         // All files are valid.
         // Return the last index number.
         valid_file_number = num_filenames - 1;
