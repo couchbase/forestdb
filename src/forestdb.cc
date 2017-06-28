@@ -8274,7 +8274,9 @@ int fdb_validate_files(const size_t num_filenames,
     }
 
     config = fdb_get_default_config();
-    config.flags = FDB_OPEN_FLAG_RDONLY;
+    // Note: READ_ONLY flag prevents compaction recovery,
+    //       so we open FDB file without it.
+
     int valid_file_number = 0;
     for (auto& entry: sorted_filenames) {
         s = fdb_open(&fhandle, entry.second.c_str(), &config);
@@ -8283,7 +8285,12 @@ int fdb_validate_files(const size_t num_filenames,
             valid_file_number--;
             break;
         }
-        if (filemgr_is_successfully_compacted(fhandle->root->file)) {
+        if (filemgr_is_successfully_compacted(fhandle->root->file) ||
+            strcmp(fhandle->root->file->filename, entry.second.c_str())) {
+            // 1) 'successfully_compacted' flag support version:
+            //    -> just check flag
+            // 2) Otherwise: if opened file name is different
+            //    to original -> this implies that compaction succeeded.
             valid_file_number++;
             s = fdb_close(fhandle);
         } else {
