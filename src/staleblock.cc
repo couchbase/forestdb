@@ -608,6 +608,22 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
 
         if (compress_inmem_stale_info) {
             uncomp_buf = (void*)calloc(1, uncomp_buflen);
+            if (!uncomp_buf) {
+                fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                    "(fdb_get_reusable_block) "
+                    "calloc of 'uncomp_buf' failed: "
+                    "database file '%s', "
+                    "uncomp_buflen %d\n",
+                    handle->file->filename,
+                    (int)uncomp_buflen);
+                free(revnum_array);
+
+                reusable_block_list ret;
+                ret.n_blocks = 0;
+                ret.blocks = NULL;
+
+                return ret;
+            }
         }
 
         while (avl) {
@@ -621,13 +637,33 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
                 break;
             }
 
+            filemgr_header_revnum_t *new_revnum_array = revnum_array;
             revnum_array[n_revnums++] = revnum;
             if (n_revnums >= max_revnum_array) {
                 max_revnum_array *= 2;
-                revnum_array = (filemgr_header_revnum_t *)
-                               realloc(revnum_array, max_revnum_array *
-                                   sizeof(filemgr_header_revnum_t));
+                new_revnum_array = (filemgr_header_revnum_t *)
+                                   realloc(revnum_array, max_revnum_array *
+                                           sizeof(filemgr_header_revnum_t));
             }
+            if (!new_revnum_array) {
+                // realloc() of revnum_array failed.
+                fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                    "(fdb_get_reusable_block) "
+                    "realloc of 'revnum_array' failed: "
+                    "database file '%s', "
+                    "max_revnum_array %d\n",
+                    handle->file->filename,
+                    (int)max_revnum_array);
+                free(uncomp_buf);
+                free(revnum_array);
+
+                reusable_block_list ret;
+                ret.n_blocks = 0;
+                ret.blocks = NULL;
+
+                return ret;
+            }
+            revnum_array = new_revnum_array;
 
             avl_remove(&handle->file->stale_info_tree, &commit->avl);
 
@@ -641,10 +677,34 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
 #ifdef _DOC_COMP
                     if (compress_inmem_stale_info) {
                         // uncompression
+                        void* new_uncomp_buf = uncomp_buf;
                         if (uncomp_buflen < entry->ctxlen) {
                             uncomp_buflen = entry->ctxlen;
-                            uncomp_buf = (void*)realloc(uncomp_buf, uncomp_buflen);
+                            new_uncomp_buf = (void*)realloc(uncomp_buf, uncomp_buflen);
                         }
+
+                        if (!new_uncomp_buf) {
+                            // realloc() of uncomp_buf failed.
+                            fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                                "(fdb_get_reusable_block) "
+                                "realloc of 'uncomp_buf' failed: "
+                                "database file '%s', "
+                                "uncomp_buflen %d, "
+                                "entry->ctxlen %d\n",
+                                handle->file->filename,
+                                (int)uncomp_buflen,
+                                (int)entry->ctxlen);
+                            free(uncomp_buf);
+                            free(revnum_array);
+
+                            reusable_block_list ret;
+                            ret.n_blocks = 0;
+                            ret.blocks = NULL;
+
+                            return ret;
+                        }
+                        uncomp_buf = new_uncomp_buf;
+
                         size_t len = uncomp_buflen;
                         r = snappy_uncompress((char*)entry->ctx, entry->comp_ctxlen,
                                               (char*)uncomp_buf, &len);
