@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 2.8.8)
 project (ForestDB)
+option(BUILD_SHARED_LIBS "Build forestdb as a shared library" ON)
 
 IF (${CMAKE_MAJOR_VERSION} GREATER 2)
     CMAKE_POLICY(SET CMP0042 NEW)
@@ -250,7 +251,7 @@ SET(FORESTDB_UTILS_SRC
     ${PROJECT_SOURCE_DIR}/utils/time_utils.cc
     ${PROJECT_SOURCE_DIR}/utils/timing.cc)
 
-add_library(forestdb SHARED
+add_library(forestdb 
             ${FORESTDB_FILE_OPS}
             ${GETTIMEOFDAY_VS}
             ${FORESTDB_CORE_SRC}
