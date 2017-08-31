@@ -2989,7 +2989,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             }
             // Don't allocate filename on stack since allocation failure won't
             // get propogated out to user error - MB-22576
-            char *filename = (char *)malloc(filename_len);
+            char *filename = (char *)malloc(filename_len + 1);
             if (!filename) {
                 return FDB_RESULT_ALLOC_FAIL;
             }
