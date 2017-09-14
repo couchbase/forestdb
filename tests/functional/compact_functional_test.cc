@@ -1790,11 +1790,18 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_open(&dbfile_new, "compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fdb_kvs_handle *db_extra;
+    status = fdb_kvs_open(dbfile_manual, &db_extra, "extra", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     // try to switch compaction mode
     status = fdb_switch_compaction_mode(dbfile_manual, FDB_COMPACTION_AUTO, 30);
     TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
 
     // close db_new
+    status = fdb_kvs_close(db_extra);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     status = fdb_close(dbfile_new);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 

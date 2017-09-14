@@ -7551,7 +7551,12 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
 
     config = handle->config;
     if (handle->config.compaction_mode != mode) {
-        if (filemgr_get_ref_count(handle->file) > 1) {
+        // MB-25911: Reference count is validated against 2 since cbforest
+        // opens the default KV store every time it opens the forestdb file.
+        // Ideally, the check should be for reference count of 1 since there
+        // should be no other kvs handle open on the file.
+        // However this relaxed check is for convenience of cbforest code.
+        if (filemgr_get_ref_count(handle->file) > 2) {
             // all the other handles referring this file should be closed
             return FDB_RESULT_FILE_IS_BUSY;
         }
