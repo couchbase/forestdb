@@ -990,6 +990,208 @@ void compaction_failure_hangs_rollback_test()
     TEST_RESULT(bodybuf);
 }
 
+void compaction_failure_recompact_remove_test()
+{
+    TEST_INIT();
+
+    int i, r;
+    int n=300; // n: # prefixes, m: # postfixes
+    fdb_file_handle *dbfile, *dbfile_comp;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+
+    char keybuf[32], metabuf[32], bodybuf[128];
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *commit_fail_cb = get_default_anon_cbs();
+    fail_ctx_t fail_ctx;
+    memset(&fail_ctx, 0, sizeof(fail_ctx_t));
+    // Modify the fsync callback to redirect to test-specific function
+    commit_fail_cb->fsync_cb = &fsync_failure_cb;
+
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    // Reset anomalous behavior stats..
+    filemgr_ops_anomalous_init(commit_fail_cb, &fail_ctx);
+
+    // The number indicates the count after which all commits begin to fail
+    // This number is unique to this test suite and can cause a hang
+    // if the underlying fixed issue resurfaces
+    fail_ctx.start_failing_after = 3;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+
+    // open db
+    fdb_open(&dbfile, "anomaly_test_compact_rm_1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf)+1,
+                       (void*)metabuf, strlen(metabuf)+1,
+                       (void*)bodybuf, strlen(bodybuf)+1);
+        status = fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i == n / 2) {
+            status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile_comp, "anomaly_test_compact_rm_1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Due to anomalous ops this compaction should fail after new file
+    // is created and a final commit is attempted..
+    status = fdb_compact(dbfile_comp, "anomaly_test_compact_rm_2");
+    TEST_CHK(status == FDB_RESULT_FSYNC_FAIL);
+    fail_ctx.start_failing_after = 99999; // reset this so rollback can proceed
+    status = fdb_commit(dbfile_comp, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile_comp);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // remove the failed compacted file
+    r = system(SHELL_DEL" anomaly_test_compact_rm_2 > errorlog.txt");
+    (void)r;
+
+     // shutdown
+    fdb_shutdown();
+    fconfig.flags = 0;
+    fconfig.purging_interval = 0;
+    //reopen and recompact the original file
+    status = fdb_open(&dbfile_comp, "anomaly_test_compact_rm_1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_compact(dbfile_comp, "anomaly_test_compact_rm_2");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    sprintf(bodybuf, "failed compaction recompaction failure test :%d "
+                     "failures out of %d commits",
+                     fail_ctx.num_fails, fail_ctx.num_ops);
+
+    TEST_RESULT(bodybuf);
+}
+
+void compaction_failure_recompact_test()
+{
+    TEST_INIT();
+
+    int i, r;
+    int n=300; // n: # prefixes, m: # postfixes
+    fdb_file_handle *dbfile, *dbfile_comp;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+
+    char keybuf[32], metabuf[32], bodybuf[128];
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *commit_fail_cb = get_default_anon_cbs();
+    fail_ctx_t fail_ctx;
+    memset(&fail_ctx, 0, sizeof(fail_ctx_t));
+    // Modify the fsync callback to redirect to test-specific function
+    commit_fail_cb->fsync_cb = &fsync_failure_cb;
+
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    // Reset anomalous behavior stats..
+    filemgr_ops_anomalous_init(commit_fail_cb, &fail_ctx);
+
+    // The number indicates the count after which all commits begin to fail
+    // This number is unique to this test suite and can cause a hang
+    // if the underlying fixed issue resurfaces
+    fail_ctx.start_failing_after = 3;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+
+    // open db
+    fdb_open(&dbfile, "anomaly_test_compact_1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf)+1,
+                       (void*)metabuf, strlen(metabuf)+1,
+                       (void*)bodybuf, strlen(bodybuf)+1);
+        status = fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i == n / 2) {
+            status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile_comp, "anomaly_test_compact_1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Due to anomalous ops this compaction should fail after new file
+    // is created and a final commit is attempted..
+    status = fdb_compact(dbfile_comp, "anomaly_test_compact_2");
+    TEST_CHK(status == FDB_RESULT_FSYNC_FAIL);
+    fail_ctx.start_failing_after = 99999; // reset this so rollback can proceed
+    status = fdb_commit(dbfile_comp, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile_comp);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // shutdown
+    fdb_shutdown();
+    fconfig.flags = 0;
+    fconfig.purging_interval = 0;
+    //reopen the orignal file, triggering a recovery of the comapcted file
+    status = fdb_open(&dbfile_comp, "anomaly_test_compact_1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // try to compact the orignal file giving the same new name as before,
+    // it should fail with invalid arguments
+    // as the compacted file is already recovered to that new file name.
+    status = fdb_compact(dbfile_comp, "anomaly_test_compact_2");
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+    // try to compact again with a new name, this should succeed.
+    status = fdb_compact(dbfile_comp, "anomaly_test_compact_3");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    sprintf(bodybuf, "failed compaction recompaction failure test :%d "
+                     "failures out of %d commits",
+                     fail_ctx.num_fails, fail_ctx.num_ops);
+
+    TEST_RESULT(bodybuf);
+}
+
 int main(){
 
     /**
@@ -1005,6 +1207,7 @@ int main(){
     read_old_file();
     corrupted_header_correct_superblock_test();
     compaction_failure_hangs_rollback_test();
-
+    compaction_failure_recompact_test();
+    compaction_failure_recompact_remove_test();
     return 0;
 }

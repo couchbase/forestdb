@@ -635,6 +635,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         if (new_db.kvs) {
             fdb_kvs_info_free(&new_db);
         }
+        fdb_log(&handle->log_callback, FDB_RESULT_FAIL_BY_COMPACTION,
+                "Successfully used partially compacted file '%s' for recovery replacing old file %s.",
+                new_filename, new_file->old_filename);
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
         filemgr_remove_pending(old_file, new_db.file, &new_db.log_callback);
@@ -646,6 +649,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     // As the new file is partially compacted, it should be removed upon close.
     // Just in-case the new file gets opened before removal, point it to the old
     // file to ensure availability of data.
+    fdb_log(&handle->log_callback, FDB_RESULT_SUCCESS,
+            "Partially compacted file '%s' could not be used for recovery. Using old file %s.",
+                new_filename, handle->file->filename);
     filemgr_remove_pending(new_db.file, handle->file, &handle->log_callback);
     _fdb_close(&new_db);
 
@@ -2188,11 +2194,20 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (compacted_filename &&
         filemgr_get_file_status(handle->file) == FILE_NORMAL &&
         !(config->flags & FDB_OPEN_FLAG_RDONLY)) { // do not recover read-only
-        _fdb_recover_compaction(handle, compacted_filename);
-    }
-
-    if (compacted_filename) {
-        filemgr_update_file_linkage(handle->file, NULL, compacted_filename);
+        status = _fdb_recover_compaction(handle, compacted_filename);
+        if (status == FDB_RESULT_FAIL_BY_COMPACTION) {
+            // recovery would have unlinked the previous file
+            free(prev_filename);
+            prev_filename = NULL;
+        }
+        // Either
+        // 1. recovered the newly compacted file and deleted the old file or
+        // 2. recovery failed and are going to stick to the old file or
+        // In both cases, the old_filename and new_filename are not needed.
+        if (handle->file){
+            handle->file->old_filename =  NULL;
+            handle->file->new_filename =  NULL;
+        }
     }
 
     if (prev_filename) {
@@ -6619,6 +6634,9 @@ fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
     if (!strcmp(new_filename, handle->file->filename)) {
+        fdb_log(&handle->log_callback, FDB_RESULT_INVALID_ARGS,
+            "New compacted file name '%s' matches old file '%s'.",
+                new_filename, handle->file->filename);
         return FDB_RESULT_INVALID_ARGS;
     }
     if (filemgr_is_rollback_on(handle->file)) {
