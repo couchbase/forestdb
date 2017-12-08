@@ -4528,7 +4528,9 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                             !(handle->config.durability_opt & FDB_DRB_ASYNC),
                             &handle->log_callback);
     if (status != FDB_RESULT_SUCCESS) {
+
         filemgr_mutex_unlock(old_file);
+        filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
         filemgr_mutex_unlock(new_file);
         return status;
     }

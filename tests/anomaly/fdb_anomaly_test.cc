@@ -1047,6 +1047,9 @@ void compaction_failure_recompact_remove_test()
     status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     status = fdb_open(&dbfile_comp, "anomaly_test_compact_rm_1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1065,7 +1068,8 @@ void compaction_failure_recompact_remove_test()
     (void)r;
 
      // shutdown
-    fdb_shutdown();
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fconfig.flags = 0;
     fconfig.purging_interval = 0;
     //reopen and recompact the original file
@@ -1073,7 +1077,8 @@ void compaction_failure_recompact_remove_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_compact(dbfile_comp, "anomaly_test_compact_rm_2");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_close(dbfile);
+    status = fdb_close(dbfile_comp);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -1081,7 +1086,8 @@ void compaction_failure_recompact_remove_test()
     }
 
     // free all resources
-    fdb_shutdown();
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     sprintf(bodybuf, "failed compaction recompaction failure test :%d "
                      "failures out of %d commits",
@@ -1147,6 +1153,9 @@ void compaction_failure_recompact_test()
     status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     status = fdb_open(&dbfile_comp, "anomaly_test_compact_1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1155,13 +1164,13 @@ void compaction_failure_recompact_test()
     status = fdb_compact(dbfile_comp, "anomaly_test_compact_2");
     TEST_CHK(status == FDB_RESULT_FSYNC_FAIL);
     fail_ctx.start_failing_after = 99999; // reset this so rollback can proceed
-    status = fdb_commit(dbfile_comp, FDB_COMMIT_NORMAL);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     status = fdb_close(dbfile_comp);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // shutdown
-    fdb_shutdown();
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fconfig.flags = 0;
     fconfig.purging_interval = 0;
     //reopen the orignal file, triggering a recovery of the comapcted file
@@ -1175,15 +1184,19 @@ void compaction_failure_recompact_test()
     // try to compact again with a new name, this should succeed.
     status = fdb_compact(dbfile_comp, "anomaly_test_compact_3");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_close(dbfile);
 
     // free all documents
     for (i=0;i<n;++i){
         fdb_doc_free(doc[i]);
     }
 
+    status = fdb_close(dbfile_comp);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+
     // free all resources
-    fdb_shutdown();
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     sprintf(bodybuf, "failed compaction recompaction failure test :%d "
                      "failures out of %d commits",
