@@ -2509,19 +2509,26 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         // block reusing is currently enabled
         atomic_store_uint64_t(&file->last_commit,
             atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
-    } else {
-        atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
-    }
-    if (file->sb) {
         // Since some more blocks may be allocated after the header block
         // (for storing BMP data or system docs for stale info)
         // so that the block pointed to by 'cur_alloc_bid' may have
         // different BMP revision number. So we have to use the
         // up-to-date bmp_revnum here.
+        /*
+          sb_bmp_is_writable() was reporting a block is not writable.
+          This is because the test bid >= last_commit fails. This is due to
+          the last_writable_bmp_revnum getting set in all cases, even when
+          last_commit was set to the end of file.
+          This causes the a bitmap version mismatch in the check for a writable
+          block. This fix is a work around to avoid the failure. By setting the
+          last_writable_bmp_revnum to current bitmap version only when
+          last_commit is not set to end of file.
+        */
         atomic_store_uint64_t(&file->last_writable_bmp_revnum,
                               filemgr_get_sb_bmp_revnum(file));
+    } else {
+        atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
     }
-
     spin_unlock(&file->lock);
 
     if (sync) {
