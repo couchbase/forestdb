@@ -1690,7 +1690,9 @@ static fdb_status _wal_flush(struct filemgr *file,
                         }
                     } else {
                         spin_unlock(&file->wal->key_shards[i].lock);
-                        item->old_offset = get_old_offset(dbhandle, item);
+                        if (get_old_offset(dbhandle, item, &(item->old_offset))
+                            == FDB_RECOVERABLE_ERR)
+                            return FDB_RECOVERABLE_ERR;
                         spin_lock(&file->wal->key_shards[i].lock);
                         if (item->old_offset == item->offset) {
                             // Sometimes if there are uncommitted transactional
@@ -1761,7 +1763,9 @@ static fdb_status _wal_flush(struct filemgr *file,
     }
 
     // Remove all stale seq entries from the seq tree
-    seq_purge_func(dbhandle, &stale_seqnum_list, &kvs_delta_stats);
+    if (seq_purge_func(dbhandle, &stale_seqnum_list, &kvs_delta_stats) ==
+        FDB_RECOVERABLE_ERR)
+        return FDB_RECOVERABLE_ERR;
     // Update each KV store stats after WAL flush
     delta_stats_func(file, &kvs_delta_stats);
 

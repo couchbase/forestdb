@@ -81,7 +81,11 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
     } else {
         rsize = rawkeylen;
     }
-    fdb_assert(rsize && rsize <= trie->chunksize, rsize, trie);
+    if (!rsize || rsize > trie->chunksize){
+        fprintf(stderr, " _hbtrie_reform_key: rsize %u chunksize %u\n", rsize, trie->chunksize);
+        return -1;
+    }
+    //fdb_assert(rsize && rsize <= trie->chunksize, rsize, trie);
     memcpy((uint8_t*)outkey, (uint8_t*)rawkey, rawkeylen);
 
     if (rsize < csize) {
@@ -107,7 +111,11 @@ static int _hbtrie_reform_key_reverse(struct hbtrie *trie,
 {
     uint8_t rsize;
     rsize = *((uint8_t*)key + keylen - 1);
-    fdb_assert(rsize, rsize, trie);
+    if (!rsize){
+        fprintf(stderr, " _hbtrie_reform_key_reverse: rsize %u chunksize %u\n", rsize, trie->chunksize);
+        return -1;
+    }
+    //fdb_assert(rsize, rsize, trie);
 
     if (rsize == trie->chunksize) {
         return keylen - trie->chunksize;
@@ -366,6 +374,9 @@ hbtrie_result hbtrie_iterator_init(struct hbtrie *trie,
 
     if (initial_key) {
         it->keylen = _hbtrie_reform_key(trie, initial_key, keylen, it->curkey);
+        if ((int)it->keylen == -1){
+            return HBTRIE_CORRUPTED_RECOVERING_ERR;
+        }
         if (it->keylen >= HBTRIE_MAX_KEYLEN) {
             free(it->curkey);
             DBG("Error: HBTrie iterator init fails because the init key length %d is "
@@ -487,7 +498,8 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
         // if prev sub b-tree exists
         item_new = _get_entry(e, struct btreeit_item, le);
         hr = _hbtrie_prev(it, item_new, key_buf, keylen, value_buf, flag);
-        if (hr == HBTRIE_RESULT_SUCCESS) return hr;
+        if (hr == HBTRIE_RESULT_SUCCESS || hr == HBTRIE_CORRUPTED_RECOVERING_ERR)
+            return hr;
         it->keylen = (item->chunkno+1) * trie->chunksize;
     }
 
@@ -634,6 +646,8 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                 if (_leaf_keylen) {
                     _leaf_keylen_raw = _hbtrie_reform_key_reverse(
                                            trie, chunk, _leaf_keylen);
+                    if ((int)_leaf_keylen_raw == -1)
+                        return HBTRIE_CORRUPTED_RECOVERING_ERR;
                     _set_leaf_key(k_temp, chunk, _leaf_keylen_raw);
                     if (_leaf_keylen_raw) {
                         btree_iterator_init(&btree, &item_new->btree_it, k_temp);
@@ -659,12 +673,20 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                     *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                     it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen,
                                                     it->curkey);
+                    if ((int)it->keylen == -1){
+                        mempool_free(bmeta.data);
+                        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                    }
                 }
                 memcpy(value_buf, &offset, trie->valuelen);
                 hr = HBTRIE_RESULT_SUCCESS;
             } else {
                 hr = _hbtrie_prev(it, item_new, key_buf, keylen, value_buf,
                                   flag);
+                if ( hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                    mempool_free(bmeta.data);
+                    return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                }
             }
             mempool_free(bmeta.data);
             if (hr == HBTRIE_RESULT_SUCCESS)
@@ -684,6 +706,9 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
                 *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                 it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen, it->curkey);
+                if ((int)it->keylen == -1){
+                    return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                }
             }
             memcpy(value_buf, &offset, trie->valuelen);
 
@@ -918,6 +943,8 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                     _leaf_keylen_raw = _hbtrie_reform_key_reverse(
                                            trie, chunk, _leaf_keylen);
                 }
+                if ((int)_leaf_keylen_raw == -1)
+                    return HBTRIE_CORRUPTED_RECOVERING_ERR;
                 if (_leaf_keylen_raw) {
                     _set_leaf_key(k_temp, chunk, _leaf_keylen_raw);
                     btree_iterator_init(&btree, &item_new->btree_it, k_temp);
@@ -965,6 +992,10 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                     // read entire key from doc's meta
                     *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                     it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen, it->curkey);
+                    if ((int)it->keylen == -1){
+                        mempool_free(bmeta.data);
+                        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                    }
                 }
                 memcpy(value_buf, &offset, trie->valuelen);
                 hr = HBTRIE_RESULT_SUCCESS;
@@ -994,6 +1025,9 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                 // read entire key from doc's meta
                 *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                 it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen, it->curkey);
+                if ((int)it->keylen == -1){
+                    return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                }
             }
             memcpy(value_buf, &offset, trie->valuelen);
 
@@ -1241,6 +1275,9 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
 
         //3 search b-tree using current chunk (or postfix)
         rawkeylen = _hbtrie_reform_key_reverse(trie, key, keylen);
+        if ((int)rawkeylen == -1)
+            return HBTRIE_CORRUPTED_RECOVERING_ERR;
+
         if ((cpt_node && rawkeylen == curchunkno * trie->chunksize) ||
             (!cpt_node && nchunk == curchunkno)) {
             // KEY is exactly same as tree's prefix .. return value in metasection
@@ -1255,6 +1292,8 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                 size_t rawchunklen =
                     _hbtrie_reform_key_reverse(trie, chunk,
                     (nchunk-curchunkno)*trie->chunksize);
+                if ((int)rawchunklen == -1)
+                    return HBTRIE_CORRUPTED_RECOVERING_ERR;
 
                 _set_leaf_key(k, chunk, rawchunklen);
                 r = btree_find(btree, k, btree_value);
@@ -1327,6 +1366,9 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                     // read entire key
                     docrawkeylen = trie->readkey(trie->doc_handle, offset, docrawkey);
                     dockeylen = _hbtrie_reform_key(trie, docrawkey, docrawkeylen, dockey);
+                    if ((int)dockeylen == -1){
+                        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+                    }
 
                     // find first different chunk
                     docnchunk = _get_nchunk(trie, dockey, dockeylen);
@@ -1369,6 +1411,9 @@ hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey,
     int keylen;
 
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    if (keylen == -1){
+        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+    }
     return _hbtrie_find(trie, key, keylen, valuebuf, NULL, 0x0);
 }
 
@@ -1380,6 +1425,9 @@ hbtrie_result hbtrie_find_offset(struct hbtrie *trie, void *rawkey,
     int keylen;
 
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    if (keylen == -1){
+        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+    }
     return _hbtrie_find(trie, key, keylen, valuebuf, NULL,
                         HBTRIE_PREFIX_MATCH_ONLY);
 }
@@ -1392,6 +1440,9 @@ hbtrie_result hbtrie_find_partial(struct hbtrie *trie, void *rawkey,
     int keylen;
 
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    if (keylen == -1){
+        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+    }
     return _hbtrie_find(trie, key, keylen, valuebuf, NULL,
                         HBTRIE_PARTIAL_MATCH);
 }
@@ -1411,6 +1462,9 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
     struct list_elem *e;
 
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    if (keylen == -1){
+        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+    }
 
     r = _hbtrie_find(trie, key, keylen, valuebuf, &btreelist, flag);
 
@@ -1489,7 +1543,7 @@ struct _key_item {
     struct list_elem le;
 };
 
-static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
+static hbtrie_result _hbtrie_extend_leaf_tree(struct hbtrie *trie,
                                      struct list *btreelist,
                                      struct btreelist_item *btreeitem,
                                      void *pre_str,
@@ -1618,8 +1672,10 @@ static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
             if (item->keylen > 0) {
                 memcpy(key_str + pre_str_len, item->key, item->keylen);
             }
-            hbtrie_insert(trie, key_str, pre_str_len + item->keylen,
-                item->value, value_buf);
+            if (hbtrie_insert(trie, key_str, pre_str_len + item->keylen,
+                              item->value, value_buf)
+                == HBTRIE_CORRUPTED_RECOVERING_ERR)
+                return HBTRIE_CORRUPTED_RECOVERING_ERR;
         }
 
         e = list_remove(&keys, e);
@@ -1629,6 +1685,7 @@ static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
         free(item->value);
         free(item);
     }
+    return HBTRIE_RESULT_SUCCESS;
 
 }
 
@@ -1679,6 +1736,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
     meta.data = buf;
     curchunkno = 0;
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    if (keylen == -1){
+        return HBTRIE_CORRUPTED_RECOVERING_ERR;
+    }
     (void)keylen;
 
     if (trie->map) { // custom cmp functions exist
@@ -1983,7 +2043,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         // read entire key
         docrawkeylen = trie->readkey(trie->doc_handle, offset, docrawkey);
         dockeylen = _hbtrie_reform_key(trie, docrawkey, docrawkeylen, dockey);
-
+        if ((int)dockeylen == -1){
+            return HBTRIE_CORRUPTED_RECOVERING_ERR;
+        }
         // find first different chunk
         docnchunk = _get_nchunk(trie, dockey, dockeylen);
 

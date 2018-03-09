@@ -350,6 +350,8 @@ btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
     btree->root_bid = root_bid;
 
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    if (!addr)
+        return BTREE_RESULT_FAIL;
     root = _fetch_bnode(btree, addr, 0);
 
     btree->root_flag = root->flag;

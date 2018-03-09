@@ -908,6 +908,7 @@ struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
 fdb_status convert_errno_to_fdb_status(int errno_value,
                                        fdb_status default_status);
 
+fdb_status filemgr_invalidate_dbheader(struct filemgr *file, bid_t bid, err_log_callback *log_callback);
 #ifdef __cplusplus
 }
 #endif

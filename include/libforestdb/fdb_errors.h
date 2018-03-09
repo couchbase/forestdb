@@ -354,10 +354,21 @@ typedef enum {
      * Resource temporarily unavailable.
      */
     FDB_RESULT_EAGAIN = -72,
+    /**
+     * Recoverable error
+     * File found to be corrupted but will be recovered to a previous stable
+     * state.
+     */
+    FDB_RECOVERABLE_ERR = -73,
+    /**
+     * Nonrecoverable error
+     * Max number of recovery attempts have been tried.
+     */
+    FDB_NONRECOVERABLE_ERR = -74,
 
     // Any new error codes can be added here.
 
-    FDB_RESULT_LAST = FDB_RESULT_EAGAIN // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_NONRECOVERABLE_ERR// Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

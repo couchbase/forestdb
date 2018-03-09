@@ -158,7 +158,7 @@ typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
  * Pointer of function that purges stale entries from the sequence tree
  * as part of WAL flush.
  */
-typedef void wal_flush_seq_purge_func(void *dbhandle,
+typedef fdb_status wal_flush_seq_purge_func(void *dbhandle,
                                       struct avl_tree *stale_seqnum_list,
                                       struct avl_tree *kvs_delta_stats);
 
@@ -170,8 +170,9 @@ typedef void wal_flush_kvs_delta_stats_func(struct filemgr *file,
 
 typedef fdb_status wal_snapshot_func(void *shandle, fdb_doc *doc,
                                      uint64_t offset);
-typedef uint64_t wal_get_old_offset_func(void *dbhandle,
-                                         struct wal_item *item);
+typedef fdb_status wal_get_old_offset_func(void *dbhandle,
+                                           struct wal_item *item,
+                                           uint64_t *old_offset);
 typedef int64_t wal_doc_move_func(void *dbhandle,
                                   void *new_dhandle,
                                   struct wal_item *item,

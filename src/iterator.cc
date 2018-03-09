@@ -235,6 +235,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     hr = hbtrie_iterator_init(iterator->handle->trie,
                               iterator->hbtrie_iterator,
                               (void *)start_key, start_keylen);
+    if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        _fdb_invalidate_dbheader(iterator->handle);
+        return FDB_RECOVERABLE_ERR;
+    }
     assert(hr == HBTRIE_RESULT_SUCCESS);
 
     wal_itr_init(iterator->handle->file, iterator->handle->shandle, true,
@@ -366,9 +370,13 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
 
         iterator->seqtrie_iterator = (struct hbtrie_iterator *)
                                      calloc(1, sizeof(struct hbtrie_iterator));
-        hbtrie_iterator_init(iterator->handle->seqtrie,
+        if (hbtrie_iterator_init(iterator->handle->seqtrie,
                              iterator->seqtrie_iterator,
-                             start_seq_kv, size_id + size_seq);
+                                  start_seq_kv, size_id + size_seq)
+            == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
 
         query_key.key = start_seq_kv;
         kvid2buf(size_chunk, iterator->handle->kvs->id, start_seq_kv);
@@ -454,6 +462,11 @@ start:
         do {
             hr = hbtrie_prev(iterator->hbtrie_iterator, key,
                              &iterator->_keylen, (void*)&iterator->_offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(iterator->handle);
+                return FDB_RECOVERABLE_ERR;
+            }
+
             btreeblk_end(iterator->handle->bhandle);
             iterator->_offset = _endian_decode(iterator->_offset);
             if (!(iterator->opt & FDB_ITR_NO_DELETES) ||
@@ -617,6 +630,10 @@ start:
         do {
             hr = hbtrie_next(iterator->hbtrie_iterator, key,
                              &iterator->_keylen, (void*)&iterator->_offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(iterator->handle);
+                return FDB_RECOVERABLE_ERR;
+            }
             btreeblk_end(iterator->handle->bhandle);
             iterator->_offset = _endian_decode(iterator->_offset);
             if (!(iterator->opt & FDB_ITR_NO_DELETES) ||
@@ -849,14 +866,22 @@ static fdb_status _fdb_iterator_seek(fdb_iterator *iterator,
 
     // reset HB+trie's iterator
     hbtrie_iterator_free(iterator->hbtrie_iterator);
-    hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
-                         seek_key_kv, seek_keylen_kv);
+    if (hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
+                         seek_key_kv, seek_keylen_kv)
+        == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        _fdb_invalidate_dbheader(iterator->handle);
+        return FDB_RECOVERABLE_ERR;
+    }
 
 fetch_hbtrie:
     if (seek_pref == FDB_ITR_SEEK_HIGHER) {
         // fetch next key
         hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
                          &iterator->_keylen, (void*)&iterator->_offset);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
@@ -867,6 +892,10 @@ fetch_hbtrie:
                 // key[HB+trie] < seek_key .. move forward
                 hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
                                  &iterator->_keylen, (void*)&iterator->_offset);
+                if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                    _fdb_invalidate_dbheader(iterator->handle);
+                    return FDB_RECOVERABLE_ERR;
+                }
                 btreeblk_end(iterator->handle->bhandle);
             }
             iterator->_offset = _endian_decode(iterator->_offset);
@@ -893,6 +922,10 @@ fetch_hbtrie:
                     hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
                                      &iterator->_keylen,
                                      (void*)&iterator->_offset);
+                    if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                        _fdb_invalidate_dbheader(iterator->handle);
+                        return FDB_RECOVERABLE_ERR;
+                    }
                     btreeblk_end(iterator->handle->bhandle);
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
@@ -902,6 +935,11 @@ fetch_hbtrie:
         // fetch prev key
         hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
                          &iterator->_keylen, (void*)&iterator->_offset);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
+
         btreeblk_end(iterator->handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator,
@@ -911,6 +949,11 @@ fetch_hbtrie:
                 // key[HB+trie] > seek_key .. move backward
                 hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
                                  &iterator->_keylen, (void*)&iterator->_offset);
+                if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                    _fdb_invalidate_dbheader(iterator->handle);
+                    return FDB_RECOVERABLE_ERR;
+                }
+
                 btreeblk_end(iterator->handle->bhandle);
             }
             iterator->_offset = _endian_decode(iterator->_offset);
@@ -937,6 +980,11 @@ fetch_hbtrie:
                     hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
                                      &iterator->_keylen,
                                      (void*)&iterator->_offset);
+                    if (hr ==  HBTRIE_CORRUPTED_RECOVERING_ERR){
+                        _fdb_invalidate_dbheader(iterator->handle);
+                        return FDB_RECOVERABLE_ERR;
+                    }
+
                     btreeblk_end(iterator->handle->bhandle);
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
@@ -1193,9 +1241,13 @@ fetch_hbtrie:
                     // reset HB+trie's iterator to get the current
                     // key[HB+trie] one more time
                     hbtrie_iterator_free(iterator->hbtrie_iterator);
-                    hbtrie_iterator_init(iterator->handle->trie,
-                                         iterator->hbtrie_iterator,
-                                         seek_key_kv, seek_keylen_kv);
+                    if (hbtrie_iterator_init(iterator->handle->trie,
+                                             iterator->hbtrie_iterator,
+                                             seek_key_kv, seek_keylen_kv)
+                        == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                        _fdb_invalidate_dbheader(iterator->handle);
+                        return FDB_RECOVERABLE_ERR;
+                    }
                     iterator->_offset = BLK_NOT_FOUND;
                 }
             }
@@ -1286,8 +1338,12 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
 
     // reset HB+trie iterator using start key
     hbtrie_iterator_free(iterator->hbtrie_iterator);
-    hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
-                         iterator->start_key, iterator->start_keylen);
+    if (hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
+                         iterator->start_key, iterator->start_keylen)
+        == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        _fdb_invalidate_dbheader(iterator->handle);
+        return FDB_RECOVERABLE_ERR;
+    }
 
     // reset WAL tree cursor using search because of the sharded nature of WAL
     if (iterator->tree_cursor_start) {
@@ -1350,8 +1406,12 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
         hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
                              iterator->end_key, iterator->end_keylen);
         // get first key
-        hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                         &iterator->_keylen, (void*)&iterator->_offset);
+        if (hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
+                        &iterator->_keylen, (void*)&iterator->_offset) ==
+            HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;;
+        }
         iterator->_offset = _endian_decode(iterator->_offset);
         cmp = _fdb_key_cmp(iterator,
                                iterator->end_key, iterator->end_keylen,
@@ -1397,9 +1457,13 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
 
         // reset HB+trie's seqtrie iterator using end_seq_kv
         hbtrie_iterator_free(iterator->seqtrie_iterator);
-        hbtrie_iterator_init(iterator->handle->seqtrie,
-                             iterator->seqtrie_iterator,
-                             end_seq_kv, sizeof(size_t)*2);
+        if (hbtrie_iterator_init(iterator->handle->seqtrie,
+                                 iterator->seqtrie_iterator,
+                                 end_seq_kv, sizeof(size_t)*2)
+            == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
     } else {
         // reset Btree iterator to end_seqnum
         btree_iterator_free(iterator->seqtree_iterator);
@@ -1512,6 +1576,11 @@ start_seq:
         if (iterator->handle->kvs) { // multi KV instance mode
             hr = hbtrie_prev(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(iterator->handle);
+                return FDB_RECOVERABLE_ERR;
+            }
+
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
@@ -1612,6 +1681,10 @@ start_seq:
         struct docio_object _hbdoc;
         hr = hbtrie_find(iterator->handle->trie, _doc.key, _doc.length.keylen,
                          (void *)&hboffset);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
@@ -1688,6 +1761,10 @@ start_seq:
         if (iterator->handle->kvs) { // multi KV instance mode
             hr = hbtrie_next(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(iterator->handle);
+                return FDB_RECOVERABLE_ERR;
+            }
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
@@ -1798,6 +1875,10 @@ start_seq:
         struct docio_object _hbdoc;
         hr = hbtrie_find(iterator->handle->trie, _doc.key, _doc.length.keylen,
                          (void *)&hboffset);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(iterator->handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr != HBTRIE_RESULT_SUCCESS) {

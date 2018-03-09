@@ -4967,6 +4967,524 @@ void kvs_deletion_without_commit()
     TEST_RESULT("KVS deletion without commit test");
 }
 
+void corrupt_databuffer_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc **doc2 = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy test files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // Get the ForestDB version
+    const char *version = fdb_get_lib_version();
+    TEST_CHK(version != NULL && strlen(version) > 0);
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
+    fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1;
+    fconfig.num_keeping_headers = 3;
+
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    (void)r;
+    fdb_open(&dbfile, "./dummy1",&fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // remove document #5
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta,
+                   doc[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert more documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", n+i);
+        sprintf(metabuf, "meta%d", n+i);
+        sprintf(bodybuf, "body%d", n+i);
+        fdb_doc_create(&doc2[i], (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc2[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // remove document #15
+    fdb_doc_create(&rdoc, doc2[5]->key, doc2[5]->keylen, doc2[5]->meta,
+                   doc2[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // update document #0 and #1
+    for (i=0;i<2;++i){
+        sprintf(metabuf, "meta2%d", i);
+        sprintf(bodybuf, "body2%d", i);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    //commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // update document #10 and #11
+    int x;
+    for (i=0;i<2;++i){
+        x = n+i;
+        sprintf(metabuf, "meta2%d", x);
+        sprintf(bodybuf, "body2%d", x);
+        fdb_doc_update(&doc2[i], (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc2[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    }
+
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc2[i]->key, doc2[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    }
+
+    // close the db
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    // free all resources
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+    // corrupt data block 1
+    FILE* fd = fopen("./dummy1", "r+");
+    int64_t offset = 32*4096-1;
+    char buf[1];
+
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 1, offset) != 1){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test ");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve document for key10
+    fdb_doc_create(&rdoc, doc2[0]->key, doc2[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+    // free result document
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // close the db and reopen
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+
+    // retrieve document for key10
+    fdb_doc_create(&rdoc, doc2[0]->key, doc2[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // close the db and reopen
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+     // corrupt data block 2
+    fd = fopen("./dummy1", "r+");
+    offset = 27*4096-1;
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 1, offset) != 1){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve document for key0
+    fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // close the db and reopen
+    status = fdb_kvs_close(db);
+    status = fdb_close(dbfile);
+    status = fdb_shutdown();
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retry retrieve document for key0
+    status = fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+     // close the db and reopen
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+     // corrupt data block 3
+    fd = fopen("./dummy1", "r+");
+    offset = 22*4096-1;
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 1, offset) != 1){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_databuffer_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve document for key15
+    fdb_doc_create(&rdoc, doc2[5]->key, doc2[5]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+    // free result document
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // close the db and reopen
+    status = fdb_kvs_close(db);
+    status = fdb_close(dbfile);
+    status = fdb_shutdown();
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_NONRECOVERABLE_ERR);
+
+    memleak_end();
+
+    TEST_RESULT("corrupt_databuffer_test");
+}
+
+void corrupt_index_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc **doc2 = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy test files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // Get the ForestDB version
+    const char *version = fdb_get_lib_version();
+    TEST_CHK(version != NULL && strlen(version) > 0);
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
+    fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1;
+    fconfig.num_keeping_headers = 3;
+
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    (void)r;
+    fdb_open(&dbfile, "./dummy1",&fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_index_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // remove document #5
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta,
+                   doc[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert more documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", n+i);
+        sprintf(metabuf, "meta%d", n+i);
+        sprintf(bodybuf, "body%d", n+i);
+        fdb_doc_create(&doc2[i], (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc2[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // remove document #15
+    fdb_doc_create(&rdoc, doc2[5]->key, doc2[5]->keylen, doc2[5]->meta,
+                   doc2[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RECOVERABLE_ERR);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // update document #0 and #1
+    for (i=0;i<2;++i){
+        sprintf(metabuf, "meta2%d", i);
+        sprintf(bodybuf, "body2%d", i);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    //commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // update document #10 and #11
+    int x;
+    for (i=0;i<2;++i){
+        x = n+i;
+        sprintf(metabuf, "meta2%d", x);
+        sprintf(bodybuf, "body2%d", x);
+        fdb_doc_update(&doc2[i], (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc2[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    }
+
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc2[i]->key, doc2[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    }
+
+    // close the db
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    // free all resources
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+    // corrupt index block 1
+    FILE* fd = fopen("./dummy1", "r+");
+    int64_t offset = 33*4096+8;
+    char buf[4];
+
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 4, offset) != 4){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+
+    // close the db and reopen
+    status = fdb_close(dbfile);
+    status = fdb_shutdown();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_index_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve document for key10
+    fdb_doc_create(&rdoc, doc2[0]->key, doc2[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // free result document
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    // close the db and reopen
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+     // corrupt index block 2
+    fd = fopen("./dummy1", "r+");
+    offset = 28*4096+8;
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 1, offset) != 1){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+
+    // close the db and reopen
+    status = fdb_close(dbfile);
+    status = fdb_shutdown();
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "corrupt_index_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retry retrieve document for key0
+    status = fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // free result document
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+     // close the db and reopen
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+#if !defined(WIN32) && !defined(_WIN32)
+     // corrupt index block 3
+    fd = fopen("./dummy1", "r+");
+    offset = 23*4096+8;
+    memset(buf, 0xab, 1);
+    if (pwrite(fileno(fd), &buf, 1, offset) != 1){
+        fclose(fd);
+        exit(1);
+    }
+    fclose(fd);
+#endif
+
+    // reopen
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RECOVERABLE_ERR);
+
+    // close the db and reopen
+    status = fdb_close(dbfile);
+    status = fdb_shutdown();
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_NONRECOVERABLE_ERR);
+
+    memleak_end();
+
+    TEST_RESULT("corrupt index test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -5024,6 +5542,12 @@ int main(){
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     apis_with_invalid_handles_test();
+#if !defined(WIN32) && !defined(_WIN32)
+#ifndef _MSC_VER
+    corrupt_databuffer_test();  // temporary till windows change is done.
+    corrupt_index_test();
+#endif
+#endif
 
     return 0;
 }

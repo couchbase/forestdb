@@ -68,6 +68,7 @@ enum{
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
 #define BLK_MARKER_SB (0xcc) // superblock
+#define BLK_MARKER_BAD (0xbd) //corrupted
 #define BLK_MARKER_SIZE (1)
 #define DOCBLK_META_SIZE (16)
 #define BMP_REVNUM_MASK 0xffff

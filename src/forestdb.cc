@@ -104,6 +104,14 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
     }
 }
 
+void _fdb_invalidate_dbheader(fdb_kvs_handle *handle ){
+    bid_t hdr_bid;
+    hdr_bid = handle->last_hdr_bid;
+    if (hdr_bid != BLK_NOT_FOUND){
+        // invalidate the last dbheader
+        filemgr_invalidate_dbheader(handle->file, hdr_bid, &handle->log_callback);
+    }
+}
 size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
 {
     int size_id, size_seq, size_chunk;
@@ -2146,9 +2154,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                            handle->config.blocksize, sizeof(fdb_seqnum_t),
                            OFFSET_SIZE, 0x0, NULL);
             }else{
-                btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
+                if (btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
                                     handle->btreeblkops, seq_kv_ops,
-                                    handle->config.blocksize, seq_root_bid);
+                                        handle->config.blocksize, seq_root_bid) != BTREE_RESULT_SUCCESS){
+                    _fdb_invalidate_dbheader(handle);
+                    free(handle->dhandle);
+                    free(handle->filename);
+                    handle->filename = NULL;
+                    filemgr_close(handle->file, false, handle->filename,
+                                  &handle->log_callback);
+                    return FDB_RECOVERABLE_ERR;
+                }
             }
         }
     }else{
@@ -2171,9 +2187,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                        handle->config.blocksize, sizeof(filemgr_header_revnum_t),
                        OFFSET_SIZE, 0x0, NULL);
          }else{
-            btree_init_from_bid(handle->staletree, (void *)handle->bhandle,
+            if (btree_init_from_bid(handle->staletree, (void *)handle->bhandle,
                                 handle->btreeblkops, stale_kv_ops,
-                                handle->config.blocksize, stale_root_bid);
+                                    handle->config.blocksize, stale_root_bid) != BTREE_RESULT_SUCCESS){
+                _fdb_invalidate_dbheader(handle);
+                free(handle->dhandle);
+                free(handle->filename);
+                handle->filename = NULL;
+                filemgr_close(handle->file, false, handle->filename,
+                              &handle->log_callback);
+                return FDB_RECOVERABLE_ERR;
+            }
             // prefetch stale info into memory
             fdb_load_inmem_stale_info(handle);
          }
@@ -2420,8 +2444,9 @@ fdb_status fdb_doc_free(fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
-                                        struct wal_item *item)
+INLINE fdb_status _fdb_wal_get_old_offset(void *voidhandle,
+                                        struct wal_item *item,
+                                        uint64_t *ret_old_offset)
 {
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     uint64_t old_offset = 0;
@@ -2429,20 +2454,26 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     if (item->action == WAL_ACT_REMOVE) {
         // For immediate remove, old_offset value is critical
         // so that we should get an exact value.
-        hbtrie_find(handle->trie,
+        if (hbtrie_find(handle->trie,
                     item->header->key,
                     item->header->keylen,
-                    (void*)&old_offset);
+                        (void*)&old_offset) == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
     } else {
-        hbtrie_find_offset(handle->trie,
+        if (hbtrie_find_offset(handle->trie,
                            item->header->key,
                            item->header->keylen,
-                           (void*)&old_offset);
+                               (void*)&old_offset) == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
     }
     btreeblk_end(handle->bhandle);
-    old_offset = _endian_decode(old_offset);
+    *ret_old_offset = _endian_decode(old_offset);
 
-    return old_offset;
+    return FDB_RESULT_SUCCESS;
 }
 
 // A stale sequence number entry that can be purged from the sequence tree
@@ -2498,7 +2529,7 @@ INLINE int _kvs_delta_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux
     }
 }
 
-INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
+INLINE fdb_status _fdb_wal_flush_seq_purge(void *dbhandle,
                                      struct avl_tree *stale_seqnum_list,
                                      struct avl_tree *kvs_delta_stats)
 {
@@ -2523,8 +2554,12 @@ INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
             // multi KV instance mode .. HB+trie
             kvid2buf(sizeof(fdb_kvs_id_t), seq_entry->kv_id, kvid_seqnum);
             memcpy(kvid_seqnum + sizeof(fdb_kvs_id_t), &_seqnum, sizeof(fdb_seqnum_t));
-            hbtrie_remove(handle->seqtrie, (void*)kvid_seqnum,
-                          sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t));
+            if (hbtrie_remove(handle->seqtrie, (void*)kvid_seqnum,
+                              sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t))
+                == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         } else {
             btree_remove(handle->seqtree, (void*)&_seqnum);
         }
@@ -2546,6 +2581,7 @@ INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
         avl_remove(stale_seqnum_list, &seq_entry->avl_entry);
         free(seq_entry);
     }
+    return FDB_RESULT_SUCCESS;
 }
 
 INLINE void _fdb_wal_flush_kvs_delta_stats(struct filemgr *file,
@@ -2622,11 +2658,14 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
-        hbtrie_insert(handle->trie,
+        if (hbtrie_insert(handle->trie,
                       item->header->key,
                       item->header->keylen,
                       (void *)&_offset,
-                      (void *)&old_offset);
+                          (void *)&old_offset) == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
 
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -2725,6 +2764,10 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
         old_offset = item->old_offset;
         hr = hbtrie_remove(handle->trie, item->header->key,
                            item->header->keylen);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
@@ -3066,9 +3109,19 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         } else {
             hr = hbtrie_find(handle->trie, doc->key, doc->keylen,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         }
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
@@ -3201,9 +3254,19 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         } else {
             hr = hbtrie_find(handle->trie, doc->key, doc->keylen,
                              (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         }
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
@@ -3339,6 +3402,11 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
             hr = hbtrie_find(handle->seqtrie, (void *)kv_seqnum,
                              size_id + size_seq, (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
             br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
         } else {
             br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
@@ -3495,6 +3563,11 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
             hr = hbtrie_find(handle->seqtrie, (void *)kv_seqnum,
                              size_id + size_seq, (void *)&offset);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                _fdb_invalidate_dbheader(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
             br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
         } else {
             br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
@@ -4473,10 +4546,13 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
     if (wal_get_num_flushable(new_file)) {
         // flush wal if not empty
-        wal_flush(new_file, (void *)handle,
+        if (wal_flush(new_file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                  &flush_items);
+                      &flush_items) == FDB_RECOVERABLE_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
         wal_flushed = true;
     } else if (wal_get_size(new_file) == 0) {
@@ -4859,10 +4935,13 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
         new_handle.dhandle = new_dhandle;
         new_handle.bhandle = new_bhandle;
 
-        wal_flush(new_file, (void*)&new_handle,
+        if (wal_flush(new_file, (void*)&new_handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                  &flush_items);
+                      &flush_items) == FDB_RECOVERABLE_ERR){
+            _fdb_invalidate_dbheader(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         wal_set_dirty_status(new_file, FDB_WAL_PENDING);
         wal_release_flushed_items(new_file, &flush_items);
     }
@@ -5037,9 +5116,14 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     c = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+    if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        free(_doc);
+        free(offset_array);
+        _fdb_invalidate_dbheader(handle);
+        return FDB_RECOVERABLE_ERR;
+    }
 
     while( hr == HBTRIE_RESULT_SUCCESS ) {
-
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -5420,6 +5504,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     c = count = n_moved_docs = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+    if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        _fdb_invalidate_dbheader(handle);
+        return FDB_RECOVERABLE_ERR;
+    }
 
     while( hr == HBTRIE_RESULT_SUCCESS ) {
 
@@ -7058,10 +7146,13 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // flush WAL and set DB header
     wal_commit(&handle->file->global_txn, handle->file, NULL,
                &handle->log_callback);
-    wal_flush(handle->file, (void*)handle,
+    if (wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-              &flush_items);
+                  &flush_items) == FDB_RECOVERABLE_ERR){
+        _fdb_invalidate_dbheader(handle);
+        return FDB_RECOVERABLE_ERR;
+    }
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
 
     _fdb_dirty_update_finalize(handle, prev_node, new_node,
@@ -7251,10 +7342,13 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
     wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
-    wal_flush(handle->file, (void*)handle,
+    if (wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-              &flush_items);
+                  &flush_items) == FDB_RECOVERABLE_ERR){
+        _fdb_invalidate_dbheader(handle);
+        return FDB_RECOVERABLE_ERR;
+    }
     btreeblk_end(handle->bhandle);
 
     _fdb_dirty_update_finalize(handle, prev_node, new_node,

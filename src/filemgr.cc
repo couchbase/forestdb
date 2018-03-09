@@ -433,6 +433,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     fdb_status status = FDB_RESULT_SUCCESS;
     bid_t hdr_bid, hdr_bid_local;
     size_t min_filesize = 0;
+    size_t bad_header_count = 0;
 
     // get temp buffer
     buf = (uint8_t *) _filemgr_get_temp_buf();
@@ -589,6 +590,18 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                     DBG(msg, marker[0], file->filename);
                     fdb_log(log_callback, status, msg, marker[0], file->filename);
                 }
+                // if the header was invalidated due to corruption detection, handle that
+                if (marker[0] == BLK_MARKER_BAD){
+                    bad_header_count++;
+                    if (file->config->num_keeping_headers &&
+                        bad_header_count >= file->config->num_keeping_headers){
+                        status = FDB_NONRECOVERABLE_ERR;
+                        fdb_log(log_callback, status,
+                                "Found too many (%d) bad dbheader blocks",
+                                bad_header_count);
+                        break;
+                    }
+                }
             }
 
             atomic_store_uint64_t(&file->last_commit, hdr_bid_local * file->blocksize);
@@ -611,6 +624,8 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     atomic_store_uint64_t(&file->header.bid, 0);
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
     file->version = magic;
+    if (bad_header_count > 0  && status == FDB_RESULT_NO_DB_HEADERS)
+        status = FDB_NONRECOVERABLE_ERR;
     return status;
 }
 
@@ -1933,6 +1948,39 @@ INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 }
 #endif
 
+fdb_status filemgr_invalidate_dbheader(struct filemgr *file, bid_t bid,
+                                       err_log_callback *log_callback){
+    uint8_t marker[BLK_MARKER_SIZE];
+
+    // get temp buffer
+    uint8_t *buf = (uint8_t *) _filemgr_get_temp_buf();
+
+    // get the dbheader
+    ssize_t rv = filemgr_read_block(file, buf, bid);
+    if (rv != (ssize_t)file->blocksize) {
+        _log_errno_str(file->ops, log_callback,
+                       (fdb_status) rv, "READ", file->filename);
+        return FDB_RESULT_READ_FAIL;
+    }
+    // set the marker to an invalid value
+    memset(marker, BLK_MARKER_BAD, BLK_MARKER_SIZE);
+    memcpy((uint8_t *)buf + file->blocksize - BLK_MARKER_SIZE,
+           marker, BLK_MARKER_SIZE);
+
+    // write it back
+    rv = filemgr_write_blocks(file, buf, 1, bid);
+    _log_errno_str(file->ops, log_callback, (fdb_status) rv,
+                   "WRITE", file->filename);
+    if (rv != (ssize_t)file->blocksize) {
+        _filemgr_release_temp_buf(buf);
+        spin_unlock(&file->lock);
+        filemgr_clear_io_inprog(file);
+        return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
+    }
+    _filemgr_release_temp_buf(buf);
+    file->ops->fsync(file->fd);
+    return FDB_RESULT_SUCCESS;
+}
 bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 {
     bool ret;

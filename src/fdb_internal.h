@@ -78,6 +78,8 @@ void fdb_fetch_header(uint64_t version,
                       char **old_filename);
 uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum);
 
+void _fdb_invalidate_dbheader(fdb_kvs_handle *handle);
+
 fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
                                   const char *filename,
                                   fdb_config *fconfig,

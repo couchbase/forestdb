@@ -50,7 +50,12 @@ typedef enum {
     /**
      * HB+trie operation fails.
      */
-    HBTRIE_RESULT_FAIL
+    HBTRIE_RESULT_FAIL,
+    /**
+     * HB+trie recoverable corruption.
+     */
+    HBTRIE_CORRUPTED_RECOVERING_ERR
+
 } hbtrie_result;
 
 #define HBTRIE_FLAG_COMPACT (0x01)

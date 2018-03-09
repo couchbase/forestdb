@@ -1899,6 +1899,7 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     struct filemgr *file;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
+    hbtrie_result hr;
 
     if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2024,14 +2025,24 @@ fdb_kvs_remove_start:
     // remove from super handle's HB+trie
     _kv_id = alca(uint8_t, size_chunk);
     kvid2buf(size_chunk, kv_id, _kv_id);
-    hbtrie_remove_partial(root_handle->trie, _kv_id, size_chunk);
+    hr = hbtrie_remove_partial(root_handle->trie, _kv_id, size_chunk);
     btreeblk_end(root_handle->bhandle);
+    if (hr  == HBTRIE_CORRUPTED_RECOVERING_ERR){
+        filemgr_mutex_unlock(file);
+        _fdb_invalidate_dbheader(root_handle);
+        return FDB_RECOVERABLE_ERR;
+    }
 
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         _kv_id = alca(uint8_t, size_id);
         kvid2buf(size_id, kv_id, _kv_id);
-        hbtrie_remove_partial(root_handle->seqtrie, _kv_id, size_id);
+        hr = hbtrie_remove_partial(root_handle->seqtrie, _kv_id, size_id);
         btreeblk_end(root_handle->bhandle);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            filemgr_mutex_unlock(file);
+            _fdb_invalidate_dbheader(root_handle);
+            return FDB_RECOVERABLE_ERR;
+        }
     }
 
     _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
@@ -2211,13 +2222,33 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         hr = hbtrie_find_partial(handle->trie, _kv_id,
                                  size_chunk, &id_root);
         btreeblk_end(handle->bhandle);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+            _fdb_invalidate_dbheader(handle_in);
+            _fdb_kvs_close(handle);
+            fdb_kvs_info_free(handle);
+            free(handle);
+            return FDB_RECOVERABLE_ERR;
+        }
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            hbtrie_insert_partial(super_handle->trie,
+            hr = hbtrie_insert_partial(super_handle->trie,
                                   _kv_id, size_chunk,
                                   &id_root, &dummy);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(handle_in);
+                _fdb_kvs_close(handle);
+                fdb_kvs_info_free(handle);
+                free(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         } else { // No Trie info in rollback header.
                  // Erase kv store from super handle's main index.
-            hbtrie_remove_partial(super_handle->trie, _kv_id, size_chunk);
+            hr = hbtrie_remove_partial(super_handle->trie, _kv_id, size_chunk);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(handle_in);
+                fdb_kvs_info_free(handle);
+                free(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
         }
         btreeblk_end(super_handle->bhandle);
 
@@ -2228,13 +2259,34 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
                                      size_id, &seq_root);
             btreeblk_end(handle->bhandle);
+            if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                _fdb_invalidate_dbheader(handle_in);
+                _fdb_kvs_close(handle);
+                fdb_kvs_info_free(handle);
+                free(handle);
+                return FDB_RECOVERABLE_ERR;
+            }
             if (hr == HBTRIE_RESULT_SUCCESS) {
-                hbtrie_insert_partial(super_handle->seqtrie,
+                hr = hbtrie_insert_partial(super_handle->seqtrie,
                                       _kv_id, size_id,
                                       &seq_root, &dummy);
+                if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                    _fdb_invalidate_dbheader(handle_in);
+                    _fdb_kvs_close(handle);
+                    fdb_kvs_info_free(handle);
+                    free(handle);
+                    return FDB_RECOVERABLE_ERR;
+                }
             } else { // No seqtrie info in rollback header.
                      // Erase kv store from super handle's seqtrie index.
-                hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
+                hr = hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
+                if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR){
+                    _fdb_invalidate_dbheader(handle_in);
+                    _fdb_kvs_close(handle);
+                    fdb_kvs_info_free(handle);
+                    free(handle);
+                    return FDB_RECOVERABLE_ERR;
+                }
             }
             btreeblk_end(super_handle->bhandle);
         }

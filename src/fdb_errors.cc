@@ -176,6 +176,12 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_FILE_VERSION_NOT_SUPPORTED:
             return "This version of DB file is not supported";
 
+        case FDB_RECOVERABLE_ERR:
+            return "A recoverable error encountered";
+
+        case FDB_NONRECOVERABLE_ERR:
+            return "Non-recoverable error encountered";
+
 
         // All the error codes below correspond to errno values in Linux, OSX,
         // and Windows, which can happen in file opeations.
