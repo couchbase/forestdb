@@ -25,7 +25,7 @@ We also use the asynchronous I/O library `libaio` on Linux if it is available, t
 
 * **Ubuntu**
 
-    `sudo apt-get install libaio-devel`
+    `sudo apt-get install libaio-dev`
 
 * **CentOS**
 
