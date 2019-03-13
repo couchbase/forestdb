@@ -88,6 +88,8 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
     ucontext *u = (ucontext *)context;
 #ifdef REG_RIP // Test if the Program Counter is 64 bits
     unsigned char *pc = (unsigned char *)u->uc_mcontext.gregs[REG_RIP];
+#elif defined (__PPC64__) && defined (__LITTLE_ENDIAN__)
+    unsigned char *pc = (unsigned char *)u->uc_mcontext.regs->nip;
 #else
   #ifdef __s390x__ //Program Counter for s390x architecture
     unsigned char *pc = (unsigned char *)u->uc_mcontext.psw.addr;
