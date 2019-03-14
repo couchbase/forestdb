@@ -350,7 +350,7 @@
             (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
-        #if defined(__GLIBC__) && !defined(__s390x__)
+        #if defined(__GLIBC__) && !defined(__s390x__) && !defined(__PPC64__)
             #define SPIN_INITIALIZER (spin_t)(1)
         #else
             #define SPIN_INITIALIZER (spin_t)(0)
