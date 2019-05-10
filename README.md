@@ -29,14 +29,15 @@ See INSTALL.MD
 
 Please refer to [Public APIs](https://github.com/couchbaselabs/forestdb/wiki/Public-APIs) and tests/fdb\_functional\_test.cc in ForestDB source directory.
 
-## How to file issues
-
-Please file issues on the [Couchbase JIRA tracker](https://issues.couchbase.com) in the `Couchbase Server (MB)` project against the `forestdb` component.
-
 ## How to contribute code
 
 1. Sign the [Couchbase Contributor License
 Agreement](http://review.couchbase.org/static/individual_agreement.html)
 1. Submit code changes via either a Github PR or via Gerrit (for Gerrit usage, see [Instructions](https://github.com/couchbase/couchbase-spark-connector/blob/master/CONTRIBUTING.md#preparing-for-contribution) from the couchbase-spark-connector project.)
 
+# Note regarding master branch
+The 'master' git branch of forestdb contains a number of changes which ultimately were not kept for production builds of Couchbase Server. Production builds were kept on an earlier release branch named 'watson' corresponding to Couchbase Server 4.5. Couchbase Server 5.0, 5.1, 5.5, and 6.0 added some bug fixes on branches made from 'watson', namely 'spock' and 'vulcan'. For Couchbase Server 6.5 and forward, a new branch 'cb-master' was created from the then-current 'vulcan' branch.
 
+'cb-master' should be seen as the equivalent of 'master' for all Couchbase Server production build purposes. Any additional production bug fixes will go there, and release-specific branches will be made from there when necessary.
+
+The current 'master' branch is left untouched and unsupported, for use by community users who may depend on the work done there.
