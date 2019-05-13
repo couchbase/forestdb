@@ -17,7 +17,7 @@
 
 #pragma once
 
-#if defined(WIN32) || defined(_WIN32)
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
 #include <winsock2.h>
 #include <Windows.h>
 #else
@@ -50,13 +50,15 @@ uint64_t timeval_to_us(struct timeval tv);
 #else
 // If platform library has not been included, usleep
 // needs to be explicitly defined for windows.
+#if !defined(__MINGW32__)
 void usleep(unsigned int useconds);
+#endif
 #endif // _PLATFORM_LIB_AVAILABLE
 #endif // defined(WIN32) || defined(_WIN32)
 
 void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time);
 
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
 struct timespec convert_reltime_to_abstime(unsigned int ms);
 #endif
 

@@ -18,7 +18,9 @@
 #pragma once
 
 #include <sys/types.h>
+#if !defined(__MINGW32__)
 #include <sys/stat.h>
+#endif
 #include <stdint.h>
 #include <errno.h>
 

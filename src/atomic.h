@@ -165,7 +165,7 @@ extern "C" {
 #endif
 
 // RW Lock(s)
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
 #include <pthread.h>
 typedef pthread_rwlock_t fdb_rw_lock;
 #else   // WINDOWS
@@ -176,7 +176,7 @@ typedef SRWLOCK fdb_rw_lock;
 // ---> RW Lock
 
 INLINE int init_rw_lock(fdb_rw_lock *lock) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
     int rv = pthread_rwlock_init(lock, NULL);
     return rv;
 #else
@@ -197,7 +197,7 @@ INLINE int destroy_rw_lock(fdb_rw_lock *lock) {
 }
 
 INLINE int reader_lock(fdb_rw_lock *lock) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
     int result = pthread_rwlock_rdlock(lock);
     if (result != 0) {
         fprintf(stderr, "pthread_rwlock_rdlock returned %d (%s)\n",
@@ -211,7 +211,7 @@ INLINE int reader_lock(fdb_rw_lock *lock) {
 }
 
 INLINE int reader_unlock(fdb_rw_lock *lock) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
     int result = pthread_rwlock_unlock(lock);
     if (result != 0) {
         fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",
@@ -225,7 +225,7 @@ INLINE int reader_unlock(fdb_rw_lock *lock) {
 }
 
 INLINE int writer_lock(fdb_rw_lock *lock) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
     int result = pthread_rwlock_wrlock(lock);
     if (result != 0) {
         fprintf(stderr, "pthread_rwlock_wrlock returned %d (%s)\n",
@@ -239,7 +239,7 @@ INLINE int writer_lock(fdb_rw_lock *lock) {
 }
 
 INLINE int writer_unlock(fdb_rw_lock *lock) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if (!defined(WIN32) && !defined(_WIN32)) || defined(__MINGW32__)
     int result = pthread_rwlock_unlock(lock);
     if (result != 0) {
         fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",

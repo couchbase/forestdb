@@ -33,7 +33,7 @@ class BtreeV2;
 // _Atomic_address::store(void *) which breaks const qualifier
 // So to work around this, declare func_name_t as char * on windows only
 // compatible with __FUNCTION__ type.
-#if defined(WIN32) || defined(_WIN32)
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
     #define BEGIN_HANDLE_BUSY(H) ((H)->beginBusy(__FUNCTION__))
     #define END_HANDLE_BUSY(H)   ((H)->endBusy(__FUNCTION__))
     typedef char * func_name_t;

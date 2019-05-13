@@ -21,6 +21,10 @@
 #include <time.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
+#else
+#if defined (__MINGW32__)
+#include <sys/time.h>
+#endif
 #endif
 #include "time_utils.h"
 

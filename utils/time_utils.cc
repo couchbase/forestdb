@@ -41,7 +41,7 @@ extern "C" hrtime_t gethrtime_period(void)
 }
 #endif // _PLATFORM_LIB_AVAILABLE
 
-#if defined(WIN32) || defined(_WIN32)
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__MINGW32__)
 
 #ifndef _PLATFORM_LIB_AVAILABLE
 void usleep(unsigned int usec)
@@ -118,10 +118,18 @@ void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
 */
 ts_nsec get_monotonic_ts() {
     ts_nsec ts = 0;
-#if defined(WIN32)
+#if defined(WIN32) || defined (_WIN32)
+#ifdef __MINGW32__
+    struct timespec tm;
+    if (clock_gettime(CLOCK_MONOTONIC, &tm) == -1) {
+        abort();
+    }
+    ts = tm.tv_nsec;
+#else
     LARGE_INTEGER _ts;
     QueryPerformanceCounter(&_ts);
     ts = _ts.QuadPart;
+#endif
 #elif defined(__APPLE__)
     long time = mach_absolute_time();
 
@@ -153,10 +161,12 @@ ts_nsec ts_diff(ts_nsec start, ts_nsec end)
     } else {
         diff = end-start;
     }
-#if defined(WIN32)
+#if defined(WIN32) || defined (_WIN32)
+#ifndef __MINGW32__
     LARGE_INTEGER Pf;
     QueryPerformanceFrequency(&Pf);
     return diff / (Pf.QuadPart/1000000);
+#endif
 #else
     return diff/1000;
 #endif // defined(WIN32)
