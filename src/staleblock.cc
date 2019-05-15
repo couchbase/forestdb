@@ -244,6 +244,16 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
         (void)r;
 
         buf = (uint8_t *)calloc(1, bufsize);
+        if (!buf) {
+            fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                    "(fdb_gather_stale_blocks) "
+                    "calloc of 'buf' failed: "
+                    "database file '%s', "
+                    "bufsize %d\n",
+                    handle->file->filename,
+                    (int)bufsize);
+            return;
+        }
         _revnum = _endian_encode(revnum);
 
         // initial previous doc offset
@@ -297,6 +307,16 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
                         if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
                             bufsize *= 2;
                             buf = (uint8_t*)realloc(buf, bufsize);
+                            if (!buf) {
+                                fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                                        "(fdb_gather_stale_blocks) "
+                                        "realloc of 'buf' failed: "
+                                        "database file '%s', "
+                                        "bufsize %d\n",
+                                        handle->file->filename,
+                                        (int)bufsize);
+                                return;
+                            }
                         }
                     }
 
@@ -346,6 +366,16 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
                         if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
                             bufsize *= 2;
                             buf = (uint8_t*)realloc(buf, bufsize);
+                            if (!buf) {
+                                fdb_log(NULL, FDB_RESULT_ALLOC_FAIL,
+                                        "(fdb_gather_stale_blocks) "
+                                        "realloc of 'buf' failed: "
+                                        "database file '%s', "
+                                        "bufsize %d\n",
+                                        handle->file->filename,
+                                        (int)bufsize);
+                                return;
+                            }
                         }
                     }
 
