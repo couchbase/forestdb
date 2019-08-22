@@ -32,6 +32,7 @@
 #include "internal_types.h"
 #include "wal.h"
 #include "functional_util.h"
+#include "filemgr.h"
 
 #undef THREAD_SANITIZER
 #if __clang__
@@ -242,6 +243,298 @@ void compaction_callback_test(bool multi_kv)
     } else {
         TEST_RESULT("compaction callback function single kv mode test");
     }
+}
+
+
+void compaction_delete_old_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 3;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // create a directory
+    r = system(SHELL_MKDIR" original_dir > errorlog.txt");
+    (void)r;
+
+    // create a backup directory
+    r = system(SHELL_MKDIR" backup_dir > errorlog.txt");
+    (void)r;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" ./original_dir/compact_test* > errorlog.txt");
+    (void)r;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" ./backup_dir/compact_test* > errorlog.txt");
+    (void)r;
+
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./original_dir/compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_delete_old_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove doc
+    fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
+    fdb_set(db, rdoc);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // perform compaction
+    fdb_compact(dbfile, (char *) "./original_dir/compact_test2");
+
+    // close db file
+    fdb_kvs_close(db);
+    status = fdb_close(dbfile);
+
+    // rename the compacted file back to original file
+    r = system(SHELL_MOVE " ./original_dir/compact_test2 ./original_dir/compact_test1 > errorlog.txt");
+    (void)r;
+
+    // backup the original file
+    r = system(SHELL_COPY " ./original_dir/compact_test1 ./backup_dir/compact_test1 > errorlog.txt");
+    (void)r;
+
+    fconfig.flags = 0;
+
+    // Now open the backup file which has the original file as the previous file.
+    fdb_open(&dbfile, "./backup_dir/compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_delete_old_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // Now open the original file.  This file should not have been removed as an old
+    // compacted file when back up file was opened.
+    status = fdb_open(&dbfile, "./original_dir/compact_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_delete_old_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compaction delete old file test");
+}
+
+void compact_to_new_directory()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 3;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    size_t fpos;
+
+    // create a directory
+    r = system(SHELL_MKDIR" original_dir > errorlog.txt");
+    (void)r;
+
+    // create a backup directory
+    r = system(SHELL_MKDIR" backup_dir > errorlog.txt");
+    (void)r;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" ./original_dir/compact_test* > errorlog.txt");
+    (void)r;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" ./backup_dir/compact_test* > errorlog.txt");
+    (void)r;
+
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./original_dir/compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_delete_old_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove doc
+    fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
+    fdb_set(db, rdoc);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    fpos = filemgr_get_pos(db->file);
+    // perform compaction
+    fdb_compact(dbfile, (char *) "./backup_dir/compact_test2");
+    // close db file
+    fdb_kvs_close(db);
+    status = fdb_close(dbfile);
+
+    // open new compacted db
+    fdb_open(&dbfile, "./backup_dir/compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                 (void *) "compaction_delete_old_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(fpos > filemgr_get_pos(db->file));
+
+    // close db file
+    fdb_kvs_close(db);
+    status = fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compaction delete old file test");
+}
+
+void compact_rename_to_original_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 3;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // create a directory
+    r = system(SHELL_MKDIR" original_dir > errorlog.txt");
+    (void)r;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" ./original_dir/compact_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db using a directory in pwd
+    fdb_open(&dbfile, "./original_dir/compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_rename_to_original_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove doc
+    fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
+    fdb_set(db, rdoc);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // perform compaction
+    fdb_compact(dbfile, (char *) "./original_dir/compact_test.compact");
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // rename the compacted file back to original file
+    r = system(SHELL_MOVE " ./original_dir/compact_test.compact ./original_dir/compact_test1 > errorlog.txt");
+    (void)r;
+
+    fconfig.flags = 0;
+
+    // Now open the original file.
+    status = fdb_open(&dbfile, "./original_dir/compact_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_rename_to_original_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compaction rename to old file test");
 }
 
 void compact_wo_reopen_test()
@@ -3604,8 +3897,12 @@ int main(){
     compaction_daemon_test(20);
     auto_compaction_with_concurrent_insert_test(20);
     compaction_cancellation_test(COMPACTION_CANCEL_MODE);
+
     // Disable it temporarily until it is resolved.
     //compaction_cancellation_test(COMPACTION_ROLLBACK_MODE);
+    compaction_delete_old_test();
+    compact_rename_to_original_test();
+    compact_to_new_directory();
 
     return 0;
 }
