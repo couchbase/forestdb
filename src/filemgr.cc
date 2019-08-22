@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
+#include <libgen.h>
 #endif
 #include <time.h>
 
@@ -2800,6 +2801,33 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     return past_filename;
 }
 
+#include <string>
+int compare_directory_paths(char *file1, char *file2) {
+    std::string path1(file1);
+    std::string path2(file2);
+    std::string dir1;
+    std::string dir2;
+    char sep = '/';
+#ifdef _WIN32
+    sep = '\\';
+#endif
+
+    size_t i = path1.rfind(sep, path1.length());
+    if (i != std::string::npos) {
+        dir1 = path1.substr(0,i);
+    } else {
+        dir1 = ".";
+    }
+
+    i = path2.rfind(sep, path2.length());
+    if (i != std::string::npos) {
+        dir2 = path2.substr(0,i);
+    } else {
+        dir2 = ".";
+    }
+    return dir1.compare(dir2);
+}
+
 void filemgr_remove_pending(struct filemgr *old_file,
                             struct filemgr *new_file,
                             err_log_callback *log_callback)
@@ -2808,18 +2836,25 @@ void filemgr_remove_pending(struct filemgr *old_file,
         return;
     }
 
+    int diff_dir = compare_directory_paths(old_file->filename, new_file->filename);
     spin_lock(&old_file->lock);
     if (atomic_get_uint32_t(&old_file->ref_count) > 0) {
         // delay removing
         assign_new_filename(old_file, new_file->filename);
-        atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
-
+        if (!diff_dir) {
+            atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
+        }
 #if !(defined(WIN32) || defined(_WIN32))
         // Only for Posix
         int ret;
-        ret = unlink(old_file->filename);
-        _log_errno_str(old_file->ops, log_callback, (fdb_status)ret,
+        /* if the old_file and new_file are in different directories
+           do not remove the old_file
+        */
+        if (!diff_dir){
+            ret = unlink(old_file->filename);
+            _log_errno_str(old_file->ops, log_callback, (fdb_status)ret,
                        "UNLINK", old_file->filename);
+        }
 #endif
 
         spin_unlock(&old_file->lock);
@@ -2838,7 +2873,9 @@ void filemgr_remove_pending(struct filemgr *old_file,
 
         if (!lazy_file_deletion_enabled ||
             (new_file_of_old_file && new_file_of_old_file->in_place_compaction)) {
-            remove(old_file->filename);
+            if (!diff_dir) {
+                remove(old_file->filename);
+            }
         }
         filemgr_remove_file(old_file, log_callback);
         // LCOV_EXCL_STOP
