@@ -719,6 +719,22 @@ fdb_status fdb_init(fdb_config *config)
         // We temporarily disable validity checking of block cache size
         // on Android platform at this time.
         double ram_size = (double) get_memory_size();
+
+#if defined(__linux__)
+        /* handle the control group case if needed */
+        int64_t mem_limit_size=0;
+        FILE *mem_limit_file;
+        char cgroup_file[] = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+
+        mem_limit_file = fopen(cgroup_file, "r");
+        if (mem_limit_file) {
+            fscanf(mem_limit_file, "%" _F64, &mem_limit_size);
+            if (ram_size > mem_limit_size) {
+                ram_size = mem_limit_size;
+            }
+        }
+#endif /* __linux__ */
+
         if (ram_size * BCACHE_MEMORY_THRESHOLD < (double) _config.buffercache_size) {
             spin_unlock(&initial_lock);
             return FDB_RESULT_TOO_BIG_BUFFER_CACHE;
