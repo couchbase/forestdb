@@ -1486,6 +1486,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         rsv->bmp_size = dummy64;
         rsv->cur_alloc_bid = BLK_NOT_FOUND;
         atomic_init_uint32_t(&rsv->status, SB_RSV_INITIALIZING);
+        rsv->bmp_revnum = atomic_get_uint64_t(&sb->bmp_revnum)+1;
     }
 
     // temporarily set bitmap array to NULL
