@@ -275,7 +275,7 @@ static void sb_bmp_change_end(struct superblock *sb)
     // now resume all pending readers
 }
 
-void sb_bmp_append_doc(fdb_kvs_handle *handle)
+fdb_status sb_bmp_append_doc(fdb_kvs_handle *handle)
 {
     // == write bitmap into system docs ==
     // calculate # docs (1MB by default)
@@ -329,10 +329,14 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
         sb->bmp_docs[i].seqnum = 0;
         sb->bmp_doc_offset[i] =
             docio_append_doc_system(handle->dhandle, &sb->bmp_docs[i]);
+        if (sb->bmp_doc_offset[i] == BLK_NOT_FOUND){
+            return FDB_RESULT_WRITE_FAIL;
+        }
     }
+    return FDB_RESULT_SUCCESS;
 }
 
-void sb_rsv_append_doc(fdb_kvs_handle *handle)
+fdb_status sb_rsv_append_doc(fdb_kvs_handle *handle)
 {
     size_t i;
     uint64_t num_docs;
@@ -341,13 +345,13 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     struct sb_rsv_bmp *rsv = NULL;
 
     if (!sb) {
-        return;
+        return FDB_RESULT_SUCCESS;
     }
 
     rsv = sb->rsv_bmp;
     if (!rsv ||
         atomic_get_uint32_t(&rsv->status) != SB_RSV_INITIALIZING) {
-        return;
+        return FDB_RESULT_SUCCESS;
     }
 
     rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
@@ -379,10 +383,14 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
         rsv->bmp_docs[i].seqnum = 0;
         rsv->bmp_doc_offset[i] =
             docio_append_doc_system(handle->dhandle, &rsv->bmp_docs[i]);
+        if (rsv->bmp_doc_offset[i] == BLK_NOT_FOUND){
+            return FDB_RESULT_WRITE_FAIL;
+        }
     }
 
     // now 'rsv_bmp' is available.
     atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
+    return FDB_RESULT_SUCCESS;
 }
 
 fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)

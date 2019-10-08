@@ -266,17 +266,17 @@ INLINE bool sb_bmp_exists(struct superblock *sb)
  * Create system docs for bitmap and append them into the file.
  *
  * @param handle Pointer to ForestDB KV store handle.
- * @return void.
+ * @return status.
  */
-void sb_bmp_append_doc(fdb_kvs_handle *handle);
+fdb_status sb_bmp_append_doc(fdb_kvs_handle *handle);
 
 /**
  * Create system docs for reserved bitmap and append them into the file.
  *
  * @param handle Pointer to ForestDB KV store handle.
- * @return void.
+ * @return status.
  */
-void sb_rsv_append_doc(fdb_kvs_handle *handle);
+fdb_status sb_rsv_append_doc(fdb_kvs_handle *handle);
 
 /**
  * Read bitmap docs from file and reconstruct bitmap.

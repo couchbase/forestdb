@@ -4491,14 +4491,24 @@ fdb_commit_start:
                 btreeblk_discard_blocks(handle->bhandle);
                 block_reclaimed = sb_reclaim_reusable_blocks(handle);
                 if (block_reclaimed) {
-                    sb_bmp_append_doc(handle);
+                    fs = sb_bmp_append_doc(handle);
+                    if (fs != FDB_RESULT_SUCCESS) {
+                        filemgr_mutex_unlock(handle->file);
+                        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                        return fs;
+                    }
                 }
             } else if (decision == SBD_RESERVE) {
                 // reserve reusable blocks
                 btreeblk_discard_blocks(handle->bhandle);
                 block_reclaimed = sb_reserve_next_reusable_blocks(handle);
                 if (block_reclaimed) {
-                    sb_rsv_append_doc(handle);
+                    fs = sb_rsv_append_doc(handle);
+                    if (fs != FDB_RESULT_SUCCESS) {
+                        filemgr_mutex_unlock(handle->file);
+                        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                        return fs;
+                    }
                 }
             } else if (decision == SBD_SWITCH) {
                 // switch reserved reusable blocks
