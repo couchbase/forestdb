@@ -722,7 +722,7 @@ fdb_status fdb_init(fdb_config *config)
 
 #if defined(__linux__)
         /* handle the control group case if needed */
-        int64_t mem_limit_size=0;
+        uint64_t mem_limit_size=0;
         FILE *mem_limit_file;
         char cgroup_file[] = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
 
