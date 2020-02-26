@@ -801,6 +801,9 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
         // if next sub b-tree exists
         item_new = _get_entry(e, struct btreeit_item, le);
         hr = _hbtrie_next(it, item_new, key_buf, keylen, value_buf, flag);
+        if (hr == HBTRIE_CORRUPTED_RECOVERING_ERR) {
+            return HBTRIE_CORRUPTED_RECOVERING_ERR;
+        }
         if (hr != HBTRIE_RESULT_SUCCESS) {
             it->keylen = (item->chunkno+1) * trie->chunksize;
         }
