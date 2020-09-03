@@ -20,7 +20,7 @@
 
 #include <time.h>
 #if defined(WIN32) || defined(_WIN32)
-#include <Winsock2.h> // for timeval
+#include <Windows.h>
 #else
 #include <sys/time.h>
 #include <unistd.h>

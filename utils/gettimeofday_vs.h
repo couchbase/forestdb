@@ -2,7 +2,7 @@
 #define _JSAHN_GETTIMEOFDAY_VS
 
 #include <time.h>
-#include <Winsock2.h> // for timeval
+#include <Windows.h>
 
 #ifdef __cplusplus
 extern "C" {
