@@ -375,7 +375,7 @@
 
 #ifdef _MSC_VER
     // visual studio CL compiler
-    #include <Windows.h>
+    #include <Winsock2.h>
     #include "gettimeofday_vs.h"
     #define INLINE static inline
     //#define alloca(size) _alloca(size)
