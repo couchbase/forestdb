@@ -772,6 +772,10 @@ static int64_t _docio_read_length(struct docio_handle *handle,
                                   err_log_callback *log_callback,
                                   bool read_on_cache_miss)
 {
+    if (handle == NULL || handle->file == NULL){
+        fdb_log(log_callback, FDB_RESULT_INVALID_ARGS, "Error in reading a doc length");
+        return FDB_RESULT_INVALID_ARGS;
+    }
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
     bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
