@@ -1,4 +1,4 @@
-add_executable(e2etest
+cb_add_test_executable(e2etest
                e2etest.cc
                e2espec.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}

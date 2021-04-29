@@ -37,7 +37,7 @@ add_library(FDB_TOOLS_CCORE OBJECT ${FORESTDB_COMMON_CORE_SRC})
 set_target_properties(FDB_TOOLS_CCORE PROPERTIES
                       COMPILE_FLAGS "-D_FDB_TOOLS ${CB_GNU_CXX11_OPTION}")
 
-add_executable(fdb_anomaly_test
+cb_add_test_executable(fdb_anomaly_test
                $<TARGET_OBJECTS:FDB_TOOLS_CCORE>
                filemgr_anomalous_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -51,7 +51,7 @@ target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
-add_executable(disk_sim_test
+cb_add_test_executable(disk_sim_test
                $<TARGET_OBJECTS:FDB_TOOLS_CCORE>
                filemgr_anomalous_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}

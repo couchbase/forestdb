@@ -1,4 +1,4 @@
-add_executable(usecase_test
+cb_add_test_executable(usecase_test
                usecase_test.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
                $<TARGET_OBJECTS:FDB_TOOLS_CORE>

@@ -255,7 +255,7 @@ target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
-add_executable(forestdb_hexamine
+cb_add_test_executable(forestdb_hexamine
                tools/dump_common.cc
                tools/forestdb_hexamine.cc
                ${FORESTDB_FILE_OPS}

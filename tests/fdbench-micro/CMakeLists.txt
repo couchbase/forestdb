@@ -1,4 +1,4 @@
-add_executable(fdb_microbench
+cb_add_test_executable(fdb_microbench
                fdb_bench.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
                $<TARGET_OBJECTS:FDB_TOOLS_CORE>
