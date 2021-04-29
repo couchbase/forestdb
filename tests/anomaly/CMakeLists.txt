@@ -36,6 +36,7 @@ SET(FORESTDB_COMMON_CORE_SRC
 add_library(FDB_TOOLS_CCORE OBJECT ${FORESTDB_COMMON_CORE_SRC})
 set_target_properties(FDB_TOOLS_CCORE PROPERTIES
                       COMPILE_FLAGS "-D_FDB_TOOLS ${CB_GNU_CXX11_OPTION}")
+set_target_properties(FDB_TOOLS_CCORE PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 cb_add_test_executable(fdb_anomaly_test
                $<TARGET_OBJECTS:FDB_TOOLS_CCORE>

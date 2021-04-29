@@ -1,6 +1,7 @@
 SET(STAT_AGGREGATOR
     ${PROJECT_SOURCE_DIR}/tests/stats-agg/stat_aggregator.cc)
 add_library(TEST_STAT_AGG OBJECT ${STAT_AGGREGATOR})
+set_target_properties(TEST_STAT_AGG PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set(ROOT_SRC ${PROJECT_SOURCE_DIR}/src)
 set(ROOT_UTILS ${PROJECT_SOURCE_DIR}/utils)
