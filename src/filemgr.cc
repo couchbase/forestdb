@@ -3787,6 +3787,8 @@ static void _filemgr_dirty_update_remove_node(struct filemgr *file,
 void filemgr_dirty_update_remove_node(struct filemgr *file,
                                       struct filemgr_dirty_update_node *node)
 {
+    if (node == NULL) return;
+
     spin_lock(&file->dirty_update_lock);
     avl_remove(&file->dirty_update_idx, &node->avl);
     spin_unlock(&file->dirty_update_lock);
