@@ -350,6 +350,8 @@ void compaction_delete_old_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // free all resources
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     fdb_shutdown();
 
     memleak_end();
@@ -530,6 +532,8 @@ void compact_rename_to_original_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // free all resources
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     fdb_shutdown();
 
     memleak_end();
