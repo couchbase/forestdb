@@ -3045,7 +3045,7 @@ void reverse_seek_to_max_nokey(void)
 
     // set range to have end key that does not exist
     status = fdb_iterator_init(db, &iterator, doc[24]->key, 10,
-                       (void*)"doc-029b", 10,
+                       (void*)"doc-029b", 8,
                       FDB_ITR_NO_DELETES);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -3061,7 +3061,7 @@ void reverse_seek_to_max_nokey(void)
     fdb_iterator_close(iterator);
 
     // set range to have start key that does not exist
-    status = fdb_iterator_init(db, &iterator, (void*)"doc-024b", 10,
+    status = fdb_iterator_init(db, &iterator, (void*)"doc-024b", 8,
                                doc[30]->key, 10,
                       FDB_ITR_NO_DELETES);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
