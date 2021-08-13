@@ -773,7 +773,7 @@ void iterator_seek_test()
 
     TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
-    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    TEST_CHK(rdoc->bodylen == 0);
     fdb_doc_free(rdoc);
     rdoc = NULL;
 
@@ -1198,7 +1198,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     }
 
     if (mask & 0x100000) {
-        for (i=0;i<n;++i){
+        for (i=0;i<n-1;++i){
             sprintf(key, keystr_mid, (int)i);
             s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
             (void)s;
@@ -1222,7 +1222,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     }
 
     if (mask & 0x1000000) {
-        for (i=0;i<n;++i){
+        for (i=0;i<n-1;++i){
             sprintf(key, keystr_mid, (int)i);
             s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
             (void)s;
