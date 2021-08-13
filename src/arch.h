@@ -238,68 +238,6 @@
     #endif
     #define assert(a) (a)
 
-#elif __linux__ && __arm__
-    #include <inttypes.h>
-    #include <alloca.h>
-
-    #define INLINE static __inline
-
-    #define _X64 "llx"
-    #define _F64 "lld"
-    #define _FSEC "ld"
-    #define _FUSEC "ld"
-
-    #define _ARCH_O_DIRECT (O_DIRECT)
-    #define malloc_align(addr, align, size) \
-        (addr = memalign((align), (size)))
-    #define free_align(addr) free(addr)
-
-    #ifndef spin_t
-        // spinlock
-        #include <pthread.h>
-        #define spin_t pthread_spinlock_t
-        #define spin_init(arg) pthread_spin_init(arg, PTHREAD_PROCESS_SHARED)
-        #define spin_lock(arg) pthread_spin_lock(arg)
-        #define spin_trylock(arg) \
-            (pthread_spin_trylock(arg) == 0)
-        #define spin_unlock(arg) pthread_spin_unlock(arg)
-        #define spin_destroy(arg) pthread_spin_destroy(arg)
-        #define SPIN_INITIALIZER (spin_t)(0)
-    #endif
-    #ifndef mutex_t
-        // mutex
-        #include <pthread.h>
-        #define mutex_t pthread_mutex_t
-        #define mutex_init(arg) pthread_mutex_init(arg, NULL)
-        #define mutex_lock(arg) pthread_mutex_lock(arg)
-        #define mutex_trylock(arg) \
-            (pthread_mutex_trylock(arg) == 0)
-        #define mutex_unlock(arg) pthread_mutex_unlock(arg)
-        #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
-        #define mutex_destroy(arg) pthread_mutex_destroy(arg)
-    #endif
-    #ifndef thread_t
-        // thread
-        #include <pthread.h>
-        #define thread_t pthread_t
-        #define thread_cond_t pthread_cond_t
-        #define thread_create(tid, func, args) \
-            pthread_create((tid), NULL, (func), (args))
-        #define thread_join(tid, ret) pthread_join(tid, ret)
-        #define thread_cancel(tid) pthread_cancel(tid)
-        #define thread_exit(code) pthread_exit(code)
-        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
-        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
-        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
-        #define thread_cond_timedwait(cond, mutex, ms) \
-            { \
-            struct timespec ts = convert_reltime_to_abstime(ms); \
-            pthread_cond_timedwait(cond, mutex, &ts); \
-            }
-        #define thread_cond_signal(cond) pthread_cond_signal(cond)
-        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
-    #endif
-
 #elif __linux__
     #include <inttypes.h>
     #include <alloca.h>
@@ -329,7 +267,13 @@
             (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
-        #define SPIN_INITIALIZER (spin_t)(1)
+        #if defined(__i386__) || defined(__x86_64__)
+            #define SPIN_INITIALIZER (spin_t)(1)
+        #elif defined(__arm__) || defined(__aarch64__)
+            #define SPIN_INITIALIZER (spin_t)(0)
+        #else
+            #error Unsupported architecture for SPIN_INITIALIZER
+        #endif
     #endif
     #ifndef mutex_t
         // mutex
