@@ -66,7 +66,8 @@ static void _dbg_hang_process(void)
         }
     }
 }
-
+// Installing signal handler causes gsignal issues, so skip installing the handler
+#ifdef NEVER
 // to profile first install perf
 // echo 0 > /proc/sys/kernel/kptr_restrict
 #if defined(__linux__) && !defined(__ANDROID__) && \
@@ -161,6 +162,12 @@ fdb_status _dbg_init_altstack() { return FDB_RESULT_SUCCESS; }
 fdb_status _dbg_destroy_altstack() { return FDB_RESULT_SUCCESS; }
 fdb_status _dbg_install_handler() { return FDB_RESULT_SUCCESS; }
 #endif // #if defined(__linux__) && !defined(__ANDROID__)
+
+#endif //NEVER
+
+fdb_status _dbg_init_altstack() { return FDB_RESULT_SUCCESS; }
+fdb_status _dbg_destroy_altstack() { return FDB_RESULT_SUCCESS; }
+fdb_status _dbg_install_handler() { return FDB_RESULT_SUCCESS; }
 
 fdb_status _dbg_handle_crashes(const char *pathname)
 {
