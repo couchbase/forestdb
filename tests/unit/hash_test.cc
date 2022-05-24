@@ -31,8 +31,8 @@ struct item {
 
 unsigned hash_func(struct hash *hash, struct hash_elem *e)
 {
-    struct item *item = _get_entry(e, struct item, e);
-    return item->val % hash->nbuckets;
+    struct item *it = _get_entry(e, struct item, e);
+    return it->val % hash->nbuckets;
 }
 
 int hash_cmp(struct hash_elem *a, struct hash_elem *b)
@@ -50,15 +50,15 @@ void basic_test()
     TEST_INIT();
 
     struct hash hash;
-    struct item item[16], query, *result;
+    struct item items[16], query, *result;
     struct hash_elem *e;
     int i;
 
     hash_init(&hash, 4, hash_func, hash_cmp);
 
     for (i=0;i<16;++i){
-        item[i].val = i;
-        hash_insert(&hash, &item[i].e);
+        items[i].val = i;
+        hash_insert(&hash, &items[i].e);
     }
 
     for (i=0;i<16;++i){
