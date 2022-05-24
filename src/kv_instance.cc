@@ -257,15 +257,15 @@ void fdb_cmp_func_list_from_filemgr(struct filemgr *file, struct list *cmp_func_
     }
 
     // Rest of KV stores
-    struct kvs_node *kvs_node;
+    struct kvs_node *kvs;
     struct avl_node *a = avl_first(file->kv_header->idx_name);
     while (a) {
-        kvs_node = _get_entry(a, struct kvs_node, avl_name);
+        kvs = _get_entry(a, struct kvs_node, avl_name);
         a = avl_next(a);
         node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
-        node->func = kvs_node->custom_cmp;
-        node->kvs_name = (char*)calloc(1, strlen(kvs_node->kvs_name)+1);
-        strcpy(node->kvs_name, kvs_node->kvs_name);
+        node->func = kvs->custom_cmp;
+        node->kvs_name = (char*)calloc(1, strlen(kvs->kvs_name)+1);
+        strcpy(node->kvs_name, kvs->kvs_name);
         list_push_back(cmp_func_list, &node->le);
     }
     spin_unlock(&file->kv_header->lock);
@@ -323,7 +323,7 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
     fdb_custom_cmp_variable ori_custom_cmp;
     struct filemgr *file = handle->file;
     struct cmp_func_node *cmp_node;
-    struct kvs_node *kvs_node, query;
+    struct kvs_node *kvs, query;
     struct list_elem *e;
     struct avl_node *a;
 
@@ -349,9 +349,9 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
                                &query.avl_name,
                                _kvs_cmp_name);
                 if (a) { // found
-                    kvs_node = _get_entry(a, struct kvs_node, avl_name);
-                    if (!kvs_node->custom_cmp) {
-                        kvs_node->custom_cmp = cmp_node->func;
+                    kvs = _get_entry(a, struct kvs_node, avl_name);
+                    if (!kvs->custom_cmp) {
+                        kvs->custom_cmp = cmp_node->func;
                     }
                     file->kv_header->custom_cmp_enabled = 1;
                 }
@@ -401,11 +401,11 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
     // next check other KVSs
     a = avl_first(file->kv_header->idx_name);
     while (a) {
-        kvs_node = _get_entry(a, struct kvs_node, avl_name);
+        kvs = _get_entry(a, struct kvs_node, avl_name);
         a = avl_next(a);
 
-        if (kvs_node->flags & KVS_FLAG_CUSTOM_CMP &&
-            kvs_node->custom_cmp == NULL) {
+        if (kvs->flags & KVS_FLAG_CUSTOM_CMP &&
+            kvs->custom_cmp == NULL) {
             // custom cmp function was assigned before,
             // but no custom cmp function is assigned
             file->kv_header->custom_cmp_enabled = ori_flag;
@@ -420,8 +420,8 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
                            "custom compare function enabled, without passing the same "
                            "custom compare function.", kvs_name);
         }
-        if (!(kvs_node->flags & KVS_FLAG_CUSTOM_CMP) &&
-              kvs_node->custom_cmp) {
+        if (!(kvs->flags & KVS_FLAG_CUSTOM_CMP) &&
+              kvs->custom_cmp) {
             // custom cmp function was not assigned before,
             // but custom cmp function is assigned from user
             file->kv_header->custom_cmp_enabled = ori_flag;
@@ -524,7 +524,7 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                          struct filemgr *file,
                          const char *kvs_name)
 {
-    struct kvs_node query, *kvs_node;
+    struct kvs_node query, *kvs;
     struct kvs_opened_node *opened_node;
     struct avl_node *a;
 
@@ -550,10 +550,10 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                 spin_unlock(&file->kv_header->lock);
                 return;
             }
-            kvs_node = _get_entry(a, struct kvs_node, avl_name);
-            handle->kvs->id = kvs_node->id;
+            kvs = _get_entry(a, struct kvs_node, avl_name);
+            handle->kvs->id = kvs->id;
             // force custom cmp function
-            handle->kvs_config.custom_cmp = kvs_node->custom_cmp;
+            handle->kvs_config.custom_cmp = kvs->custom_cmp;
             spin_unlock(&file->kv_header->lock);
         } else {
             // snapshot of the root handle

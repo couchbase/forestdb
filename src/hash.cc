@@ -163,7 +163,7 @@ void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx)
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
 {
     int bucket = hash->hash_func(hash, e);
-    struct hash_elem *hash_elem;
+    struct hash_elem *h_elem;
 
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );
 
@@ -173,8 +173,8 @@ struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
     if (node) {
         avl_remove(hash->buckets + bucket, node);
         IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-        hash_elem = _get_entry(node, struct hash_elem, avl);
-        return hash_elem;
+        h_elem = _get_entry(node, struct hash_elem, avl);
+        return h_elem;
     }
 
 #else
