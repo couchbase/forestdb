@@ -16,6 +16,16 @@ ELSE()
     ENDIF()
 ENDIF()
 
+check_cxx_compiler_flag(-Wno-deprecated-declarations COMPILER_SUPPORTS_NO_DEPRECATED)
+if (COMPILER_SUPPORTS_NO_DEPRECATED)
+    add_compile_options(-Wno-deprecated-declarations)
+endif()
+
+check_cxx_compiler_flag(-Wno-unused-but-set-variable COMPILER_SUPPORTS_NO_UNUSED)
+if (COMPILER_SUPPORTS_NO_UNUSED)
+    add_compile_options(-Wno-unused-but-set-variable)
+endif()
+
 INCLUDE(CheckFunctionExists)
 INCLUDE(CheckIncludeFileCXX)
 INCLUDE(CheckIncludeFiles)
