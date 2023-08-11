@@ -2592,7 +2592,8 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
     struct filemgr_fhandle_idx_node *fhandle_node;
     struct list_elem *e;
     struct kvs_opened_node *item;
-
+    
+    memset(hdr_buf, 0, handle->config.blocksize*sizeof(uint8_t));
     ret.revnum = cur_revnum = handle->fhandle->root->cur_header_revnum;
     ret.bid = handle->fhandle->root->last_hdr_bid;
 
