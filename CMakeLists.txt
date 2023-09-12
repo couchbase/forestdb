@@ -150,7 +150,7 @@ endif()
 # Breakpad support with Couchbase Server Build only when on Windows/Linux.
 if (COUCHBASE_SERVER_BUILD)
     if (BREAKPAD_FOUND)
-        INCLUDE_DIRECTORIES(AFTER ${BREAKPAD_INCLUDE_DIR})
+        INCLUDE_DIRECTORIES(AFTER SYSTEM ${BREAKPAD_INCLUDE_DIR})
         if (WIN32)
             SET(BREAKPAD_SRC src/breakpad_win32.cc)
         elseif ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
