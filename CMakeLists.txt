@@ -26,6 +26,11 @@ if (COMPILER_SUPPORTS_NO_UNUSED)
     add_compile_options(-Wno-unused-but-set-variable)
 endif()
 
+check_cxx_compiler_flag(-Wno-shadow=compatible-local COMPILER_SUPPORTS_NO_SHADOW)
+if (COMPILER_SUPPORTS_NO_SHADOW)
+    add_compile_options(-Wno-shadow=compatible-local)
+endif()
+
 INCLUDE(CheckFunctionExists)
 INCLUDE(CheckIncludeFileCXX)
 INCLUDE(CheckIncludeFiles)
