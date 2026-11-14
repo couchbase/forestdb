@@ -69,8 +69,6 @@ static struct filemgr_config global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
 
-static const int MAX_STAT_UPDATE_RETRIES = 5;
-
 struct temp_buf_item{
     void *addr;
     struct list_elem le;
@@ -4206,6 +4204,7 @@ void filemgr_update_latency_stat(struct filemgr *file,
                                  fdb_latency_stat_type type,
                                  uint32_t val)
 {
+    static constexpr int MAX_STAT_UPDATE_RETRIES = 5;
     int retry = MAX_STAT_UPDATE_RETRIES;
     do {
         uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
