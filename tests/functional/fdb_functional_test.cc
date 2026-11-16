@@ -1768,7 +1768,10 @@ void *_worker_thread(void *voidargs)
             cnt_int = atoi(cnt_str);
 
             // increase and rephrase
-            sprintf(cnt_str, "%0 " IDX_DIGIT_STR "d", ++cnt_int);
+            snprintf(cnt_str,
+                     sizeof(cnt_str),
+                     "%0" IDX_DIGIT_STR "d",
+                     ++cnt_int);
             memcpy((uint8_t *)rdoc->body + (IDX_DIGIT+1), cnt_str, IDX_DIGIT);
 
             // update and commit
