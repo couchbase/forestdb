@@ -815,8 +815,9 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     if (writer_lock(&filelist_lock) == 0) {
         if (num_files == file_array_capacity) {
             file_array_capacity *= 2;
-            file_list = (struct fnamedic_item **) realloc(file_list,
-                                                          file_array_capacity);
+            file_list = (struct fnamedic_item**)realloc(
+                    file_list,
+                    file_array_capacity * sizeof(struct fnamedic_item*));
         }
         file_list[num_files++] = fname_new;
         writer_unlock(&filelist_lock);
