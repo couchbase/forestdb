@@ -24,10 +24,6 @@
 #undef NDEBUG
 #include <assert.h>
 
-#if !defined(__APPLE__) && !defined(__FreeBSD__)
-#include <malloc.h>
-#endif
-
 #include "option.h"
 #include "arch.h"
 #include "debug.h"
